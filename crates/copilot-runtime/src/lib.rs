@@ -21,7 +21,7 @@ pub use config::{
     SessionOptions, TelemetryProtocol, TelemetrySettings,
 };
 pub use error::{ConfigurationError, Error, SummaryError};
-pub use events::{EventKind, RuntimeEvent};
+pub use events::{ContextUsage, EventKind, RuntimeEvent};
 use github_copilot_sdk::{
     CliProgram, Client, ClientInfo, ClientMode, ClientOptions, MessageOptions, ResumeSessionConfig,
     SessionConfig, SystemMessageConfig, session::Session, subscription::RecvErrorKind,
@@ -122,7 +122,12 @@ impl Runtime {
         let permissions = Permissions::new(&options.mode, options.permission_mode, events.clone());
         let config = create_config(&options, directory, permissions.clone())?;
         let session = self.client.create_session(config).await?;
-        Ok(AgentSession::new(session, events, permissions))
+        Ok(AgentSession::new(
+            session,
+            events,
+            permissions,
+            options.model.context_window,
+        ))
     }
 
     /// Reconnects to persisted history with all capability boundaries restored.
@@ -135,7 +140,12 @@ impl Runtime {
         let permissions = Permissions::new(&options.mode, options.permission_mode, events.clone());
         let config = resume_config(id, options, directory, permissions.clone())?;
         let session = self.client.resume_session(config).await?;
-        Ok(AgentSession::new(session, events, permissions))
+        Ok(AgentSession::new(
+            session,
+            events,
+            permissions,
+            options.model.context_window,
+        ))
     }
 
     /// Returns one complete text response from an isolated, tools-disabled session.
@@ -296,6 +306,7 @@ impl AgentSession {
         session: Session,
         events: broadcast::Sender<RuntimeEvent>,
         permissions: Arc<Permissions>,
+        context_window: i64,
     ) -> Self {
         let mut incoming = session.subscribe();
         let session_id = session.id().to_string();
@@ -307,7 +318,9 @@ impl AgentSession {
             loop {
                 match incoming.recv().await {
                     Ok(event) => {
-                        if let Some(event) = RuntimeEvent::from_sdk(&session_id, event) {
+                        if let Some(event) =
+                            RuntimeEvent::from_sdk(&session_id, event, context_window)
+                        {
                             if event.ends_turn() {
                                 stream_lifecycle.finish_turn();
                             }
@@ -458,6 +471,7 @@ mod tests {
                 },
                 model: ModelSettings {
                     id: "example-model".into(),
+                    context_window: 200_000,
                     ..Default::default()
                 },
                 system_prompt: None,
@@ -537,6 +551,7 @@ mod tests {
                 },
                 model: ModelSettings {
                     id: "example-model".into(),
+                    context_window: 200_000,
                     ..Default::default()
                 },
                 system_prompt: Some("Respond in the user's language.".into()),
@@ -601,7 +616,7 @@ mod tests {
                 },
                 model: ModelSettings {
                     id: model_id.into(),
-                    context_window: Some(1_000_000),
+                    context_window: 1_000_000,
                     max_output_tokens: output,
                     ..Default::default()
                 },
@@ -664,6 +679,7 @@ mod tests {
             },
             model: ModelSettings {
                 id: "example-model".into(),
+                context_window: 200_000,
                 ..Default::default()
             },
             system_prompt: None,

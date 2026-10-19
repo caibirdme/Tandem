@@ -107,6 +107,7 @@ export function reduceEvent(state: Conversation, event: RuntimeEvent): Conversat
       return { ...applyStatus(state, 'error'), error: event.data.message };
     case 'title':
     case 'title_error':
+    case 'context_usage':
       return state;
   }
 }

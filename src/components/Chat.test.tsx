@@ -15,6 +15,7 @@ const project: Project = {
   createdAt: '2026-10-17T00:00:00Z',
 };
 const session: Session = {
+  contextUsage: null,
   titleState: 'preserved',
   id: 'session-1',
   title: 'Work',
@@ -37,7 +38,7 @@ const provider: Provider = {
       id: session.modelId,
       name: 'Model',
       reasoningEffort: null,
-      contextWindow: null,
+      contextWindow: 1_000_000,
       maxOutputTokens: null,
     },
   ],
@@ -305,5 +306,71 @@ describe('conversation language', () => {
     expect(markup).toContain('aria-label="模型：Model"');
     expect(markup).toContain('描述你想完成的任务…');
     expect(markup).not.toContain('What will we build today?');
+  });
+});
+
+describe('work context usage', () => {
+  const contextProps = {
+    ...props,
+    providers: [provider],
+    selection: { providerId: provider.id, modelId: session.modelId },
+    session: { ...session, contextUsage: { currentTokens: 153_000, tokenLimit: 1_000_000 } },
+  };
+
+  it.each(['local', 'ssh'] as const)('shows current context below the %s Work composer', (kind) => {
+    const currentProject: Project = {
+      ...project,
+      connection:
+        kind === 'local'
+          ? { kind }
+          : { kind, host: 'example.com', port: 22, user: 'dev', identityFile: null },
+    };
+    const markup = renderToStaticMarkup(<Chat {...contextProps} project={currentProject} />);
+    expect(markup.indexOf('class="context-usage ')).toBeGreaterThan(markup.indexOf('</form>'));
+    expect(markup).toContain('153k / 1M');
+    expect(markup).toContain('>15.3%</span>');
+    expect(markup).not.toContain('153,000 / 1,000,000 tokens');
+    expect(markup).toContain('role="meter"');
+    expect(markup).toContain('aria-valuenow="153000"');
+    expect(markup).toContain('aria-valuemax="1000000"');
+    expect(Number(markup.match(/stroke-dasharray="([\d.]+) 100"/)?.[1])).toBeCloseTo(15.3);
+  });
+
+  it('does not show a context indicator in Chat', () => {
+    const markup = renderToStaticMarkup(
+      <Chat
+        {...contextProps}
+        project={undefined}
+        session={{ ...contextProps.session, projectId: null }}
+      />,
+    );
+    expect(markup).not.toContain('context-usage');
+  });
+
+  it('shows unknown usage instead of a fabricated zero before the first report', () => {
+    const markup = renderToStaticMarkup(<Chat {...contextProps} session={session} />);
+    expect(markup).toContain('— / 1M');
+    expect(markup).toContain('Usage will appear when the model reports it.');
+    expect(markup).not.toContain('aria-valuenow');
+  });
+
+  it('bounds the ring while preserving the actual over-limit count', () => {
+    const markup = renderToStaticMarkup(
+      <Chat
+        {...contextProps}
+        session={{ ...session, contextUsage: { currentTokens: 300_000, tokenLimit: 256_000 } }}
+      />,
+    );
+    expect(markup).toContain('300k / 256k');
+    expect(markup).toContain('aria-valuenow="256000"');
+    expect(markup).toContain('stroke-dasharray="100 100"');
+    expect(markup).toContain('117.2% used');
+  });
+
+  it('translates the context tooltip', () => {
+    setLocale('zh-CN');
+    const markup = renderToStaticMarkup(<Chat {...contextProps} />);
+    expect(markup).toContain('aria-label="上下文窗口"');
+    expect(markup).toContain('已使用 15.3%');
   });
 });

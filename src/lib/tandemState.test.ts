@@ -5,6 +5,7 @@ import { initialTandemState, reduceTandem } from './tandemState';
 import type { Message, Session, Snapshot } from './types';
 
 const session: Session = {
+  contextUsage: null,
   titleState: 'preserved',
   id: 'session-1',
   title: 'A task',
@@ -40,6 +41,82 @@ const loaded = reduceTandem(initialTandemState, {
   type: 'snapshotReceived',
   snapshot,
   protectedIds: new Set(),
+});
+
+describe('context usage state', () => {
+  const work = { ...session, projectId: 'project-1' };
+  const usage = { currentTokens: 153_000, tokenLimit: 1_000_000 };
+  const workState = reduceTandem(loaded, { type: 'sessionAdded', session: work });
+
+  it('replaces current usage after compaction and ignores stale snapshots', () => {
+    const measured = reduceTandem(workState, {
+      type: 'eventReceived',
+      event: { sessionId: work.id, kind: 'context_usage', data: usage },
+    });
+    const compacted = reduceTandem(measured, {
+      type: 'eventReceived',
+      event: {
+        sessionId: work.id,
+        kind: 'context_usage',
+        data: { ...usage, currentTokens: 20_000 },
+      },
+    });
+    const refreshed = reduceTandem(compacted, {
+      type: 'snapshotReceived',
+      snapshot: { ...snapshot, sessions: [work] },
+      protectedIds: new Set([work.id]),
+    });
+    expect(refreshed.snapshot?.sessions[0]?.contextUsage?.currentTokens).toBe(20_000);
+    expect(compacted.conversations).toBe(workState.conversations);
+  });
+
+  it('restores persisted usage from a fresh snapshot and clears it after provider changes', () => {
+    const restored = reduceTandem(initialTandemState, {
+      type: 'snapshotReceived',
+      snapshot: { ...snapshot, sessions: [{ ...work, contextUsage: usage }] },
+      protectedIds: new Set(),
+    });
+    expect(restored.snapshot?.sessions[0]?.contextUsage).toEqual(usage);
+    const cleared = reduceTandem(restored, {
+      type: 'eventReceived',
+      event: { sessionId: work.id, kind: 'context_usage', data: null },
+    });
+    expect(cleared.snapshot?.sessions[0]?.contextUsage).toBeNull();
+  });
+
+  it('clears usage when the model changes and retains it when confirming the same model', () => {
+    const measured = reduceTandem(workState, {
+      type: 'eventReceived',
+      event: { sessionId: work.id, kind: 'context_usage', data: usage },
+    });
+    const confirmed = reduceTandem(measured, {
+      type: 'modelChanged',
+      sessionId: work.id,
+      selection: { providerId: work.providerId, modelId: work.modelId },
+    });
+    expect(confirmed.snapshot?.sessions[0]?.contextUsage).toEqual(usage);
+    const changed = reduceTandem(confirmed, {
+      type: 'modelChanged',
+      sessionId: work.id,
+      selection: { providerId: work.providerId, modelId: 'other' },
+    });
+    expect(changed.snapshot?.sessions[0]?.contextUsage).toBeNull();
+  });
+
+  it('ignores usage for Chat and does not resurrect deleted sessions', () => {
+    const chat = reduceTandem(loaded, {
+      type: 'eventReceived',
+      event: { sessionId: session.id, kind: 'context_usage', data: usage },
+    });
+    expect(chat.snapshot?.sessions[0]?.contextUsage).toBeNull();
+    const removed = reduceTandem(workState, { type: 'sessionsDeleted', sessionIds: [work.id] });
+    expect(
+      reduceTandem(removed, {
+        type: 'eventReceived',
+        event: { sessionId: work.id, kind: 'context_usage', data: usage },
+      }),
+    ).toBe(removed);
+  });
 });
 
 describe('workspace state transitions', () => {

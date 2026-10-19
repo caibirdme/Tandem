@@ -32,7 +32,7 @@ import uuid
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 
-from acceptance_support import Application, debug_binary
+from acceptance_support import Application, debug_binary, require_context_usage
 from credential_checks import require_local_secret, require_provider_key, scan_for_key
 from inference_fixture import (
     FIXTURE_KEY,
@@ -192,6 +192,7 @@ def check_stdio(binary, home, endpoint, fixture):
             require('Unsupported remote command' in str(error), 'Wrong remote command error')
         server.command('start_agent', options=options, resume=False, telemetry=telemetry)
         events = server.turn(session_id, first_prompt)
+        require_context_usage(events, 128000)
         require(any(event['kind'] == 'delta' for event in events), 'stdio streaming delta missing')
         require(any(event['kind'] == 'message' and event['data']['content'] == first_response
                     for event in events), 'stdio final response missing')
@@ -200,12 +201,14 @@ def check_stdio(binary, home, endpoint, fixture):
     resumed = StdioServer(binary, home)
     try:
         options['provider']['protocol'] = 'anthropic'
+        options['provider']['baseUrl'] = endpoint
         options['model']['id'] = 'claude-sonnet-4.5'
         offset = len(fixture.conversation_requests())
         connected = resumed.command('start_agent', options=options, resume=True, telemetry=telemetry)
         require(connected['sessionId'] == session_id, 'Cold model change created a different remote session')
         prompt = 'fixture:model-switch Continue STDIO_NEW_MODEL with the prior conversation.'
         events = resumed.turn(session_id, prompt)
+        require_context_usage(events, 128000)
         require(any(event['kind'] == 'message' and event['data']['content'] ==
                     'TANDEM_MODEL_SWITCH_OK ' + options['model']['id'] for event in events),
                 'Resumed remote model did not return the expected response')

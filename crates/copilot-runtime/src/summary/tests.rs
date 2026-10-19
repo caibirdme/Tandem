@@ -123,7 +123,7 @@ fn settings(protocol: ProviderProtocol) -> (ProviderSettings, ModelSettings) {
         ModelSettings {
             id: "configured-model".into(),
             reasoning_effort: Some("low".into()),
-            context_window: Some(1_000_000),
+            context_window: 1_000_000,
             max_output_tokens: (protocol == ProviderProtocol::Anthropic).then_some(128_000),
         },
     )

@@ -1,6 +1,40 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { CommandError, commandError, dispatch, errorMessage } from './api';
+import { CommandError, commandError, dispatch, errorMessage, subscribe } from './api';
+
+describe('browser event transport', () => {
+  it('forwards live context readings and reset events through the real subscription', async () => {
+    const source = new EventTarget();
+    const close = vi.fn();
+    vi.stubGlobal('window', {});
+    vi.stubGlobal(
+      'EventSource',
+      class {
+        addEventListener = source.addEventListener.bind(source);
+        close = close;
+      },
+    );
+    const receive = vi.fn();
+    try {
+      const unsubscribe = await subscribe(receive, () => undefined);
+      const readings = [
+        { currentTokens: 153_000, tokenLimit: 1_000_000 },
+        { currentTokens: 20_000, tokenLimit: 1_000_000 },
+        null,
+      ];
+      for (const data of readings) {
+        const event = { sessionId: 'work-1', kind: 'context_usage', data };
+        source.dispatchEvent(new MessageEvent('message', { data: JSON.stringify(event) }));
+        expect(receive).toHaveBeenLastCalledWith(event);
+      }
+      expect(receive).toHaveBeenCalledTimes(3);
+      unsubscribe();
+      expect(close).toHaveBeenCalledOnce();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});
 
 describe('typed command failures', () => {
   it('retains the desktop error category and readable message', () => {

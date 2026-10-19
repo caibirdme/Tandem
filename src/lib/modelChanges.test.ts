@@ -7,6 +7,7 @@ import { initialTandemState, reduceTandem } from './tandemState';
 import type { ModelSelection, Session, Snapshot } from './types';
 
 const session: Session = {
+  contextUsage: null,
   titleState: 'preserved',
   id: 'session-1',
   title: 'Existing conversation',

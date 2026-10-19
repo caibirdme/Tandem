@@ -672,10 +672,16 @@ button {
   color: #787b74;
   font-size: 9px;
 }
-.composer-footnote span:first-child {
+.composer-footnote > span:first-child {
   display: inline-flex;
   align-items: center;
   gap: 4px;
+}
+.composer-status {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 10px;
 }
 .setup-banner {
   display: flex;
@@ -1939,7 +1945,7 @@ select {
   .composer-footnote {
     font-size: 8px;
   }
-  .composer-footnote > span:last-child {
+  .composer-keyboard-hint {
     display: none;
   }
   .setup-banner {

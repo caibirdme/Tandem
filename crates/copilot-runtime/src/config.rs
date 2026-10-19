@@ -47,13 +47,13 @@ pub struct ModelSettings {
     pub id: String,
     pub reasoning_effort: Option<String>,
     /// Total input and output capacity.
-    pub context_window: Option<i64>,
+    pub context_window: i64,
     pub max_output_tokens: Option<i64>,
 }
 
 impl ModelSettings {
     fn token_limits(&self) -> Result<ModelCapabilitiesOverrideLimits> {
-        if self.context_window.is_some_and(|limit| limit <= 0) {
+        if self.context_window <= 0 {
             return Err(ConfigurationError::NonPositiveContextWindow.into());
         }
         if self.max_output_tokens.is_some_and(|limit| limit <= 0) {
@@ -62,15 +62,13 @@ impl ModelSettings {
         // Reserve an explicit output allowance within the total window. When it
         // is omitted, preserve the SDK's output default and override the total
         // context separately, without retaining a smaller inferred prompt limit.
-        let prompt = self
-            .context_window
-            .map(|context| context - self.max_output_tokens.unwrap_or(0));
-        if prompt.is_some_and(|limit| limit <= 0) {
+        let prompt = self.context_window - self.max_output_tokens.unwrap_or(0);
+        if prompt <= 0 {
             return Err(ConfigurationError::OutputExceedsContextWindow.into());
         }
         Ok(ModelCapabilitiesOverrideLimits {
-            max_context_window_tokens: self.context_window,
-            max_prompt_tokens: prompt,
+            max_context_window_tokens: Some(self.context_window),
+            max_prompt_tokens: Some(prompt),
             max_output_tokens: self.max_output_tokens,
             ..Default::default()
         })
@@ -78,14 +76,10 @@ impl ModelSettings {
 
     pub(crate) fn to_sdk_capabilities(&self) -> Result<Option<ModelCapabilitiesOverride>> {
         let limits = self.token_limits()?;
-        Ok(
-            (self.context_window.is_some() || self.max_output_tokens.is_some()).then_some(
-                ModelCapabilitiesOverride {
-                    limits: Some(limits),
-                    ..Default::default()
-                },
-            ),
-        )
+        Ok(Some(ModelCapabilitiesOverride {
+            limits: Some(limits),
+            ..Default::default()
+        }))
     }
 }
 
@@ -162,12 +156,9 @@ impl ProviderSettings {
         let mut provider = ProviderConfig::default();
         provider.provider_type = Some(provider_type.into());
         provider.wire_api = wire_api.map(str::to_owned);
-        let base_url = self.base_url.trim_end_matches('/');
-        match self.protocol {
-            ProviderProtocol::Anthropic => base_url.strip_suffix("/v1").unwrap_or(base_url),
-            ProviderProtocol::OpenaiCompletions | ProviderProtocol::OpenaiResponses => base_url,
-        }
-        .clone_into(&mut provider.base_url);
+        self.base_url
+            .trim_end_matches('/')
+            .clone_into(&mut provider.base_url);
         provider.api_key.clone_from(&self.api_key);
         provider.max_prompt_tokens = limits.max_prompt_tokens;
         provider.max_output_tokens = limits.max_output_tokens;
@@ -224,7 +215,7 @@ mod tests {
         let mut payload = serde_json::json!({
             "mode": {"kind": "work", "directory": "/project"},
             "provider": {"protocol": "openai-responses", "baseUrl": "https://example.com"},
-            "model": {"id": "example-model"}
+            "model": {"id": "example-model", "contextWindow": 200_000}
         });
         assert!(serde_json::from_value::<SessionOptions>(payload.clone()).is_err());
         for (mode, wire) in [
@@ -245,10 +236,8 @@ mod tests {
     #[test]
     fn total_context_and_output_budget_are_distinct() -> Result<()> {
         for (context, output, prompt) in [
-            (Some(1_000_000), Some(128_000), Some(872_000)),
-            (Some(1_000_000), None, Some(1_000_000)),
-            (None, Some(128_000), None),
-            (None, None, None),
+            (1_000_000, Some(128_000), Some(872_000)),
+            (1_000_000, None, Some(1_000_000)),
         ] {
             let model = ModelSettings {
                 context_window: context,
@@ -256,34 +245,31 @@ mod tests {
                 ..Default::default()
             };
             let limits = model.token_limits()?;
-            assert_eq!(limits.max_context_window_tokens, context);
+            assert_eq!(limits.max_context_window_tokens, Some(context));
             assert_eq!(limits.max_prompt_tokens, prompt);
             assert_eq!(limits.max_output_tokens, output);
-            assert_eq!(
-                model.to_sdk_capabilities()?.is_some(),
-                context.is_some() || output.is_some()
-            );
+            assert!(model.to_sdk_capabilities()?.is_some());
         }
         for (context, output, expected) in [
-            (Some(0), None, ConfigurationError::NonPositiveContextWindow),
-            (Some(-1), None, ConfigurationError::NonPositiveContextWindow),
+            (0, None, ConfigurationError::NonPositiveContextWindow),
+            (-1, None, ConfigurationError::NonPositiveContextWindow),
             (
-                None,
+                200_000,
                 Some(0),
                 ConfigurationError::NonPositiveMaxOutputTokens,
             ),
             (
-                None,
+                200_000,
                 Some(-1),
                 ConfigurationError::NonPositiveMaxOutputTokens,
             ),
             (
-                Some(128_000),
+                128_000,
                 Some(128_000),
                 ConfigurationError::OutputExceedsContextWindow,
             ),
             (
-                Some(128_000),
+                128_000,
                 Some(128_001),
                 ConfigurationError::OutputExceedsContextWindow,
             ),
@@ -311,6 +297,12 @@ mod tests {
         let encoded = serde_json::to_value(model)?;
         assert_eq!(encoded["contextWindow"], 1_000_000);
         assert!(encoded.get("maxPromptTokens").is_none());
+        for data in [
+            serde_json::json!({"id":"custom-model"}),
+            serde_json::json!({"id":"custom-model","contextWindow":null}),
+        ] {
+            assert!(serde_json::from_value::<ModelSettings>(data).is_err());
+        }
         assert!(
             serde_json::from_value::<ModelSettings>(serde_json::json!({
                 "id":"custom-model","maxPromptTokens":1_000_000,
@@ -342,6 +334,7 @@ mod tests {
             };
             let config = settings.to_sdk(&ModelSettings {
                 id: "test-model".into(),
+                context_window: 200_000,
                 ..Default::default()
             })?;
             assert_eq!(config.provider_type.as_deref(), Some(provider_type));
@@ -352,17 +345,17 @@ mod tests {
     }
 
     #[test]
-    fn anthropic_base_url_avoids_duplicate_version_paths() -> Result<()> {
+    fn provider_base_url_preserves_the_configured_path() -> Result<()> {
         for (protocol, endpoint, expected) in [
             (
                 ProviderProtocol::Anthropic,
                 "https://api.example.com/v1/",
-                "https://api.example.com",
+                "https://api.example.com/v1",
             ),
             (
                 ProviderProtocol::Anthropic,
                 "https://api.example.com/gateway/v1",
-                "https://api.example.com/gateway",
+                "https://api.example.com/gateway/v1",
             ),
             (
                 ProviderProtocol::Anthropic,
@@ -374,6 +367,11 @@ mod tests {
                 "https://api.example.com/v1/",
                 "https://api.example.com/v1",
             ),
+            (
+                ProviderProtocol::OpenaiCompletions,
+                "https://api.example.com/gateway/",
+                "https://api.example.com/gateway",
+            ),
         ] {
             let provider = ProviderSettings {
                 protocol,
@@ -382,6 +380,7 @@ mod tests {
             };
             let model = ModelSettings {
                 id: "test-model".into(),
+                context_window: 200_000,
                 ..Default::default()
             };
             assert_eq!(provider.to_sdk(&model)?.base_url, expected);

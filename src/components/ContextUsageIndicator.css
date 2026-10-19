@@ -1,0 +1,56 @@
+.context-usage {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 24px;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border-radius: 50%;
+  color: var(--accent);
+  cursor: default;
+}
+.context-usage-high {
+  color: #a25e32;
+}
+.context-usage circle {
+  fill: none;
+  stroke-width: 2.4;
+}
+.context-usage-track {
+  stroke: var(--line);
+}
+.context-usage-fill {
+  stroke: currentColor;
+}
+.context-usage-tooltip {
+  position: absolute;
+  bottom: 100%;
+  right: -4px;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: max-content;
+  max-width: min(290px, 75vw);
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 4px 20px #292b281a;
+  color: var(--secondary);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.5;
+  white-space: nowrap;
+  visibility: hidden;
+  opacity: 0;
+}
+.context-usage-count {
+  color: #292b28;
+}
+.context-usage:not([data-dismissed]):is(:hover, :focus) .context-usage-tooltip {
+  visibility: visible;
+  opacity: 1;
+}

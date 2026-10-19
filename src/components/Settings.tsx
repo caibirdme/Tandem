@@ -17,8 +17,14 @@ import { version } from '../../package.json';
 import { useProviderCredential } from '../hooks/useProviderCredential';
 import { useI18n } from '../i18n';
 import { dispatch, errorMessage } from '../lib/api';
-import { completeProviderEdit, preferencesPayload, providerPayload } from '../lib/settingsForm';
-import type { ProviderEditSession } from '../lib/settingsForm';
+import {
+  completeProviderEdit,
+  contextWindowKilotokens,
+  preferencesPayload,
+  providerPayload,
+  providerRequestUrl,
+} from '../lib/settingsForm';
+import type { ModelFormDraft, ProviderEditSession, ProviderFormDraft } from '../lib/settingsForm';
 import type {
   Model,
   Provider,
@@ -32,25 +38,19 @@ import { ProviderKeyInput } from './ProviderKeyInput';
 import { TitlePreferences } from './TitlePreferences';
 import { Modal, Notice, Spinner, Toggle } from './ui';
 
+import './ProviderForm.css';
+
 const protocolNames: Record<ProviderProtocol, string> = {
   'openai-completions': 'OpenAI Chat Completions',
   'openai-responses': 'OpenAI Responses',
   anthropic: 'Anthropic Messages',
 };
-const blankModel = (): Model => ({
+const blankModel = (): ModelFormDraft => ({
   id: '',
   name: '',
   reasoningEffort: null,
-  contextWindow: null,
+  contextWindowK: '',
   maxOutputTokens: null,
-});
-const blankProvider = (): Provider => ({
-  id: '',
-  name: '',
-  protocol: 'openai-completions',
-  baseUrl: '',
-  hasApiKey: false,
-  models: [blankModel()],
 });
 
 export function Settings({
@@ -70,7 +70,7 @@ export function Settings({
   const [error, setError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Provider | null>(null);
-  function editProvider(provider: Provider) {
+  function editProvider(provider: Provider | null) {
     setEditing({ instanceId: crypto.randomUUID(), provider });
   }
   async function remove(provider: Provider) {
@@ -146,7 +146,7 @@ export function Settings({
                     <h3>{t('settings.providers')}</h3>
                     <p>{t('settings.providersDescription')}</p>
                   </div>
-                  <button className="button compact" onClick={() => editProvider(blankProvider())}>
+                  <button className="button compact" onClick={() => editProvider(null)}>
                     <Plus size={15} />
                     {t('settings.addProvider')}
                   </button>
@@ -159,10 +159,7 @@ export function Settings({
                     </span>
                     <h4>{t('settings.firstProvider')}</h4>
                     <p>{t('settings.providerSupport')}</p>
-                    <button
-                      className="button primary"
-                      onClick={() => editProvider(blankProvider())}
-                    >
+                    <button className="button primary" onClick={() => editProvider(null)}>
                       <Plus size={15} />
                       {t('settings.addProvider')}
                     </button>
@@ -242,24 +239,35 @@ export function Settings({
   );
 }
 
-function ProviderEditor({
+export function ProviderEditor({
   provider,
   onBack,
   onSaved,
 }: {
-  provider: Provider;
+  provider: Provider | null;
   onBack: () => void;
   onSaved: () => Promise<void>;
 }) {
   const { t } = useI18n();
-  const [draft, setDraft] = useState({
-    ...provider,
-    models: provider.models.map((model) => ({ ...model, key: crypto.randomUUID() })),
-  });
-  const credential = useProviderCredential(provider.id, provider.hasApiKey);
+  const [draft, setDraft] = useState<
+    Omit<ProviderFormDraft, 'models'> & { models: (ModelFormDraft & { key: string })[] }
+  >(() => ({
+    id: provider?.id ?? '',
+    name: provider?.name ?? '',
+    protocol: provider?.protocol ?? 'openai-completions',
+    baseUrl: provider?.baseUrl ?? '',
+    models: (
+      provider?.models.map(({ contextWindow, ...model }) => ({
+        ...model,
+        contextWindowK: contextWindowKilotokens(contextWindow),
+      })) ?? [blankModel()]
+    ).map((model) => ({ ...model, key: crypto.randomUUID() })),
+  }));
+  const credential = useProviderCredential(provider?.id ?? '', provider?.hasApiKey ?? false);
+  const requestUrl = providerRequestUrl(draft.protocol, draft.baseUrl);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  function modelChange(index: number, patch: Partial<Model>) {
+  function modelChange(index: number, patch: Partial<ModelFormDraft>) {
     setDraft((current) => ({
       ...current,
       models: current.models.map((model, i) => (i === index ? { ...model, ...patch } : model)),
@@ -290,7 +298,7 @@ function ProviderEditor({
         <ChevronLeft size={15} />
         {t('settings.allProviders')}
       </button>
-      <h3>{provider.id ? t('settings.editProvider') : t('settings.addProvider')}</h3>
+      <h3>{provider ? t('settings.editProvider') : t('settings.addProvider')}</h3>
       <div className="form-grid">
         <label>
           {t('settings.name')}
@@ -331,10 +339,16 @@ function ProviderEditor({
           }
         />
         <small>{t('settings.baseUrlHint')}</small>
+        {requestUrl && (
+          <small className="provider-request-url" aria-live="polite">
+            <span>{t('settings.requestUrl')}</span>
+            <code>{requestUrl}</code>
+          </small>
+        )}
       </label>
       <ProviderKeyInput
         state={credential.state}
-        hasSavedKey={provider.hasApiKey}
+        hasSavedKey={provider?.hasApiKey ?? false}
         update={credential.update}
         onRetry={credential.retry}
       />
@@ -391,9 +405,26 @@ function ProviderEditor({
               />
             </label>
           </div>
+          <label className="model-context-field">
+            {t('settings.contextWindow')}
+            <span className="context-window-input">
+              <input
+                required
+                type="number"
+                min="0.001"
+                step="0.001"
+                value={model.contextWindowK}
+                onChange={(event) => modelChange(index, { contextWindowK: event.target.value })}
+                aria-describedby={`context-window-hint-${model.key}`}
+                placeholder="256"
+              />
+              <span aria-hidden="true">K</span>
+            </span>
+            <small id={`context-window-hint-${model.key}`}>{t('settings.contextWindowHint')}</small>
+          </label>
           <details className="advanced-model">
             <summary>{t('settings.advanced')}</summary>
-            <div className="form-grid three">
+            <div className="form-grid">
               <label>
                 {t('settings.reasoning')}
                 <select
@@ -409,21 +440,6 @@ function ProviderEditor({
                   <option value="medium">{t('settings.medium')}</option>
                   <option value="high">{t('settings.high')}</option>
                 </select>
-              </label>
-              <label>
-                {t('settings.contextWindow')}
-                <input
-                  type="number"
-                  min="1"
-                  step="1"
-                  value={model.contextWindow ?? ''}
-                  onChange={(event) =>
-                    modelChange(index, {
-                      contextWindow: event.target.value ? Number(event.target.value) : null,
-                    })
-                  }
-                  placeholder={t('settings.default')}
-                />
               </label>
               <label>
                 {t('settings.maxOutputTokens')}
