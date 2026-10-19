@@ -91,7 +91,7 @@ def main():
             ["cargo", "metadata", "--locked", "--format-version", "1"],
             cwd=Path(__file__).resolve().parents[1],
             capture_output=True,
-            text=True,
+            encoding="utf-8",
             check=True,
         )
     except subprocess.CalledProcessError as error:

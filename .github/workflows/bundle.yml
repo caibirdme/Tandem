@@ -36,6 +36,7 @@ jobs:
           name: remote-${{ matrix.target }}
           path: target/release/tandem-server
           if-no-files-found: error
+          retention-days: 1
 
   remote-macos:
     name: Remote Agent (${{ matrix.target }})
@@ -57,6 +58,7 @@ jobs:
           name: remote-${{ matrix.target }}
           path: target/release/tandem-server
           if-no-files-found: error
+          retention-days: 1
 
   desktop:
     name: Desktop (${{ matrix.platform }})
