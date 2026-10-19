@@ -328,7 +328,8 @@ describe('work context usage', () => {
     const markup = renderToStaticMarkup(<Chat {...contextProps} project={currentProject} />);
     expect(markup.indexOf('class="context-usage ')).toBeGreaterThan(markup.indexOf('</form>'));
     expect(markup).toContain('153k / 1M');
-    expect(markup).toContain('15.3% used · 153,000 / 1,000,000 tokens');
+    expect(markup).toContain('>15.3%</span>');
+    expect(markup).not.toContain('153,000 / 1,000,000 tokens');
     expect(markup).toContain('role="meter"');
     expect(markup).toContain('aria-valuenow="153000"');
     expect(markup).toContain('aria-valuemax="1000000"');

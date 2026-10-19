@@ -18,7 +18,7 @@ export function ContextUsageIndicator({
   usage: ContextUsage | null;
   contextWindow: number;
 }) {
-  const { t, locale } = useI18n();
+  const { t } = useI18n();
   const tooltipId = useId();
   const [dismissed, setDismissed] = useState(false);
   const limit = usage?.tokenLimit ?? contextWindow;
@@ -26,9 +26,10 @@ export function ContextUsageIndicator({
   const ratio = current === undefined ? 0 : Math.min(1, Math.max(0, current / limit));
   const percent = current === undefined ? null : Math.round((current / limit) * 1_000) / 10;
   const compact = `${current === undefined ? '—' : compactTokens(current)} / ${compactTokens(limit)}`;
-  const exact = `${current === undefined ? '—' : current.toLocaleString(locale)} / ${limit.toLocaleString(locale)}`;
   const description =
-    percent === null ? t('chat.contextWaiting') : t('chat.contextUsed', { percent, usage: exact });
+    percent === null
+      ? t('chat.contextWaiting')
+      : t('chat.contextUsed', { percent, usage: compact });
 
   return (
     <button
@@ -67,10 +68,14 @@ export function ContextUsageIndicator({
           transform="rotate(-90 10 10)"
         />
       </svg>
-      <span className="context-usage-tooltip" id={tooltipId} role="tooltip">
-        <strong>{t('chat.contextWindow')}</strong>
+      <span
+        className="context-usage-tooltip"
+        id={tooltipId}
+        role="tooltip"
+        aria-label={description}
+      >
+        <span>{percent === null ? '—' : `${percent}%`}</span>
         <span className="context-usage-count">{compact}</span>
-        <span>{description}</span>
       </span>
     </button>
   );

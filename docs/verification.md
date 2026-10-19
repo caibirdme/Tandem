@@ -2,7 +2,7 @@
 
 ## Work context usage and provider setup (2026-10-19)
 
-Developed from `main` in `.worktrees/work-context-meter`. Work now shows a circular context meter below the composer, with compact usage, exact token counts, and percentage on hover or keyboard focus. Chat omits it. Model context capacity is required and entered in decimal K units. The provider editor previews the actual protocol-specific request URL while preserving the configured base path.
+Developed from `main` in `.worktrees/work-context-meter`. Work now shows a circular context meter below the composer. Hover or focus it to see the percentage and compact usage on one line. Chat omits it. Model context capacity is required and entered in decimal K units. The provider editor previews the actual protocol-specific request URL while preserving the configured base path.
 
 `just check` passed with 209 frontend, 126 Rust, and 29 Python tests (364 total), plus formatting, type checking, strict lint/Clippy, and workspace boundaries. The final runtime adjustment was followed by another strict workspace Clippy check. `just check-workspace`, `just build`, and `CI=true just desktop-build` passed. No dependencies were added. Existing CI path rules cover all modified source and test paths.
 
@@ -12,7 +12,7 @@ Full local integration passed with the production SDK/CLI and local test service
 
 Real SDK/CLI and isolated OpenSSH integration passed with 28 test inference requests and 22 telemetry batches. It covers remote context event forwarding, cold recovery, model changes, actual deployment, permissions, tools, transport failures, and reconnects. Inference and telemetry used local test services.
 
-Browser verification used the actual React UI and application services with isolated temporary data and test credentials. It confirmed that blank context prevents saving, `1024` K persists as 1,024,000 tokens, all three protocol choices update the URL preview, Work displays the live reading against 1M, Chat hides the meter, and Escape dismisses the tooltip. The narrow 615-pixel view kept the meter and tooltip within the screen. Screenshots are local ignored artifacts at `test-results/context-usage.png` and `test-results/provider-context-form.png`.
+Browser verification used the actual React UI and application services with isolated temporary data and test credentials. It confirmed that blank context prevents saving, `1024` K persists as 1,024,000 tokens, all three protocol choices update the URL preview, Work displays the live reading against 1M, Chat hides the meter, and Escape dismisses the tooltip. The narrow 615-pixel view kept the meter and tooltip within the screen. After simplifying the tooltip, the actual UI was checked again and displayed only `0.5% 5.1k / 1M` on one line. Screenshots are local ignored artifacts at `test-results/context-usage.png` and `test-results/provider-context-form.png`.
 
 Final Apple Silicon desktop packaging produced `Tandem.app` and `Tandem_0.1.4_aarch64.dmg`. Strict application signature integrity and DMG checksum verification passed. The bundled remote agent matches the final release binary and excludes the development host. The installer was not installed, and the native application was not launched against user data. This change was not tested against a paid provider or stressed near the actual context-compaction limit.
 
