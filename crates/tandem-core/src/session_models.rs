@@ -47,6 +47,7 @@ impl App {
             self.store.update_session(id, |session| {
                 session.provider_id = provider_id;
                 session.model_id = model_id;
+                session.context_usage = None;
                 session.updated_at = now();
             })?
         };
@@ -95,7 +96,7 @@ mod tests {
                 serde_json::from_value(json!({
                     "id":"", "name":"Original", "protocol":"openai-completions",
                     "baseUrl":"http://127.0.0.1:9999/v1",
-                    "models":[{"id":"original","name":"Original"}]
+                    "models":[{"id":"original","name":"Original","contextWindow":200_000}]
                 }))?,
                 None,
             )
@@ -149,6 +150,10 @@ mod tests {
                 app.store.save_project(&project)?;
                 session.project_id = Some(project.id);
                 session.permission_mode = mode;
+                session.context_usage = Some(copilot_runtime::ContextUsage {
+                    current_tokens: 153_000,
+                    token_limit: 200_000,
+                });
                 app.store.save_session(&session)?;
             }
             app.rename_session(&session.id, "Keep this title").await?;
@@ -180,6 +185,7 @@ mod tests {
             assert_eq!(updated.title, "Keep this title");
             assert_eq!(updated.status, status);
             assert_eq!(updated.created_at, session.created_at);
+            assert!(updated.context_usage.is_none());
             let reopened = App::open(AppOptions::local(directory.path().into()))?;
             let stored = reopened.store.session(&session.id)?;
             assert_eq!(
@@ -195,7 +201,7 @@ mod tests {
             assert_eq!(provider.base_url, alternate.base_url);
             assert_eq!(model.id, "alternate");
             assert_eq!(model.reasoning_effort.as_deref(), Some("high"));
-            assert_eq!(model.context_window, Some(200_000));
+            assert_eq!(model.context_window, 200_000);
             assert_eq!(model.max_output_tokens, Some(32_000));
             assert!(reopened.runtime.lock().await.is_none());
         }

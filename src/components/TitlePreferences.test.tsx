@@ -20,7 +20,7 @@ const settings: Settings = {
           id: 'model',
           name: 'Fixture model',
           reasoningEffort: null,
-          contextWindow: null,
+          contextWindow: 1_000_000,
           maxOutputTokens: null,
         },
       ],

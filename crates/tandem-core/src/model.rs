@@ -1,6 +1,6 @@
 use std::fmt;
 
-pub use copilot_runtime::PermissionMode;
+pub use copilot_runtime::{ContextUsage, PermissionMode};
 use serde::{Deserialize, Serialize};
 use url::Url;
 
@@ -66,7 +66,7 @@ pub struct Model {
     pub id: String,
     pub name: String,
     pub reasoning_effort: Option<String>,
-    pub context_window: Option<i64>,
+    pub context_window: i64,
     pub max_output_tokens: Option<i64>,
 }
 
@@ -117,7 +117,7 @@ impl Provider {
                     effort: effort.clone(),
                 });
             }
-            for count in [model.context_window, model.max_output_tokens]
+            for count in [Some(model.context_window), model.max_output_tokens]
                 .into_iter()
                 .flatten()
             {
@@ -125,7 +125,8 @@ impl Provider {
                     return Err(ValidationError::InvalidTokenCount { count });
                 }
             }
-            if let (Some(context), Some(output)) = (model.context_window, model.max_output_tokens)
+            let context = model.context_window;
+            if let Some(output) = model.max_output_tokens
                 && output >= context
             {
                 return Err(ValidationError::OutputExceedsContext { context, output });
@@ -252,6 +253,7 @@ pub struct Session {
     pub created_at: String,
     pub updated_at: String,
     pub status: SessionStatus,
+    pub context_usage: Option<ContextUsage>,
 }
 
 /// Persisted lifecycle of a session's automatic or user-selected title.
@@ -435,7 +437,7 @@ mod tests {
         ));
         let provider: Provider = serde_json::from_value(json!({
             "id": "provider", "name": "Provider", "protocol": "anthropic",
-            "baseUrl": "https://example.com", "models": [{"id": "model", "name": "Model"}]
+            "baseUrl": "https://example.com", "models": [{"id": "model", "name": "Model", "contextWindow": 200_000}]
         }))?;
         let model = provider.models[0].clone();
         let mut missing = provider.clone();
@@ -457,13 +459,13 @@ mod tests {
             Err(ValidationError::UnsupportedReasoningEffort { effort }) if effort == "unsupported"
         ));
         let mut tokens = provider.clone();
-        tokens.models[0].context_window = Some(0);
+        tokens.models[0].context_window = 0;
         assert!(matches!(
             tokens.validate(),
             Err(ValidationError::InvalidTokenCount { count: 0 })
         ));
         let mut output = provider;
-        output.models[0].context_window = Some(100);
+        output.models[0].context_window = 100;
         output.models[0].max_output_tokens = Some(101);
         assert!(matches!(
             output.validate(),
@@ -515,12 +517,14 @@ mod tests {
     #[test]
     fn context_window_reserves_space_for_input() -> Result<()> {
         for (context, output, valid) in [
-            (Some(1_000_000), Some(128_000), true),
-            (Some(1_000_000), None, true),
-            (None, Some(128_000), true),
-            (Some(128_000), Some(128_000), false),
-            (Some(128_000), Some(128_001), false),
-            (Some(0), Some(128_000), false),
+            (1_000_000, Some(128_000), true),
+            (1_000_000, None, true),
+            (128_000, Some(128_000), false),
+            (128_000, Some(128_001), false),
+            (0, Some(128_000), false),
+            (-1, None, false),
+            (10_000_001, None, false),
+            (10_000_000, None, true),
         ] {
             let provider: Provider = serde_json::from_value(json!({
                 "id": "", "name": "Provider", "protocol": "anthropic",
@@ -532,5 +536,15 @@ mod tests {
             assert_eq!(provider.validate().is_ok(), valid, "{context:?}/{output:?}");
         }
         Ok(())
+    }
+
+    #[test]
+    fn model_configuration_requires_a_context_window() {
+        for data in [
+            json!({"id":"model","name":"Model"}),
+            json!({"id":"model","name":"Model","contextWindow":null}),
+        ] {
+            assert!(serde_json::from_value::<Model>(data).is_err());
+        }
     }
 }

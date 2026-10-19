@@ -2,15 +2,18 @@ import { describe, expect, it } from 'vitest';
 
 import {
   completeProviderEdit,
+  contextWindowKilotokens,
+  contextWindowTokens,
   preferencesPayload,
   providerPayload,
+  providerRequestUrl,
   titleModelPayload,
   titleModelValue,
 } from './settingsForm';
-import type { CredentialEdit, ProviderEditSession } from './settingsForm';
-import type { ProviderDraft, Settings } from './types';
+import type { CredentialEdit, ProviderEditSession, ProviderFormDraft } from './settingsForm';
+import type { Provider, ProviderProtocol, Settings } from './types';
 
-const provider: ProviderDraft = {
+const provider: ProviderFormDraft = {
   id: 'provider-1',
   name: ' My provider ',
   protocol: 'openai-completions',
@@ -20,17 +23,21 @@ const provider: ProviderDraft = {
       id: ' model-1 ',
       name: ' ',
       reasoningEffort: null,
-      contextWindow: null,
+      contextWindowK: '256',
       maxOutputTokens: 100,
     },
   ],
+};
+const savedProvider: Provider = {
+  ...providerPayload(provider, { kind: 'keep' }).provider,
+  hasApiKey: true,
 };
 const noop = () => undefined;
 
 describe('provider editor save ownership', () => {
   const first: ProviderEditSession = {
     instanceId: 'edit-first',
-    provider: { ...provider, hasApiKey: true },
+    provider: savedProvider,
   };
 
   it('closes the submitting editor after its save completes', () => {
@@ -52,7 +59,7 @@ describe('provider editor save ownership', () => {
     });
     const next: ProviderEditSession = {
       instanceId: 'edit-next',
-      provider: { ...first.provider, id: providerId },
+      provider: { ...savedProvider, id: providerId },
     };
     current = next;
     release();
@@ -107,7 +114,7 @@ describe('provider form serialization', () => {
           id: 'model-1',
           name: 'model-1',
           reasoningEffort: null,
-          contextWindow: null,
+          contextWindow: 256_000,
           maxOutputTokens: 100,
         },
       ],
@@ -129,10 +136,103 @@ describe('provider form serialization', () => {
       id,
       name: '',
       reasoningEffort: null,
-      contextWindow: null,
+      contextWindowK: '256',
       maxOutputTokens: null,
     }));
     expect(() => providerPayload({ ...provider, models }, { kind: 'keep' })).toThrow(message);
+  });
+});
+
+describe('context window input', () => {
+  it.each([
+    { input: '256', tokens: 256_000 },
+    { input: '500', tokens: 500_000 },
+    { input: '1024', tokens: 1_024_000 },
+    { input: '1.001', tokens: 1_001 },
+    { input: '131.072', tokens: 131_072 },
+    { input: '0.001', tokens: 1 },
+    { input: '9007199254740.991', tokens: Number.MAX_SAFE_INTEGER },
+  ])('converts $input K to $tokens tokens and preserves it when reopened', ({ input, tokens }) => {
+    expect(contextWindowTokens(input)).toBe(tokens);
+    expect(contextWindowKilotokens(tokens)).toBe(input);
+    expect(
+      providerPayload(
+        {
+          ...provider,
+          models: provider.models.map((model) => ({ ...model, contextWindowK: input })),
+        },
+        { kind: 'keep' },
+      ).provider.models[0]?.contextWindow,
+    ).toBe(tokens);
+  });
+
+  it('accepts numeric exponent notation without losing token precision', () => {
+    expect(contextWindowTokens('1e3')).toBe(1_000_000);
+    expect(contextWindowTokens('1001e-3')).toBe(1_001);
+  });
+
+  it.each([
+    '',
+    ' ',
+    '0',
+    '-1',
+    'abc',
+    'Infinity',
+    '0.0001',
+    '256.0001',
+    '9007199254741',
+    '1e999',
+    '1e-999',
+  ])('rejects a missing, nonpositive, fractional-token, or unsafe limit %j', (value) => {
+    expect(() => contextWindowTokens(value)).toThrow('Enter a positive context window');
+    expect(() =>
+      providerPayload(
+        {
+          ...provider,
+          models: provider.models.map((model) => ({ ...model, contextWindowK: value })),
+        },
+        { kind: 'keep' },
+      ),
+    ).toThrow('Enter a positive context window');
+  });
+});
+
+describe('provider request URL preview', () => {
+  it.each([
+    {
+      protocol: 'anthropic',
+      base: 'https://example.com/x',
+      expected: 'https://example.com/x/v1/messages',
+    },
+    {
+      protocol: 'anthropic',
+      base: ' https://example.com/x/// ',
+      expected: 'https://example.com/x/v1/messages',
+    },
+    {
+      protocol: 'anthropic',
+      base: 'https://example.com/x/v1',
+      expected: 'https://example.com/x/v1/v1/messages',
+    },
+    {
+      protocol: 'openai-responses',
+      base: 'https://example.com/x/',
+      expected: 'https://example.com/x/responses',
+    },
+    {
+      protocol: 'openai-completions',
+      base: 'https://example.com/v1',
+      expected: 'https://example.com/v1/chat/completions',
+    },
+  ] satisfies { protocol: ProviderProtocol; base: string; expected: string }[])(
+    'previews $protocol requests from $base',
+    ({ protocol, base, expected }) => {
+      expect(providerRequestUrl(protocol, base)).toBe(expected);
+    },
+  );
+
+  it('does not show a relative endpoint before a base URL is entered', () => {
+    expect(providerRequestUrl('anthropic', ' ')).toBe('');
   });
 });
 
@@ -150,7 +250,7 @@ describe('preferences form ownership', () => {
   };
 
   it('saves only the chosen title model and never submits telemetry or CLI preferences', () => {
-    const configured = { ...provider, hasApiKey: true };
+    const configured = savedProvider;
     const selection = { providerId: configured.id, modelId: configured.models[0]?.id ?? '' };
     expect(titleModelPayload(titleModelValue(selection), [configured])).toEqual({
       titleModel: selection,

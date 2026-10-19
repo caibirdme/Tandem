@@ -248,7 +248,7 @@ def handler_for(fixture):
                 self.completions(body, response)
             elif self.path.endswith("/responses"):
                 self.openai_responses(body, response)
-            elif self.path in {"/v1/messages", "/v1/messages?beta=true"}:
+            elif self.path.split("?", 1)[0].endswith("/v1/messages"):
                 self.anthropic(body, response)
             else:
                 self.send_error(404, "Unknown inference endpoint")

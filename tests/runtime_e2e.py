@@ -19,7 +19,7 @@ import threading
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 
-from acceptance_support import Application, debug_binary
+from acceptance_support import Application, debug_binary, require_context_usage
 from credential_checks import require_local_secret, require_provider_key, scan_for_key
 from inference_fixture import (
     FIXTURE_KEY,
@@ -36,6 +36,38 @@ from model_switch_acceptance import (
     check_model_switch_after_restart,
     check_model_switching,
 )
+
+
+def check_custom_provider_paths(app, fixture, fixture_url, project):
+    for protocol, model, base_path, expected_path in (
+        ("openai-completions", "gpt-4.1", "/gateway/", "/gateway/chat/completions"),
+        ("openai-responses", "gpt-5", "/gateway/", "/gateway/responses"),
+        ("anthropic", "claude-sonnet-4.5", "/gateway/", "/gateway/v1/messages"),
+        ("anthropic", "claude-sonnet-4.5", "/gateway/v1/", "/gateway/v1/v1/messages"),
+    ):
+        provider = app.command(
+            "save_provider",
+            provider={
+                "id": "", "name": "Custom path " + protocol, "protocol": protocol,
+                "baseUrl": fixture_url + base_path,
+                "models": [{"id": model, "name": model, "contextWindow": 256000,
+                            "maxOutputTokens": 4096}],
+            },
+            apiKey=FIXTURE_KEY,
+        )
+        session = app.command("create_session", projectId=project["id"],
+                              providerId=provider["id"], modelId=model)
+        offset = len(fixture.conversation_requests())
+        events = app.turn(session, "fixture:chat Verify the configured endpoint and context window.")
+        requests = fixture.conversation_requests()[offset:]
+        require(bool(requests), f"{protocol}: custom base URL did not reach inference")
+        require(all(path.split("?", 1)[0] == expected_path for path, _body in requests),
+                f"{protocol}: SDK request path differs from the configured base and suffix")
+        usage = require_context_usage(events, 256000)
+        saved = next(item for item in app.command("snapshot")["sessions"]
+                     if item["id"] == session["id"])
+        require(saved["contextUsage"] == usage, "Work context usage was not saved in the snapshot")
+        app.wait_title(session["id"], events)
 
 
 def main():
@@ -68,7 +100,9 @@ def main():
             handler_for(Fixture(arguments.workspace.resolve())),
         )
         print(
-            f"Inference fixture: http://127.0.0.1:{arguments.port}/v1; workspace: {arguments.workspace.resolve()}",
+            f"Inference fixture: OpenAI base http://127.0.0.1:{arguments.port}/v1; "
+            f"Anthropic base http://127.0.0.1:{arguments.port}; "
+            f"workspace: {arguments.workspace.resolve()}",
             flush=True,
         )
         try:
@@ -113,7 +147,7 @@ def main():
                         "id": "",
                         "name": "Fixture " + protocol,
                         "protocol": protocol,
-                        "baseUrl": fixture_url + "/v1",
+                        "baseUrl": fixture_url + ("" if protocol == "anthropic" else "/v1"),
                         "models": [
                             {
                                 "id": model_id,
@@ -258,6 +292,10 @@ def main():
                 path=str(workspace),
                 connection={"kind": "local"},
             )
+            check_custom_provider_paths(app, fixture, fixture_url, project)
+            summary.append(
+                "provider paths and context: custom base paths preserved for all protocols; real SDK current-window usage forwarded and persisted for work"
+            )
             work = app.command(
                 "create_session",
                 projectId=project["id"],
@@ -268,6 +306,7 @@ def main():
                 work,
                 "fixture:work-create Create verified.txt with the requested text using the create tool.",
             )
+            require_context_usage(create_events, 128000)
             require(app.wait_title(work["id"], create_events) == "Acceptance file operations", "Work title was not summarized")
             require(
                 (workspace / "verified.txt").read_text() == "first version\n",
@@ -424,6 +463,9 @@ def main():
                 "cold resume and OTLP HTTP JSON/protobuf trace export succeeded"
             )
             previous_messages = app.command("messages", sessionId=work["id"])
+            previous_context = next(session["contextUsage"]
+                                    for session in app.command("snapshot")["sessions"]
+                                    if session["id"] == work["id"])
             cleared_provider, _ = providers["anthropic"]
             app.command("save_provider", provider=cleared_provider, apiKey="")
             require_provider_key(app, cleared_provider["id"], None)
@@ -437,6 +479,11 @@ def main():
                 app.command("messages", sessionId=work["id"]) == previous_messages,
                 "Server restart changed persisted messages",
             )
+            restored_context = next(session["contextUsage"]
+                                    for session in app.command("snapshot")["sessions"]
+                                    if session["id"] == work["id"])
+            require(restored_context == previous_context,
+                    "Server restart lost the persisted context usage")
             require_provider_key(app, cleared_provider["id"], None)
             if arguments.ephemeral_secrets:
                 require(

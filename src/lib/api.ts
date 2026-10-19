@@ -70,6 +70,7 @@ export async function subscribe(
           'error',
           'title',
           'title_error',
+          'context_usage',
         ].includes(String(payload.kind))
       ) {
         onEvent(payload as RuntimeEvent);

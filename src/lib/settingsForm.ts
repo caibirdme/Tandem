@@ -1,16 +1,18 @@
 import { translate as t } from '../i18n';
 import type {
   Commands,
+  Model,
   ModelSelection,
   Provider,
   ProviderDraft,
+  ProviderProtocol,
   Settings,
   Telemetry,
 } from './types';
 
 export interface ProviderEditSession {
   instanceId: string;
-  provider: Provider;
+  provider: Provider | null;
 }
 
 /** A completed save owns only the editor instance that submitted it. */
@@ -40,6 +42,49 @@ export function titleModelPayload(
   throw new Error(t('error.titleModelUnavailable'));
 }
 
+export type ModelFormDraft = Omit<Model, 'contextWindow'> & { contextWindowK: string };
+export type ProviderFormDraft = Omit<ProviderDraft, 'models'> & { models: ModelFormDraft[] };
+
+export function contextWindowKilotokens(tokens: number): string {
+  const count = BigInt(tokens);
+  const fraction = String(count % 1_000n)
+    .padStart(3, '0')
+    .replace(/0+$/, '');
+  return `${count / 1_000n}${fraction ? `.${fraction}` : ''}`;
+}
+
+/** K is decimal thousands; retain single-token precision when editing saved limits. */
+export function contextWindowTokens(value: string): number {
+  const parts = /^(\d*)(?:\.(\d*))?(?:e([+-]?\d+))?$/i.exec(value.trim());
+  const digits = `${parts?.[1] ?? ''}${parts?.[2] ?? ''}`;
+  const shift = 3 - (parts?.[2]?.length ?? 0) + Number(parts?.[3] ?? 0);
+  if (!digits || !Number.isSafeInteger(shift) || shift > 16 || shift < -digits.length) {
+    throw new Error(t('error.invalidContextWindow'));
+  }
+  const coefficient = BigInt(digits);
+  const factor = 10n ** BigInt(Math.abs(shift));
+  const tokens = shift < 0 ? coefficient / factor : coefficient * factor;
+  if (
+    (shift < 0 && coefficient % factor !== 0n) ||
+    tokens <= 0n ||
+    tokens > BigInt(Number.MAX_SAFE_INTEGER)
+  ) {
+    throw new Error(t('error.invalidContextWindow'));
+  }
+  return Number(tokens);
+}
+
+const protocolPaths: Record<ProviderProtocol, string> = {
+  anthropic: '/v1/messages',
+  'openai-responses': '/responses',
+  'openai-completions': '/chat/completions',
+};
+
+export function providerRequestUrl(protocol: ProviderProtocol, baseUrl: string): string {
+  const base = baseUrl.trim().replace(/\/+$/, '');
+  return base ? `${base}${protocolPaths[protocol]}` : '';
+}
+
 export type CredentialEdit =
   | { kind: 'keep' }
   | { kind: 'replace'; value: string }
@@ -47,25 +92,25 @@ export type CredentialEdit =
 
 /** Explicit fields keep UI-only row keys and saved-key metadata out of the command. */
 export function providerPayload(
-  draft: ProviderDraft,
+  draft: ProviderFormDraft,
   credential: CredentialEdit,
 ): Commands['save_provider']['payload'] {
   const apiKey = credential.kind === 'replace' ? credential.value.trim() : '';
   if (credential.kind === 'replace' && !apiKey) {
     throw new Error(t('error.blankReplacement'));
   }
+  if (draft.models.length === 0) throw new Error(t('error.noModels'));
+  if (draft.models.some((model) => !model.id.trim())) throw new Error(t('error.blankModelId'));
+  if (new Set(draft.models.map((model) => model.id.trim())).size !== draft.models.length) {
+    throw new Error(t('error.duplicateModelIds'));
+  }
   const models = draft.models.map((model) => ({
     id: model.id.trim(),
     name: model.name.trim() || model.id.trim(),
     reasoningEffort: model.reasoningEffort,
-    contextWindow: model.contextWindow,
+    contextWindow: contextWindowTokens(model.contextWindowK),
     maxOutputTokens: model.maxOutputTokens,
   }));
-  if (models.length === 0) throw new Error(t('error.noModels'));
-  if (models.some((model) => !model.id)) throw new Error(t('error.blankModelId'));
-  if (new Set(models.map((model) => model.id)).size !== models.length) {
-    throw new Error(t('error.duplicateModelIds'));
-  }
   return {
     provider: {
       id: draft.id,

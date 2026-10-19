@@ -358,7 +358,7 @@ mod tests {
         let app = App::open(AppOptions::local(directory.path().into()))?;
         let provider = app.save_provider(serde_json::from_value(json!({
             "id":"", "name":"Fixture", "protocol":"anthropic", "baseUrl":"https://example.invalid",
-            "models":[{"id":"chat","name":"Chat"},{"id":"title","name":"Title","contextWindow":1_000_000,"maxOutputTokens":128_000}]
+            "models":[{"id":"chat","name":"Chat","contextWindow":200_000},{"id":"title","name":"Title","contextWindow":1_000_000,"maxOutputTokens":128_000}]
         }))?, None).await?;
         let session = app
             .create_session(None, provider.id, "chat".into(), PermissionMode::Ask)
@@ -677,7 +677,7 @@ mod tests {
         app.save_preferences(Telemetry::default(), None).await?;
         assert_eq!(app.store.preferences()?.title_model, Some(selection));
         let (_, settings) = app.model_settings(&session.provider_id, "title")?;
-        assert_eq!(settings.context_window, Some(1_000_000));
+        assert_eq!(settings.context_window, 1_000_000);
         assert_eq!(settings.max_output_tokens, Some(128_000));
         let mut provider: Provider = app.store.provider(&session.provider_id)?;
         provider.models.retain(|model| model.id != "title");

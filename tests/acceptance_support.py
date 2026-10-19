@@ -24,6 +24,18 @@ def debug_binary(name):
     return Path(__file__).resolve().parents[1] / "target" / "debug" / (name + suffix)
 
 
+def require_context_usage(events, expected_limit):
+    """Verify the real SDK's current-window event crosses the transport."""
+    usage = [event["data"] for event in events if event["kind"] == "context_usage"]
+    require(bool(usage), "SDK context usage event was not forwarded")
+    latest = usage[-1]
+    require(type(latest.get("currentTokens")) is int and latest["currentTokens"] > 0,
+            "Context usage did not report the current token count")
+    require(latest.get("tokenLimit") == expected_limit,
+            f"Context usage lost the configured total window: {latest.get('tokenLimit')}")
+    return latest
+
+
 class SessionEvents:
     """One reader, with unmatched sessions retained for subsequent assertions."""
 

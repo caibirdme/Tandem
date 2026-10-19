@@ -1,4 +1,7 @@
 export const enChat = {
+  'chat.contextWindow': 'Context window',
+  'chat.contextUsed': '{percent}% used · {usage} tokens',
+  'chat.contextWaiting': 'Usage will appear when the model reports it.',
   'permissions.unconfirmed': 'Unconfirmed',
   'chat.selectModel': 'Choose a model',
   'chat.modelRunningHint':
@@ -107,6 +110,9 @@ export const enChat = {
 } as const;
 
 export const zhCNChat = {
+  'chat.contextWindow': '上下文窗口',
+  'chat.contextUsed': '已使用 {percent}% · {usage} tokens',
+  'chat.contextWaiting': '模型报告用量后将在此显示。',
   'permissions.unconfirmed': '待确认',
   'chat.selectModel': '选择模型',
   'chat.modelRunningHint': '请先停止当前回复或等待结束，再切换模型',

@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use copilot_runtime::{EventKind, RuntimeEvent};
+use copilot_runtime::{ContextUsage, EventKind, RuntimeEvent};
 use serde_json::{Value, json};
 use uuid::Uuid;
 
@@ -102,6 +102,19 @@ impl App {
             EventKind::Permission => {
                 self.turns.permission(&event.session_id, &data)?;
                 "permission"
+            }
+            EventKind::ContextUsage => {
+                let Some(usage) = ContextUsage::from_data(data) else {
+                    return Ok(None);
+                };
+                if self.store.session(&event.session_id)?.project_id.is_none() {
+                    return Ok(None);
+                }
+                self.store.update_session(&event.session_id, |session| {
+                    session.context_usage = Some(usage);
+                })?;
+                data = json!(usage);
+                "context_usage"
             }
         };
         Ok(Some((kind, data)))

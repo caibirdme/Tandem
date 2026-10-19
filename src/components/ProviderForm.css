@@ -1,0 +1,27 @@
+.provider-request-url {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.provider-request-url code {
+  overflow-wrap: anywhere;
+  color: #5c5f58;
+}
+.model-context-field {
+  margin-top: 14px;
+}
+.context-window-input {
+  display: flex;
+  position: relative;
+  align-items: center;
+}
+.context-window-input input {
+  padding-right: 48px;
+}
+.context-window-input > span {
+  position: absolute;
+  right: 30px;
+  pointer-events: none;
+  font-size: 12px;
+  color: #787b74;
+}

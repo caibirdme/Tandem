@@ -32,7 +32,7 @@ On Windows, you can build without an installer using `pnpm tauri build --no-bund
 ## First use
 
 1. Open **Settings** in the lower left and add a provider. Choose OpenAI Completions, OpenAI Responses, or Anthropic, then enter its base URL and API key.
-2. Add model IDs supported by that provider. Display names are customizable; set reasoning effort, context, and output limits to match each model's capabilities.
+2. Add model IDs supported by that provider and enter each model's required context window in **K** (1 K = 1,000 tokens): enter `256` for 256k or `1000` for 1M. Display names are customizable; reasoning effort and output limits are optional advanced settings.
 3. Create a chat, select a model, and send a message. The first message prepares the bundled runtime automatically; you do not need to click **Prepare runtime** first. Chat exposes only web reading tools and automatically approves all tool permission requests.
 4. Create a project, select a local directory, and create a work session within it. Choose a permission mode beside the composer: **Ask each time** lets you allow or deny each tool permission request; **Full access** automatically approves file access, command execution, and other tool requests.
 
@@ -42,7 +42,11 @@ After a chat or work session starts, click the model name beside the composer to
 
 Permission mode is saved with each work session and restored when you reopen it. You can switch after a task finishes or fails, but not during execution or while approval is pending. Every new work session starts with **Ask each time**. If this mode is still selected before the first message, a reminder explains that tool approvals may interrupt frequently and offers **Confirm and continue**, **Switch to full access and continue**, or **Cancel**. Canceling or closing the dialog preserves the draft. Local and SSH work follow the same rules. Full access is not a directory sandbox: commands can access anything the current user can access on the execution machine.
 
-Enter an API base URL such as `https://api.example.com/v1`, without a specific `chat/completions` or `responses` endpoint. API keys are stored directly in local configuration and remain available after restarting. In the provider editor, keys are hidden by default; the eye button reveals or hides them. Save after changing a key. An empty field keeps the existing key; use **Clear saved key** to remove it.
+In Work, hover over or focus the circular indicator in the status bar below the input to see current context usage, such as **153k / 1M**, its percentage, and exact token counts. It uses the latest model runtime reading, so usage can decrease after context compaction. Before the runtime reports usage, the indicator shows a waiting state. Readings are saved with the session and cleared when changing its model or editing its provider. Chat does not display this indicator.
+
+Enter an API base URL without the request endpoint. The provider editor previews the actual request URL as you type or change protocols. Tandem trims trailing slashes and appends `/v1/messages` for Anthropic, `/responses` for OpenAI Responses, or `/chat/completions` for OpenAI Completions. For example, Anthropic base `https://example.com/x` calls `https://example.com/x/v1/messages`; an OpenAI base ending in `/v1` retains that path. Other path segments, including an Anthropic base ending in `/v1`, are preserved exactly.
+
+API keys are stored directly in local configuration and remain available after restarting. In the provider editor, keys are hidden by default; the eye button reveals or hides them. Save after changing a key. An empty field keeps the existing key; use **Clear saved key** to remove it.
 
 Chat and work titles are generated after the first completed reply. In **Settings > Conversation titles**, choose a configured provider model for title generation or follow the conversation's current model. Generation runs in the background without blocking tasks; manually edited titles are preserved. To generate another title, choose **Regenerate title** from the options menu.
 

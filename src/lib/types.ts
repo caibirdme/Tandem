@@ -3,7 +3,7 @@ export interface Model {
   id: string;
   name: string;
   reasoningEffort: 'low' | 'medium' | 'high' | null;
-  contextWindow: number | null;
+  contextWindow: number;
   maxOutputTokens: number | null;
 }
 export interface ModelSelection {
@@ -42,6 +42,10 @@ export interface Project {
 }
 export type SessionStatus = 'idle' | 'running' | 'error';
 export type PermissionMode = 'ask' | 'allow-all';
+export interface ContextUsage {
+  currentTokens: number;
+  tokenLimit: number;
+}
 export interface Session {
   titleState: 'preserved' | 'pending' | 'attempted';
   id: string;
@@ -53,6 +57,7 @@ export interface Session {
   updatedAt: string;
   status: SessionStatus;
   permissionMode: PermissionMode;
+  contextUsage: ContextUsage | null;
 }
 export interface Message {
   id: string;
@@ -95,6 +100,7 @@ export type RuntimeEvent = { sessionId: string } & (
   | { kind: 'error'; data: { message: string } }
   | { kind: 'title'; data: { title: string } }
   | { kind: 'title_error'; data: { message: string } }
+  | { kind: 'context_usage'; data: ContextUsage | null }
 );
 export interface DirectoryListing {
   path: string;

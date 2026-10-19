@@ -172,6 +172,18 @@ export function reduceTandem(state: TandemState, action: TandemAction): TandemSt
         return finishTitle(state, event.sessionId, { title: event.data.title });
       if (event.kind === 'title_error')
         return finishTitle(state, event.sessionId, { error: event.data.message });
+      if (event.kind === 'context_usage')
+        return {
+          ...state,
+          snapshot: state.snapshot && {
+            ...state.snapshot,
+            sessions: state.snapshot.sessions.map((session) =>
+              session.id === event.sessionId && session.projectId !== null
+                ? { ...session, contextUsage: event.data }
+                : session,
+            ),
+          },
+        };
       return updateConversation(state, event.sessionId, (conversation) =>
         reduceEvent(conversation, event),
       );
@@ -329,7 +341,17 @@ export function reduceTandem(state: TandemState, action: TandemAction): TandemSt
             ? {
                 ...state.snapshot,
                 sessions: state.snapshot.sessions.map((session) =>
-                  session.id === action.sessionId ? { ...session, ...action.selection } : session,
+                  session.id === action.sessionId
+                    ? {
+                        ...session,
+                        ...action.selection,
+                        contextUsage:
+                          session.providerId === action.selection.providerId &&
+                          session.modelId === action.selection.modelId
+                            ? session.contextUsage
+                            : null,
+                      }
+                    : session,
                 ),
               }
             : state.snapshot,
