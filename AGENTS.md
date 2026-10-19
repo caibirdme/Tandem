@@ -19,13 +19,14 @@ Tandem 是一个连接本地目录和 SSH 项目的 Agent 桌面应用。聊天�
 | `crates/tandem-server/`     | 远端 Agent 的 stdio 入口，随桌面资源分发    |
 | `crates/tandem-dev-server/` | 本机 HTTP 开发主机，调用应用服务            |
 | `tests/`                    | 真实协议集成验证及测试服务                  |
+| `.github/workflows/`        | PR 检测、桌面打包与 tag 发布                |
 | `docs/`                     | 架构、开发和验收记录                        |
 
 ## 文档入口
 
 - [README](README.md)：安装、启动和首次使用。
 - [架构](docs/architecture.md)：运行方式、权限和数据流。
-- [开发](docs/development.md)：质量门禁与打包。
+- [开发](docs/development.md)：质量门禁、PR 检测与发布。
 - [验收](docs/verification.md)：已执行验证及其边界。
 - [原始需求](what-to-do.md)：产品范围与技术约束。
 
@@ -49,5 +50,6 @@ Tandem 是一个连接本地目录和 SSH 项目的 Agent 桌面应用。聊天�
 - `just check-workspace`：验证 workspace 单向依赖，以及远端二进制不携带本机服务、数据库、凭证库或桌面框架。
 - `just build`：前端、`tandem-dev-server` 和 `tandem-server` 编译通过。
 - `just desktop-build`：当前平台桌面打包通过。
+- PR 须通过 CI 的 `Required checks` 才能合入 `main`。新增目录、构建输入或检测命令时，同步更新 `.github/workflows/ci.yml` 的路径规则与步骤。
 - 会话、供应商或权限变更，执行对应集成验证；在验收记录中写清使用真实服务还是测试服务。
 - 不提交密钥、缓存、构建产物和本地会话数据。

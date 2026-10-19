@@ -10,6 +10,20 @@ Linux 环境下 `just check`、`just build` 通过，包含前端 149 项、Rust
 
 验收前清除了测试进程继承的 `COPILOT_OFFLINE` 与供应商覆盖环境变量；离线配置会使 SDK 不公开网页工具。网页用例访问公开示例站点，因为 SDK 会拒绝回环地址；模型推理和遥测仍全部使用本地测试服务，没有使用真实供应商或真实密钥。本轮未执行桌面打包、原生界面或 SSH 部署验收。
 
+## PR 检测与 tag 发布（2026-10-19）
+
+原流水线对每次推送都在 macOS 和 Windows 上运行全部检查并打包，且从未通过：Windows 检出时把 LF 转为 CRLF，oxfmt 判定全部文件格式错误。现拆为三条：PR 检测按改动路径运行并汇总为 `Required checks`；可复用的打包流程；推送 `v*` tag 时校验版本、打包并上传到草稿 Release。格式和前端检查只在 Linux 运行，Rust 检测在 macOS 和 Windows 运行，并新增 Linux 上的 SSH 集成验收。
+
+本机 Linux x64 按 CI 的命令验证：actionlint（含 shellcheck）无告警；oxfmt、oxlint、类型检查、前端 149 项测试、生产构建、nightly rustfmt、依赖边界和 Python 29 项测试通过；全 workspace 严格 Clippy 与 Rust 103 项测试通过。真实 SDK/CLI 的本地集成通过，共 61 次推理（含 8 次标题）和 8 批 OTLP 导出；SSH 集成在隔离的 sshd 中通过，共 29 次推理和 23 批导出。两者都使用本地测试推理服务，没有访问真实供应商。用 paths-filter 相同的匹配库模拟 23 种改动组合，各检测的运行与跳过符合设计；tag 版本校验在一致时通过，不一致时列出对应文件并失败。
+
+本机 shell 设置 `COPILOT_OFFLINE=true` 时，本地集成会因聊天缺少 `web_fetch` 而失败，去掉该变量后通过；GitHub runner 不设置该变量。
+
+[PR #1](https://github.com/caibirdme/Tandem/pull/1) 在 GitHub runner 上运行：格式与前端检测通过；macOS 的 Rust 检测通过，含 103 项 Rust 测试和本地 SDK 集成；Windows 的 Rust 检测通过，含 98 项 Rust 测试和本地 SDK 集成，共 59 次推理，强制结束 SDK 的场景按脚本在 Windows 跳过；Linux 的 SSH 集成通过。首轮 Windows 检测曾在依赖边界检查失败：脚本按系统默认的 cp1252 解码 `cargo metadata` 的 UTF-8 输出，遇到非 ASCII 字节即报错，此前在中文 Windows 上按 GBK 解码碰巧通过。现改为显式按 UTF-8 解码。该轮 `Required checks` 随之失败，合入门禁按预期生效。
+
+首轮打包构建了四个远端 Agent 和 Apple 芯片、Intel、Windows 三个安装包，均成功；每个安装包约 900 MiB，主要来自内置的远端 Agent，每个压缩后约 180 MiB。随后发布范围收窄为 Apple 芯片 macOS 与 Windows x64 安装包，远端 Agent 只保留 Linux x64 和 Apple 芯片 macOS。收窄后的运行中，两个远端 Agent 和两个安装包均构建成功：DMG 约 529 MiB，Windows 的 MSI 与 NSIS 安装包各约 524 MiB；全部检测通过，`Required checks` 随之通过。
+
+tag 发布和草稿 Release 上传尚未实际运行，留待首次发版验证。
+
 ## Tandem 更名（2026-10-19）
 
 项目、桌面应用、Rust crate、前端标识、服务二进制、构建脚本和当前使用文档统一使用 Tandem。新安装使用 `app.tandem.desktop`、`tandem.sqlite3` 与 `tandem-server`；旧数据库、SDK 会话状态和旧远端产物目录环境变量保留读取兼容。远端部署新的 `tandem-server`，不把旧 `relay-server` 当作新版本复用。新旧数据各自存在时优先新数据，不自动合并。
@@ -221,5 +235,5 @@ just desktop-build
 
 - 指定的四模型已完成真实网关验收；该结果不代表其他模型、长期稳定性、额度上限或接近 1M 上下文时的压缩边界。测试服务回归另行验证固定的协议与异常路径。
 - macOS 应用已完成打包和上述原生窗口交互验收；这不代表全部系统权限提示、辅助功能组合或长时间运行情形均已覆盖。
-- Windows 客户端以及 Linux / Intel Mac 远端已配置 CI 构建，当前机器未执行这些平台的构建。当前本地产物只内置 Apple Silicon Mac 的远端服务。
-- 本地安装包使用 ad-hoc 签名，未配置正式发布签名和 Apple 公证。公开分发前需执行仓库中的跨平台流水线，并完成相应签名。
+- CI 已构建 Apple 芯片 macOS 与 Windows x64 安装包，以及 Linux x64 与 Apple 芯片 macOS 的远端 Agent；这些安装包尚未在对应系统上安装运行。Linux arm64 与 Intel Mac 不在发布范围内。本地 `just desktop-build` 的产物只内置本机平台的远端 Agent。
+- 本地和 tag 发布的安装包都使用 ad-hoc 签名，未配置正式签名和 Apple 公证；macOS 用户首次打开前需解除系统隔离。

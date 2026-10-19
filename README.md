@@ -4,6 +4,16 @@
 
 界面使用 React，桌面外壳使用 Tauri 2。Rust 服务通过固定版本的 GitHub Copilot SDK 驱动 Agent，无需 GitHub Copilot 订阅即可使用自己的 API Key。
 
+## 安装
+
+在 [Releases](https://github.com/caibirdme/Tandem/releases) 下载安装包：Mac 选 `.dmg`（仅支持 Apple 芯片），Windows 选 `x64-setup.exe` 或 `.msi`。
+
+macOS 安装包没有 Apple 签名和公证。将 Tandem 拖入「应用程序」后，首次打开前在终端执行：
+
+```sh
+xattr -dr com.apple.quarantine /Applications/Tandem.app
+```
+
 ## 启动
 
 需要 Node.js 24、pnpm 12、Rust 1.99.1、just，以及当前系统的 [Tauri 开发依赖](https://v2.tauri.app/start/prerequisites/)。macOS 安装 Xcode Command Line Tools；Windows 安装 Visual Studio C++ Build Tools 和 WebView2。
@@ -48,7 +58,7 @@ Windows 不打安装包时，可运行 `pnpm tauri build --no-bundle`，再打�
 
 更名前的远端也会部署新的 `tandem-server`。SDK 状态默认放在 `~/.local/share/tandem/runtime`；该目录不存在而旧 `~/.local/share/relay/runtime` 已存在时，会原地使用旧状态以继续原会话。不会复用旧的 `relay-server` 程序。
 
-桌面支持 macOS 和 Windows；远端支持 Linux 和 macOS。开发构建通过 `just remote-build` 准备本机平台的服务。连接不同平台时，将该平台服务放入 `src-tauri/remote/<Rust target>/tandem-server` 后打包，或用 `TANDEM_REMOTE_ARTIFACTS` 指定产物目录。CI 会分别构建 Linux/macOS 服务并放入桌面包。缺少匹配产物时，连接测试会明确报告目标平台。
+桌面支持 macOS 和 Windows；远端支持 Linux 和 macOS。开发构建通过 `just remote-build` 准备本机平台的服务。连接不同平台时，将该平台服务放入 `src-tauri/remote/<Rust target>/tandem-server` 后打包，或用 `TANDEM_REMOTE_ARTIFACTS` 指定产物目录。发布流水线会分别构建 Linux/macOS 服务并放入桌面包。缺少匹配产物时，连接测试会明确报告目标平台。
 
 ## 遥测
 
@@ -68,4 +78,4 @@ just integration    # 真实 SDK/CLI 与可控供应商的端到端验证
 just desktop-build  # 打包当前平台桌面应用及本机远端服务
 ```
 
-[架构](docs/architecture.md)介绍模块边界与权限；[开发说明](docs/development.md)介绍质量门禁和打包；[验收记录](docs/verification.md)区分已验证行为和需要真实服务的检查。
+[架构](docs/architecture.md)介绍模块边界与权限；[开发说明](docs/development.md)介绍质量门禁、PR 检测和发布；[验收记录](docs/verification.md)区分已验证行为和需要真实服务的检查。
