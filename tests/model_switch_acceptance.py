@@ -19,7 +19,7 @@ def stored_session(app, session_id):
 
 
 def require_saved_model(directory, session):
-    database = directory / "data" / "relay.sqlite3"
+    database = directory / "data" / "tandem.sqlite3"
     with closing(sqlite3.connect(database.as_uri() + "?mode=ro", uri=True)) as connection:
         row = connection.execute(
             "SELECT provider_id, data FROM sessions WHERE id=?", (session["id"],)
@@ -107,7 +107,7 @@ def check_wire_turn(app, fixture, session, prompt, expected_path):
     require(after[:len(before)] == before, "Model-change turn lost or rewrote the original transcript")
     require(
         after[-1]["role"] == "assistant"
-        and after[-1]["content"] == "RELAY_MODEL_SWITCH_OK " + session["modelId"],
+        and after[-1]["content"] == "TANDEM_MODEL_SWITCH_OK " + session["modelId"],
         "New model response was not persisted in the original conversation",
     )
     return events
@@ -171,7 +171,7 @@ def check_model_switching(app, fixture, providers, directory, automatic):
     app.wait_event(chat["id"], lambda event: event["kind"] == "message" and event["data"].get("role") == "assistant")
     app.wait_idle(chat["id"])
     require(
-        app.command("messages", sessionId=chat["id"])[-1]["content"] == "RELAY_SLOW_OK",
+        app.command("messages", sessionId=chat["id"])[-1]["content"] == "TANDEM_SLOW_OK",
         "Rejected model change interrupted the in-flight response",
     )
 

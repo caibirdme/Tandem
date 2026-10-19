@@ -384,7 +384,8 @@ export function Chat(props: ChatProps) {
               ) : message.role === 'assistant' ? (
                 <article className="assistant-message" key={message.id}>
                   <div className="assistant-label">
-                    <span className="mini-logo">r</span>Relay
+                    <img className="mini-logo" src="/tandem.svg" alt="" />
+                    Tandem
                   </div>
                   <Markdown content={message.content} />
                   {message.interrupted && <span className="interrupted-label">输出已停止</span>}
@@ -403,7 +404,8 @@ export function Chat(props: ChatProps) {
             {props.conversation.stream && (
               <article className="assistant-message streaming">
                 <div className="assistant-label">
-                  <span className="mini-logo">r</span>Relay
+                  <img className="mini-logo" src="/tandem.svg" alt="" />
+                  Tandem
                 </div>
                 <Markdown content={props.conversation.stream} />
               </article>

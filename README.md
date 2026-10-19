@@ -1,4 +1,4 @@
-# Relay
+# Tandem
 
 一个用于聊天和项目工作的 Agent 桌面应用。选择自己的模型供应商，直接聊天；或者打开本地、SSH 目录，让 Agent 在项目中读文件、改代码、执行任务。
 
@@ -17,6 +17,12 @@ just dev         # 打开桌面应用
 
 通用设置中的「Copilot CLI 路径」是调试用的可选覆盖项，日常使用保持为空。
 
+## 从 Relay 升级
+
+直接打开 Tandem 即可继续使用已有项目、供应商和会话。新安装使用 Tandem 的应用数据目录和 `tandem.sqlite3`；已有 Relay 数据时，应用会原地读取旧目录及数据库，包括 SDK 会话状态。若新旧目录都已有数据库，以 Tandem 目录为准，不自动合并数据。
+
+Windows 不打安装包时，可运行 `pnpm tauri build --no-bundle`，再打开 `target/release/tandem-desktop.exe`。
+
 ## 第一次使用
 
 1. 打开左下角「设置」，添加供应商。选择 OpenAI Completions、OpenAI Responses 或 Anthropic，填写服务地址和 API Key。
@@ -30,17 +36,19 @@ just dev         # 打开桌面应用
 
 供应商地址要填写 API 基础地址，例如 `https://api.example.com/v1`，不要填写到具体的 `chat/completions` 或 `responses` 路径。API 密钥直接保存在本机配置中，重启后仍可使用。编辑供应商时，密钥默认隐藏；点击输入框旁的眼睛按钮可显示或再次隐藏，修改后点击保存即可。留空保留现有密钥，需要移除时使用「清除已保存的密钥」。
 
-应用不再使用系统钥匙串，也不迁移旧版密钥。升级到此版本后，旧版供应商需要重新填写一次 API Key。
+应用不使用系统钥匙串。从早期使用钥匙串的版本升级时，需要重新填写一次 API Key；本次名称变更会保留已保存在本机数据库中的密钥。
 
 聊天和工作会在首轮回复完成后自动总结标题。在「设置 → 对话标题」中，可以从已配置的供应商模型中选择标题总结模型，也可跟随当前对话的模型。标题生成在后台进行，不阻塞任务；手动修改的标题会保留。已有会话可从选项菜单选择「重新生成标题」。
 
 ## SSH 项目
 
-先在系统终端中完成一次 SSH 登录，确认主机指纹并配置密钥或 ssh-agent。Relay 使用系统 OpenSSH 的配置和已信任主机记录，不保存登录密码。
+先在系统终端中完成一次 SSH 登录，确认主机指纹并配置密钥或 ssh-agent。Tandem 使用系统 OpenSSH 的配置和已信任主机记录，不保存登录密码。
 
-在「新建项目」中选择 SSH，填写主机、端口、用户和可选私钥路径，再测试连接、选择远端目录。应用检测远端系统，将匹配的 `relay-server` 上传到 `~/.local/share/relay/bin/`，通过 SSH 的标准输入输出建立双向通道。远端不开放额外网络端口。
+在「新建项目」中选择 SSH，填写主机、端口、用户和可选私钥路径，再测试连接、选择远端目录。应用检测远端系统，将匹配的 `tandem-server` 上传到 `~/.local/share/tandem/bin/`，通过 SSH 的标准输入输出建立双向通道。远端不开放额外网络端口。
 
-桌面支持 macOS 和 Windows；远端支持 Linux 和 macOS。开发构建通过 `just remote-build` 准备本机平台的服务。连接不同平台时，将该平台服务放入 `src-tauri/remote/<Rust target>/relay-server` 后打包，或用 `RELAY_REMOTE_ARTIFACTS` 指定产物目录。CI 会分别构建 Linux/macOS 服务并放入桌面包。缺少匹配产物时，连接测试会明确报告目标平台。
+更名前的远端也会部署新的 `tandem-server`。SDK 状态默认放在 `~/.local/share/tandem/runtime`；该目录不存在而旧 `~/.local/share/relay/runtime` 已存在时，会原地使用旧状态以继续原会话。不会复用旧的 `relay-server` 程序。
+
+桌面支持 macOS 和 Windows；远端支持 Linux 和 macOS。开发构建通过 `just remote-build` 准备本机平台的服务。连接不同平台时，将该平台服务放入 `src-tauri/remote/<Rust target>/tandem-server` 后打包，或用 `TANDEM_REMOTE_ARTIFACTS` 指定产物目录。CI 会分别构建 Linux/macOS 服务并放入桌面包。缺少匹配产物时，连接测试会明确报告目标平台。
 
 ## 遥测
 
@@ -52,7 +60,7 @@ just dev         # 打开桌面应用
 
 测试还需要 Python 3.9 或更新版本，只使用标准库。
 
-只改界面时，在两个终端分别运行 `just server` 和 `just web`。前者启动本机 HTTP 开发主机 `relay-dev-server`，并先构建 SSH 所需的远端 Agent。上传到远端和放进桌面资源的始终是 `relay-server`；开发主机不随应用分发。
+只改界面时，在两个终端分别运行 `just server` 和 `just web`。前者启动本机 HTTP 开发主机 `tandem-dev-server`，并先构建 SSH 所需的远端 Agent。上传到远端和放进桌面资源的始终是 `tandem-server`；开发主机不随应用分发。
 
 ```sh
 just check          # 格式、类型、lint 和单元测试

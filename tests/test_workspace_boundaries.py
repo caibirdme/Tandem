@@ -34,10 +34,10 @@ class WorkspaceBoundariesTests(unittest.TestCase):
     def test_desktop_storage_and_test_only_dependencies_do_not_leak_into_server(self):
         metadata = resolved_graph(
             [
-                ("relay-core", "rusqlite", None),
-                ("relay-core", "keyring", None),
-                ("relay-desktop", "tauri-build", "build"),
-                ("relay-server", "relay-core", "dev"),
+                ("tandem-core", "rusqlite", None),
+                ("tandem-core", "keyring", None),
+                ("tandem-desktop", "tauri-build", "build"),
+                ("tandem-server", "tandem-core", "dev"),
             ]
         )
         self.assertEqual(violations(metadata), [])
@@ -59,25 +59,25 @@ class WorkspaceBoundariesTests(unittest.TestCase):
                 )
 
     def test_reverse_workspace_dependency_is_rejected(self):
-        metadata = resolved_graph([("relay-protocol", "relay-remote", None)])
+        metadata = resolved_graph([("tandem-protocol", "tandem-remote", None)])
         self.assertIn(
-            "Invalid workspace dependency: relay-protocol -> relay-remote.",
+            "Invalid workspace dependency: tandem-protocol -> tandem-remote.",
             violations(metadata),
         )
 
     def test_core_cannot_transitively_depend_on_tauri(self):
         metadata = resolved_graph(
             [
-                ("relay-core", "helper", None),
+                ("tandem-core", "helper", None),
                 ("helper", "tauri-runtime", None),
             ]
         )
         self.assertTrue(
-            any("found in relay-core" in error for error in violations(metadata))
+            any("found in tandem-core" in error for error in violations(metadata))
         )
 
     def test_added_workspace_crate_requires_an_explicit_boundary(self):
-        metadata = resolved_graph([("relay-core", "new-component", None)])
+        metadata = resolved_graph([("tandem-core", "new-component", None)])
         metadata["workspace_members"].append("new-component")
         self.assertTrue(
             any(

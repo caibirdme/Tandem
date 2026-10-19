@@ -27,7 +27,7 @@ class CredentialScanTests(unittest.TestCase):
             ):
                 root = Path(temporary)
                 (root / "data").mkdir()
-                database = root / "data" / "relay.sqlite3"
+                database = root / "data" / "tandem.sqlite3"
                 with closing(sqlite3.connect(database)) as connection:
                     connection.executescript("""
                         CREATE TABLE provider_secrets(id TEXT, secret TEXT, notes TEXT);
@@ -41,15 +41,15 @@ class CredentialScanTests(unittest.TestCase):
                 allowed = (table, column) == ("provider_secrets", "secret")
                 self.assertEqual(
                     scan_for_key(root, MARKER, allow_local_vault=True),
-                    [] if allowed else ["data/relay.sqlite3"],
+                    [] if allowed else ["data/tandem.sqlite3"],
                 )
-                self.assertEqual(scan_for_key(root, MARKER), ["data/relay.sqlite3"])
+                self.assertEqual(scan_for_key(root, MARKER), ["data/tandem.sqlite3"])
 
     def test_committed_wal_is_checked_through_its_logical_tables(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             (root / "data").mkdir()
-            database = root / "data" / "relay.sqlite3"
+            database = root / "data" / "tandem.sqlite3"
             with closing(sqlite3.connect(database)) as connection:
                 connection.executescript("""
                     PRAGMA journal_mode=WAL;
@@ -69,12 +69,12 @@ class CredentialScanTests(unittest.TestCase):
                 self.assertNotIn(MARKER.encode(), database.read_bytes())
                 self.assertEqual(
                     scan_for_key(root, MARKER, allow_local_vault=True),
-                    ["data/relay.sqlite3"],
+                    ["data/tandem.sqlite3"],
                 )
 
     def test_schema_and_other_database_files_are_not_exempt(self):
         for filename, statement in [
-            ("relay.sqlite3", f"CREATE TABLE example(data TEXT DEFAULT '{MARKER}')"),
+            ("tandem.sqlite3", f"CREATE TABLE example(data TEXT DEFAULT '{MARKER}')"),
             ("other.sqlite3", "CREATE TABLE provider_secrets(secret TEXT)"),
         ]:
             with (
@@ -85,7 +85,7 @@ class CredentialScanTests(unittest.TestCase):
                 (root / "data").mkdir()
                 with closing(sqlite3.connect(root / "data" / filename)) as connection:
                     connection.execute(statement)
-                    if filename != "relay.sqlite3":
+                    if filename != "tandem.sqlite3":
                         connection.execute(
                             "INSERT INTO provider_secrets VALUES(?)", (MARKER,)
                         )
@@ -110,14 +110,14 @@ class CredentialScanTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             (root / "data").mkdir()
-            (root / "data" / "relay.sqlite3-wal").write_text(MARKER)
+            (root / "data" / "tandem.sqlite3-wal").write_text(MARKER)
             self.assertEqual(
                 scan_for_key(root, MARKER, allow_local_vault=True),
-                ["data/relay.sqlite3-wal"],
+                ["data/tandem.sqlite3-wal"],
             )
-            (root / "data" / "relay.sqlite3").write_text("invalid SQLite")
+            (root / "data" / "tandem.sqlite3").write_text("invalid SQLite")
             self.assertIn(
-                "data/relay.sqlite3", scan_for_key(root, MARKER, allow_local_vault=True)
+                "data/tandem.sqlite3", scan_for_key(root, MARKER, allow_local_vault=True)
             )
 
 

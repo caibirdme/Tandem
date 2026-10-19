@@ -18,7 +18,7 @@ import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { Chat } from './components/Chat';
 import { Sidebar } from './components/Sidebar';
 import { Modal, Notice, Spinner } from './components/ui';
-import { useRelay } from './hooks/useRelay';
+import { useTandem } from './hooks/useTandem';
 import { dispatch, errorMessage } from './lib/api';
 import { newSessionPayload } from './lib/sessionOptions';
 import type { ModelSelection, PermissionMode, Project, Session } from './lib/types';
@@ -29,7 +29,7 @@ const ProjectDialog = lazy(async () => ({
 }));
 
 export function App() {
-  const relay = useRelay();
+  const tandem = useTandem();
   const [projectId, setProjectId] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [projectOpen, setProjectOpen] = useState(false);
@@ -47,8 +47,8 @@ export function App() {
   } | null>(null);
   const [deleteProject, setDeleteProject] = useState<Project | null>(null);
   const [sessionTitle, setSessionTitle] = useState('');
-  const snapshot = relay.snapshot;
-  const session = snapshot?.sessions.find((item) => item.id === relay.activeSessionId);
+  const snapshot = tandem.snapshot;
+  const session = snapshot?.sessions.find((item) => item.id === tandem.activeSessionId);
   const project = snapshot?.projects.find((item) => item.id === (session?.projectId ?? projectId));
   const sendScope = session?.id ?? viewKey;
   const sending = sendingScopes.has(sendScope);
@@ -67,7 +67,7 @@ export function App() {
       : firstProvider && defaultModel
         ? { providerId: firstProvider.id, modelId: defaultModel.id }
         : null;
-  const { setActiveSessionId } = relay;
+  const { setActiveSessionId } = tandem;
   const newDraft = useCallback(
     (targetProjectId: string | null) => {
       navigationRevision.current += 1;
@@ -117,14 +117,14 @@ export function App() {
           return next;
         });
         requestScope = targetId;
-        relay.addSession(target, navigationRevision.current === submittedNavigation);
+        tandem.addSession(target, navigationRevision.current === submittedNavigation);
       }
       if (target.projectId && target.permissionMode !== permissionMode) {
-        const confirmedMode = await relay.changePermissionMode(target.id, permissionMode);
+        const confirmedMode = await tandem.changePermissionMode(target.id, permissionMode);
         if (confirmedMode !== permissionMode)
           throw new Error('未能确认所选工具权限，消息尚未发送。请重新确认权限后再试。');
       }
-      await relay.send(target.id, content);
+      await tandem.send(target.id, content);
     } finally {
       setSendingScopes((current) => {
         const next = new Set(current);
@@ -135,21 +135,21 @@ export function App() {
   }
   async function install() {
     setInstalling(true);
-    relay.setError(null);
+    tandem.setError(null);
     try {
       await dispatch('install_runtime', {});
-      await relay.reload();
+      await tandem.reload();
     } catch (reason) {
-      relay.setError(errorMessage(reason));
+      tandem.setError(errorMessage(reason));
     } finally {
       setInstalling(false);
     }
   }
   function selectSession(value: Session) {
-    if (value.id === relay.activeSessionId) return;
+    if (value.id === tandem.activeSessionId) return;
     navigationRevision.current += 1;
     setViewKey(crypto.randomUUID());
-    relay.setActiveSessionId(value.id);
+    tandem.setActiveSessionId(value.id);
     setProjectId(value.projectId);
     if (window.innerWidth < 800) setSidebarOpen(false);
   }
@@ -160,18 +160,18 @@ export function App() {
   async function actOnSession() {
     if (!sessionAction) return;
     setActionBusy(true);
-    relay.setError(null);
+    tandem.setError(null);
     try {
       if (sessionAction.action === 'rename')
-        await relay.renameSession(sessionAction.session.id, sessionTitle.trim());
+        await tandem.renameSession(sessionAction.session.id, sessionTitle.trim());
       else {
-        await relay.deleteSession(sessionAction.session.id);
-        if (relay.activeSessionId === sessionAction.session.id) newDraft(project?.id ?? null);
+        await tandem.deleteSession(sessionAction.session.id);
+        if (tandem.activeSessionId === sessionAction.session.id) newDraft(project?.id ?? null);
       }
-      await relay.reload();
+      await tandem.reload();
       setSessionAction(null);
     } catch (reason) {
-      relay.setError(errorMessage(reason));
+      tandem.setError(errorMessage(reason));
     } finally {
       setActionBusy(false);
     }
@@ -193,9 +193,9 @@ export function App() {
           <Sidebar
             sessions={snapshot?.sessions ?? []}
             projects={snapshot?.projects ?? []}
-            activeSessionId={relay.activeSessionId}
+            activeSessionId={tandem.activeSessionId}
             activeProjectId={project?.id ?? null}
-            connected={relay.connected}
+            connected={tandem.connected}
             onNewChat={newChat}
             onSession={selectSession}
             onProject={selectProject}
@@ -204,9 +204,9 @@ export function App() {
             onDeleteSession={(value) => setSessionAction({ session: value, action: 'delete' })}
             onRenameSession={rename}
             onRegenerateTitle={(value) => {
-              void relay.regenerateTitle(value.id);
+              void tandem.regenerateTitle(value.id);
             }}
-            titleGenerations={relay.titleGenerations}
+            titleGenerations={tandem.titleGenerations}
             onClose={() => setSidebarOpen(false)}
           />
         </>
@@ -235,7 +235,7 @@ export function App() {
             <span className="current-session-title">
               {session?.title || (project ? '新工作' : '新对话')}
             </span>
-            {session && relay.titleGenerations.has(session.id) && (
+            {session && tandem.titleGenerations.has(session.id) && (
               <output className="title-progress">
                 <Spinner size={12} />
                 正在生成标题
@@ -277,21 +277,21 @@ export function App() {
                   {session && (
                     <Dropdown.Item
                       className="dropdown-item"
-                      disabled={!relay.connected || relay.titleGenerations.has(session.id)}
+                      disabled={!tandem.connected || tandem.titleGenerations.has(session.id)}
                       onSelect={() => {
-                        void relay.regenerateTitle(session.id);
+                        void tandem.regenerateTitle(session.id);
                       }}
                     >
                       <Sparkles size={14} />
-                      {relay.titleGenerations.has(session.id) ? '正在生成标题…' : '重新生成标题'}
+                      {tandem.titleGenerations.has(session.id) ? '正在生成标题…' : '重新生成标题'}
                     </Dropdown.Item>
                   )}
                   <Dropdown.Item
                     className="dropdown-item"
                     onSelect={() => {
-                      void relay
+                      void tandem
                         .reload()
-                        .catch((reason: unknown) => relay.setError(errorMessage(reason)));
+                        .catch((reason: unknown) => tandem.setError(errorMessage(reason)));
                     }}
                   >
                     <RefreshCw size={14} />
@@ -311,15 +311,15 @@ export function App() {
             </Dropdown.Root>
           </div>
         </header>
-        {session && relay.titleError && (
+        {session && tandem.titleError && (
           <div className="title-notice">
             <Notice tone="neutral">
-              <span>标题生成失败：{relay.titleError}。原标题已保留。</span>
+              <span>标题生成失败：{tandem.titleError}。原标题已保留。</span>
               <button
                 className="text-button"
-                disabled={!relay.connected || relay.titleGenerations.has(session.id)}
+                disabled={!tandem.connected || tandem.titleGenerations.has(session.id)}
                 onClick={() => {
-                  void relay.regenerateTitle(session.id);
+                  void tandem.regenerateTitle(session.id);
                 }}
               >
                 重新生成
@@ -327,23 +327,23 @@ export function App() {
               <button
                 className="icon-button"
                 aria-label="关闭标题提示"
-                onClick={() => relay.dismissTitleError(session.id)}
+                onClick={() => tandem.dismissTitleError(session.id)}
               >
                 <X size={14} />
               </button>
             </Notice>
           </div>
         )}
-        {relay.error && (
+        {tandem.error && (
           <div className="global-error">
             <Notice>
-              {relay.error}
+              {tandem.error}
               <button
                 className="text-button"
                 onClick={() => {
-                  void relay
+                  void tandem
                     .reload()
-                    .catch((reason: unknown) => relay.setError(errorMessage(reason)));
+                    .catch((reason: unknown) => tandem.setError(errorMessage(reason)));
                 }}
               >
                 重试
@@ -352,7 +352,7 @@ export function App() {
             </Notice>
           </div>
         )}
-        {relay.loading ? (
+        {tandem.loading ? (
           <div className="app-loading">
             <Spinner size={23} />
             <span>正在连接你的工作空间…</span>
@@ -366,31 +366,31 @@ export function App() {
             selection={effectiveSelection}
             onSelection={(value) => {
               if (session)
-                void relay
+                void tandem
                   .changeSessionModel(session.id, value)
-                  .catch((reason: unknown) => relay.setError(errorMessage(reason)));
+                  .catch((reason: unknown) => tandem.setError(errorMessage(reason)));
               else setSelection(value);
             }}
-            modelSaving={relay.modelSaving}
-            modelError={relay.modelError}
+            modelSaving={tandem.modelSaving}
+            modelError={tandem.modelError}
             onConfirmModel={() => {
               if (session)
-                void relay
+                void tandem
                   .confirmSessionModel(session.id)
-                  .catch((reason: unknown) => relay.setError(errorMessage(reason)));
+                  .catch((reason: unknown) => tandem.setError(errorMessage(reason)));
             }}
-            conversation={relay.conversation}
-            historyLoading={relay.historyLoading}
-            historyLoaded={relay.historyLoaded}
-            onReloadHistory={relay.reloadHistory}
+            conversation={tandem.conversation}
+            historyLoading={tandem.historyLoading}
+            historyLoaded={tandem.historyLoaded}
+            onReloadHistory={tandem.reloadHistory}
             sending={sending}
-            permissionModeSaving={relay.permissionModeSaving}
-            permissionModeError={relay.permissionModeError}
+            permissionModeSaving={tandem.permissionModeSaving}
+            permissionModeError={tandem.permissionModeError}
             onPermissionMode={(mode) => {
-              if (session) void relay.changePermissionMode(session.id, mode);
+              if (session) void tandem.changePermissionMode(session.id, mode);
             }}
             onConfirmPermissionMode={() => {
-              if (session) void relay.confirmPermissionMode(session.id);
+              if (session) void tandem.confirmPermissionMode(session.id);
             }}
             runtime={snapshot?.runtime}
             installing={installing}
@@ -402,13 +402,13 @@ export function App() {
             onAbort={() => {
               if (session)
                 void dispatch('abort_session', { sessionId: session.id }).catch((reason: unknown) =>
-                  relay.setError(errorMessage(reason)),
+                  tandem.setError(errorMessage(reason)),
                 );
             }}
             onPermission={async (requestId, approved) => {
-              if (session) await relay.respondPermission(session.id, requestId, approved);
+              if (session) await tandem.respondPermission(session.id, requestId, approved);
             }}
-            connected={relay.connected}
+            connected={tandem.connected}
           />
         )}
       </main>
@@ -418,7 +418,7 @@ export function App() {
             open={settingsOpen}
             onClose={() => setSettingsOpen(false)}
             settings={snapshot.settings}
-            onSaved={relay.reload}
+            onSaved={tandem.reload}
           />
         )}
         {projectOpen && (
@@ -426,7 +426,7 @@ export function App() {
             open={projectOpen}
             onClose={() => setProjectOpen(false)}
             onCreated={async (value) => {
-              await relay.reload();
+              await tandem.reload();
               selectProject(value);
             }}
           />
@@ -451,7 +451,7 @@ export function App() {
             void actOnSession();
           }}
         >
-          {relay.error && <Notice>{relay.error}</Notice>}
+          {tandem.error && <Notice>{tandem.error}</Notice>}
           {sessionAction?.action === 'rename' ? (
             <label>
               对话标题
@@ -488,7 +488,7 @@ export function App() {
         description="移除项目及其会话记录。项目目录中的文件会保留。"
       >
         <div className="simple-form">
-          {relay.error && <Notice>{relay.error}</Notice>}
+          {tandem.error && <Notice>{tandem.error}</Notice>}
           <p>确认移除「{deleteProject?.name}」？</p>
           <div className="form-footer">
             <button className="button" onClick={() => setDeleteProject(null)}>
@@ -500,15 +500,15 @@ export function App() {
               onClick={() => {
                 if (!deleteProject) return;
                 setActionBusy(true);
-                relay.setError(null);
-                void relay
+                tandem.setError(null);
+                void tandem
                   .deleteProject(deleteProject.id)
                   .then(async () => {
                     if (project?.id === deleteProject.id) newChat();
-                    await relay.reload();
+                    await tandem.reload();
                     setDeleteProject(null);
                   })
-                  .catch((reason: unknown) => relay.setError(errorMessage(reason)))
+                  .catch((reason: unknown) => tandem.setError(errorMessage(reason)))
                   .finally(() => setActionBusy(false));
               }}
             >

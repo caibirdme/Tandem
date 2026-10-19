@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { createModelChanges } from './modelChanges';
 import { createPermissionModeChanges } from './permissionModeChanges';
 import { protectedSessionIds } from './reconcile';
-import { initialRelayState, reduceRelay } from './relayState';
+import { initialTandemState, reduceTandem } from './tandemState';
 import type { ModelSelection, Session, Snapshot } from './types';
 
 const session: Session = {
@@ -42,12 +42,12 @@ function deferred<T>() {
 }
 
 function setup() {
-  let state = reduceRelay(initialRelayState, {
+  let state = reduceTandem(initialTandemState, {
     type: 'snapshotReceived',
     snapshot,
     protectedIds: new Set(),
   });
-  state = reduceRelay(state, {
+  state = reduceTandem(state, {
     type: 'historyReceived',
     sessionId: session.id,
     messages: [
@@ -67,8 +67,8 @@ function setup() {
     advance: (id: string) => {
       revisions[id] = (revisions[id] ?? 0) + 1;
     },
-    update: (event: Parameters<typeof reduceRelay>[1]) => {
-      state = reduceRelay(state, event);
+    update: (event: Parameters<typeof reduceTandem>[1]) => {
+      state = reduceTandem(state, event);
     },
   };
   const save = vi.fn(async (_id: string, value: ModelSelection) => value);

@@ -1,14 +1,14 @@
 [workspace]
 members = [
   "crates/copilot-runtime",
-  "crates/relay-core",
-  "crates/relay-dev-server",
-  "crates/relay-protocol",
-  "crates/relay-remote",
-  "crates/relay-server",
+  "crates/tandem-core",
+  "crates/tandem-dev-server",
+  "crates/tandem-protocol",
+  "crates/tandem-remote",
+  "crates/tandem-server",
   "src-tauri",
 ]
-default-members = ["crates/relay-dev-server"]
+default-members = ["crates/tandem-dev-server"]
 resolver = "3"
 
 [workspace.package]

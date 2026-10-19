@@ -12,10 +12,10 @@ if (target.includes('windows')) {
   process.exit(0);
 }
 const explicit = process.argv[2] !== undefined;
-const source = join('target', ...(explicit ? [target] : []), 'release', 'relay-server');
+const source = join('target', ...(explicit ? [target] : []), 'release', 'tandem-server');
 if (!existsSync(source)) throw new Error(`Build ${source} before preparing remote artifacts.`);
 const destination = join('src-tauri', 'remote', target);
 mkdirSync(destination, { recursive: true });
-copyFileSync(source, join(destination, 'relay-server'));
-chmodSync(join(destination, 'relay-server'), 0o700);
+copyFileSync(source, join(destination, 'tandem-server'));
+chmodSync(join(destination, 'tandem-server'), 0o700);
 console.info(`Prepared SSH server for ${target}.`);

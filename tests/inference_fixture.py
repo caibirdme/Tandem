@@ -14,7 +14,7 @@ FIXTURE_KEY = "fixture-only-not-a-credential"
 
 
 def is_title_request(body):
-    return "RELAY_TITLE_SUMMARY" in json.dumps(body, ensure_ascii=False)
+    return "TANDEM_TITLE_SUMMARY" in json.dumps(body, ensure_ascii=False)
 
 
 class Fixture:
@@ -103,9 +103,9 @@ class Fixture:
                 },
             }
         if "fixture:model-switch" in prompt:
-            return "RELAY_MODEL_SWITCH_OK " + body["model"]
+            return "TANDEM_MODEL_SWITCH_OK " + body["model"]
         if "fixture:slow" in prompt:
-            return "RELAY_SLOW_OK"
+            return "TANDEM_SLOW_OK"
         if not completed_tool and any(
             tag in prompt for tag in ("fixture:work-shell", "fixture:work-mode-shell")
         ):
@@ -174,7 +174,7 @@ class Fixture:
                     "file_text": "approved once\n",
                 },
             }
-        return "RELAY_WORK_OK" if "fixture:work" in prompt else "RELAY_CHAT_OK"
+        return "TANDEM_WORK_OK" if "fixture:work" in prompt else "TANDEM_CHAT_OK"
 
 
 def handler_for(fixture):
@@ -333,7 +333,7 @@ def handler_for(fixture):
                             ],
                         }
                     )
-                    if response == "RELAY_SLOW_OK" and content == response[:6]:
+                    if response == "TANDEM_SLOW_OK" and content == response[:6]:
                         fixture.release_slow_response.wait(30)
                 finish = "stop"
             self.event(
@@ -350,7 +350,7 @@ def handler_for(fixture):
             self.event("[DONE]")
 
         def openai_responses(self, body, response):
-            text = response if isinstance(response, str) else "RELAY_CHAT_OK"
+            text = response if isinstance(response, str) else "TANDEM_CHAT_OK"
             response_id = "resp_fixture"
             item = {
                 "id": "msg_fixture",
@@ -438,7 +438,7 @@ def handler_for(fixture):
             )
 
         def anthropic(self, body, response):
-            text = response if isinstance(response, str) else "RELAY_CHAT_OK"
+            text = response if isinstance(response, str) else "TANDEM_CHAT_OK"
             if body.get("stream") is not True:
                 self.send_json({
                     "id": "msg_fixture",

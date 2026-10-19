@@ -121,7 +121,7 @@ export function Settings({
             通用
           </button>
           <div className="settings-version">
-            Relay <span>{version}</span>
+            Tandem <span>{version}</span>
           </div>
         </nav>
         <div className="settings-content" key={tab}>
@@ -572,11 +572,9 @@ function Preferences({
             </small>
           </label>
           <div className="about-card">
-            <span className="brand-symbol">
-              r<span />
-            </span>
+            <img className="brand-symbol" src="/tandem.svg" alt="" />
             <div>
-              <h4>Relay</h4>
+              <h4>Tandem</h4>
               <p>让想法与行动相连。</p>
               <span>基于 GitHub Copilot SDK · v1.0.23-preview.5</span>
             </div>

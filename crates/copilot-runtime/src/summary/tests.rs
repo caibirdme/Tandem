@@ -142,7 +142,7 @@ async fn start(protocol: ProviderProtocol) -> (Server, Value, JoinHandle<Result<
     let (provider, model) = settings(protocol);
     let result = tokio::spawn(async move {
         runtime
-            .summarize_title(provider, model, "RELAY_TITLE_SUMMARY\n\"quoted input\"")
+            .summarize_title(provider, model, "TANDEM_TITLE_SUMMARY\n\"quoted input\"")
             .await
     });
     let mut server = Server {
@@ -210,7 +210,7 @@ async fn sends_no_tools_preserves_token_limits_and_returns_complete_text_after_d
         let send = server.acknowledge("session.send").await;
         assert_eq!(
             send["params"]["prompt"],
-            "RELAY_TITLE_SUMMARY\n\"quoted input\""
+            "TANDEM_TITLE_SUMMARY\n\"quoted input\""
         );
         server
             .event("assistant.message_delta", json!({"deltaContent":"partial"}))

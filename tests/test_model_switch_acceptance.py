@@ -8,7 +8,7 @@ from model_switch_acceptance import require_wire_history
 class ModelSwitchHistoryTests(unittest.TestCase):
     transcript = [
         {"role": "user", "content": 'Keep "original" history.\n保留上下文'},
-        {"role": "assistant", "content": "RELAY_MODEL_SWITCH_OK old-model"},
+        {"role": "assistant", "content": "TANDEM_MODEL_SWITCH_OK old-model"},
     ]
 
     def test_history_content_and_roles_survive_each_supported_wire_format(self):

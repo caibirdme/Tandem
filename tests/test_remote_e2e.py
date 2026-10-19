@@ -25,10 +25,10 @@ class BinaryRolesTests(unittest.TestCase):
                         sources[0], sources[1] if include_dev else None, staged,
                     )
                     self.assertEqual(remote.read_bytes(), b"remote")
-                    self.assertEqual(remote.stem, "relay-server")
+                    self.assertEqual(remote.stem, "tandem-server")
                     if include_dev:
                         self.assertEqual(dev.read_bytes(), b"dev")
-                        self.assertEqual(dev.stem, "relay-dev-server")
+                        self.assertEqual(dev.stem, "tandem-dev-server")
                         self.assertEqual(remote.parent, dev.parent)
                     else:
                         self.assertIsNone(dev)

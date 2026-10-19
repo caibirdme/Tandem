@@ -28,7 +28,7 @@ def require_provider_key(app, provider_id, expected):
 
 
 def require_local_secret(directory, provider_id, expected):
-    database = directory / "data" / "relay.sqlite3"
+    database = directory / "data" / "tandem.sqlite3"
     with closing(
         sqlite3.connect(database.as_uri() + "?mode=ro", uri=True)
     ) as connection:
@@ -92,7 +92,7 @@ def scan_for_key(directory, key, *, allow_local_vault=False):
     require(bool(key), "Credential scan requires a non-empty marker")
     directory = directory.resolve()
     marker = key.encode()
-    database = directory / "data" / "relay.sqlite3"
+    database = directory / "data" / "tandem.sqlite3"
     checked_database_files = set()
     leaks = []
     if allow_local_vault and database.is_file() and not database.is_symlink():

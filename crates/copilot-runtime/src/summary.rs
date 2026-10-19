@@ -46,7 +46,7 @@ fn temporary_id() -> SessionId {
         .unwrap_or_default()
         .as_nanos();
     let sequence = NEXT_ID.fetch_add(1, Ordering::Relaxed);
-    format!("relay-title-{}-{timestamp}-{sequence}", std::process::id()).into()
+    format!("tandem-title-{}-{timestamp}-{sequence}", std::process::id()).into()
 }
 
 fn configuration(

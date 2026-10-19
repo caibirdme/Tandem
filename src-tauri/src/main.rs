@@ -5,7 +5,7 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
 };
 
-use relay_core::{App, AppOptions, Request};
+use tandem_core::{App, AppOptions, Request};
 use tauri::{Emitter, Manager, State};
 
 #[tauri::command]
@@ -21,7 +21,7 @@ async fn dispatch(
 
 fn main() {
     if let Err(error) = run() {
-        eprintln!("Relay could not start: {error}");
+        eprintln!("Tandem could not start: {error}");
         std::process::exit(1);
     }
 }
@@ -32,15 +32,15 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![dispatch])
         .setup(|tauri_app| {
-            let mut options = AppOptions::local(tauri_app.path().app_local_data_dir()?);
+            let mut options = AppOptions::native()?;
             options.remote_artifacts.bundled_directory =
                 Some(tauri_app.path().resource_dir()?.join("remote"));
             let current = std::env::current_exe()?;
             options.remote_artifacts.local_server = current.parent().map(|parent| {
                 parent.join(if cfg!(windows) {
-                    "relay-server.exe"
+                    "tandem-server.exe"
                 } else {
-                    "relay-server"
+                    "tandem-server"
                 })
             });
             let app = App::open(options)?;

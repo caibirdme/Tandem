@@ -69,7 +69,7 @@ class CancellationTests(unittest.TestCase):
         events = [
             {
                 "kind": "message",
-                "data": {"role": "user", "content": "Reply with RELAY_CHAT_known"},
+                "data": {"role": "user", "content": "Reply with TANDEM_CHAT_known"},
             },
             {
                 "kind": "message",

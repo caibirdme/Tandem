@@ -1,6 +1,18 @@
 # 验收记录
 
-最新修复验证环境：2026-10-19，Windows x64；此前桌面打包验收环境为 2026-10-18，macOS / Apple Silicon。应用使用 Rust 1.99.1、TypeScript 7、Vite 8，当前固定的 Copilot SDK 为 `v1.0.23-preview.5`，内置 CLI 为 `1.0.100-1`。以下按版本保留各轮验证范围。
+## Tandem 更名（2026-10-19）
+
+项目、桌面应用、Rust crate、前端标识、服务二进制、构建脚本和当前使用文档统一使用 Tandem。新安装使用 `app.tandem.desktop`、`tandem.sqlite3` 与 `tandem-server`；旧数据库、SDK 会话状态和旧远端产物目录环境变量保留读取兼容。远端部署新的 `tandem-server`，不把旧 `relay-server` 当作新版本复用。新旧数据各自存在时优先新数据，不自动合并。
+
+前端 149 项、Rust 98 项、Python 29 项测试通过，共 276 项。格式、类型、严格 lint / Clippy、生产前端构建、workspace 全目标 debug 构建和依赖边界检查通过；锁文件核对确认仅更改 workspace 包名，外部依赖没有升级。新增本地真实 SQLite 回归覆盖旧配置、项目、会话、消息、密钥和 SDK 状态原位保留，新旧数据库同时存在时优先新库；远端回归覆盖旧状态复用、新目录优先及无效路径报错。
+
+真实 SDK/CLI 的完整本地回归通过，共 59 次推理（含 8 次标题）和 10 批 OTLP 导出；新 `tandem-server` 的 stdio 回归通过，共 2 次推理和 4 批导出，含跨供应商冷恢复及原历史保留。测试使用隔离临时目录和本地推理服务，没有使用真实供应商或执行 SSH 部署。实际 React 界面已核对网页标题、侧栏、聊天作者、设置及统一 T 图标，发送后获得 `TANDEM_CHAT_OK`；截图为 `test-results/tandem-branding-chat.png` 和 `test-results/tandem-branding-settings.png`。
+
+`pnpm tauri build` 在 Windows x64 通过，生成 release 程序 `target/release/tandem-desktop.exe`、`Tandem_0.1.4_x64_en-US.msi` 和 `Tandem_0.1.4_x64-setup.exe` 两种安装包；程序的产品名和文件描述均为 Tandem。本地产物未包含 Linux/macOS 远端二进制，跨平台远端仍由 CI 构建并收集。本轮未安装程序，也未使用用户原配置启动原生窗口。
+
+以下各节为更名前使用 Relay 名称时的验收归档。`Relay.app`、`relay-server`、`relay.sqlite3`、`RELAY_CHAT_OK` 等名称保留当时真实产物和测试结果，不代表本轮已完成同样的 Tandem 打包或原生验收。
+
+更名前最后一轮修复验证环境：2026-10-19，Windows x64；此前桌面打包验收环境为 2026-10-18，macOS / Apple Silicon。应用使用 Rust 1.99.1、TypeScript 7、Vite 8，当时固定的 Copilot SDK 为 `v1.0.23-preview.5`，内置 CLI 为 `1.0.100-1`。以下按版本保留各轮验证范围。
 
 ## 首条工作消息的权限提醒（0.1.4 修复）
 

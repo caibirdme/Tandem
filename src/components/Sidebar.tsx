@@ -40,10 +40,8 @@ export function Sidebar(props: SidebarProps) {
   return (
     <aside className="sidebar" aria-label="主导航">
       <div className="sidebar-brand">
-        <span className="brand-symbol">
-          r<span />
-        </span>
-        <span>Relay</span>
+        <img className="brand-symbol" src="/tandem.svg" alt="" />
+        <span>Tandem</span>
         <button
           className="icon-button sidebar-collapse"
           onClick={props.onClose}

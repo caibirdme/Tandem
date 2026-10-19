@@ -17,8 +17,8 @@ dev:
 
 # 浏览器开发：另一个终端执行 just web。
 server:
-    cargo build -p relay-server
-    cargo run -p relay-dev-server
+    cargo build -p tandem-server
+    cargo run -p tandem-dev-server
 
 web:
     pnpm dev
@@ -52,15 +52,15 @@ check: check-format lint-web lint-rust test check-workspace
 
 build:
     pnpm build
-    cargo build -p relay-dev-server -p relay-server
+    cargo build -p tandem-dev-server -p tandem-server
 
 # 同时构建本机开发主机与 SSH 远端 Agent。
 build-server:
-    cargo build -p relay-dev-server -p relay-server
+    cargo build -p tandem-dev-server -p tandem-server
 
 # 使用真实 Copilot SDK；推理服务和遥测接收端由测试提供。
 integration:
-    cargo build -p relay-dev-server
+    cargo build -p tandem-dev-server
     {{python}} tests/runtime_e2e.py
 
 # 需要本机 ssh/sshd；所有密钥和主机记录均隔离在临时目录。
@@ -69,7 +69,7 @@ integration-ssh: build-server
 
 # 只打包远端 Agent，开发 HTTP 主机不进入分发资源。
 remote-build:
-    cargo build --release -p relay-server
+    cargo build --release -p tandem-server
     node scripts/prepare-remote.mjs
 
 desktop-build: remote-build

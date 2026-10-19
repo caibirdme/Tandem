@@ -153,7 +153,7 @@ describe('runtime preparation notices', () => {
             kind: 'ssh',
             host: 'server.example',
             port: 22,
-            user: 'relay',
+            user: 'tandem',
             identityFile: null,
           },
         }}

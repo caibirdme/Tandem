@@ -122,7 +122,7 @@ impl Runtime {
         client_options.telemetry = telemetry;
         client_options.client_info = Some(
             ClientInfo::new()
-                .with_application_name("copilot-app")
+                .with_application_name("Tandem")
                 .with_application_version(env!("CARGO_PKG_VERSION")),
         );
         let client = tokio::time::timeout(Duration::from_secs(30), Client::start(client_options))
@@ -315,7 +315,7 @@ pub struct AgentSession {
     events: broadcast::Sender<RuntimeEvent>,
     permissions: Arc<Permissions>,
     lifecycle: Arc<SessionLifecycle>,
-    relay: JoinHandle<()>,
+    event_task: JoinHandle<()>,
 }
 
 impl AgentSession {
@@ -330,7 +330,7 @@ impl AgentSession {
         let lifecycle = Arc::new(SessionLifecycle::new());
         let stream_lifecycle = lifecycle.clone();
         let stream_permissions = permissions.clone();
-        let relay = tokio::spawn(async move {
+        let event_task = tokio::spawn(async move {
             loop {
                 match incoming.recv().await {
                     Ok(event) => {
@@ -370,7 +370,7 @@ impl AgentSession {
             events,
             permissions,
             lifecycle,
-            relay,
+            event_task,
         }
     }
 
@@ -446,7 +446,7 @@ impl AgentSession {
         self.lifecycle.disconnect();
         self.permissions.cancel_all();
         let result = self.session.disconnect().await;
-        self.relay.abort();
+        self.event_task.abort();
         result.map_err(Into::into)
     }
 }
@@ -455,7 +455,7 @@ impl Drop for AgentSession {
     fn drop(&mut self) {
         self.lifecycle.disconnect();
         self.permissions.cancel_all();
-        self.relay.abort();
+        self.event_task.abort();
     }
 }
 

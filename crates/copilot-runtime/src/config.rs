@@ -46,7 +46,7 @@ impl fmt::Debug for ProviderSettings {
 pub struct ModelSettings {
     pub id: String,
     pub reasoning_effort: Option<String>,
-    /// Total input and output capacity. Older Relay peers called this `maxPromptTokens`.
+    /// Total input and output capacity. Older Tandem peers called this `maxPromptTokens`.
     #[serde(alias = "maxPromptTokens")]
     pub context_window: Option<i64>,
     pub max_output_tokens: Option<i64>,
@@ -194,7 +194,7 @@ impl TelemetrySettings {
             .with_otlp_protocol(protocol)
             .with_exporter_type(OtelExporterType::OtlpHttp)
             .with_capture_content(self.capture_content)
-            .with_source_name("copilot-app"))
+            .with_source_name("tandem"))
     }
 }
 

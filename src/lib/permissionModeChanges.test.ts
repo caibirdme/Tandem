@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { createPermissionModeChanges } from './permissionModeChanges';
 import { protectedSessionIds } from './reconcile';
-import { initialRelayState, reduceRelay } from './relayState';
+import { initialTandemState, reduceTandem } from './tandemState';
 import type { PermissionMode, Session, Snapshot } from './types';
 
 const session: Session = {
@@ -41,7 +41,7 @@ function deferred<T>() {
 }
 
 function setup() {
-  let state = reduceRelay(initialRelayState, {
+  let state = reduceTandem(initialTandemState, {
     type: 'snapshotReceived',
     snapshot,
     protectedIds: new Set(),
@@ -58,7 +58,7 @@ function setup() {
       revisions[id] = (revisions[id] ?? 0) + 1;
     },
     update: (event) => {
-      state = reduceRelay(state, event);
+      state = reduceTandem(state, event);
     },
   });
   return {
@@ -69,7 +69,7 @@ function setup() {
     changes,
     deleteSession(id: string) {
       changes.forget(id);
-      state = reduceRelay(state, { type: 'sessionsDeleted', sessionIds: [id] });
+      state = reduceTandem(state, { type: 'sessionsDeleted', sessionIds: [id] });
     },
     get state() {
       return state;
@@ -147,7 +147,7 @@ describe('permission changes with uncertain transport outcomes', () => {
     expect(() => test.changes.assertCanSend('session-2')).not.toThrow();
     await test.changes.confirm(session.id);
     expect(test.read).toHaveBeenCalledTimes(1);
-    const refreshed = reduceRelay(test.state, {
+    const refreshed = reduceTandem(test.state, {
       type: 'snapshotReceived',
       snapshot: {
         ...snapshot,
@@ -207,7 +207,7 @@ describe('permission changes with uncertain transport outcomes', () => {
     expect(test.state.error).toContain('已重新确认当前权限为「完全授权」');
     expect(test.state.permissionModeUpdates.size).toBe(0);
     expect(() => test.changes.assertCanSend(session.id)).not.toThrow();
-    const refreshed = reduceRelay(test.state, {
+    const refreshed = reduceTandem(test.state, {
       type: 'snapshotReceived',
       snapshot,
       protectedIds: protectedSessionIds(

@@ -6,7 +6,7 @@ fixtures as runtime_e2e.py. SSH uses ephemeral keys, an isolated known-hosts fil
 and an unprivileged localhost sshd. A forced command confines the test server's
 home and runtime state to a temporary directory. No real provider key is needed.
 
-Run after building relay-server and relay-dev-server: python3 tests/remote_e2e.py
+Run after building tandem-server and tandem-dev-server: python3 tests/remote_e2e.py
 Use --server for the remote stdio executable and --dev-server for the HTTP host.
 With --skip-ssh, only the remote stdio executable is required.
 """
@@ -181,7 +181,7 @@ def check_stdio(binary, home, endpoint, fixture):
     options = session_options(session_id, endpoint)
     telemetry = {'enabled': True, 'endpoint': endpoint, 'protocol': 'http/json', 'captureContent': False}
     first_prompt = 'fixture:model-switch Keep STDIO_ORIGINAL_HISTORY before a cold reconnect.'
-    first_response = 'RELAY_MODEL_SWITCH_OK ' + options['model']['id']
+    first_response = 'TANDEM_MODEL_SWITCH_OK ' + options['model']['id']
     server = StdioServer(binary, home)
     try:
         try:
@@ -206,7 +206,7 @@ def check_stdio(binary, home, endpoint, fixture):
         prompt = 'fixture:model-switch Continue STDIO_NEW_MODEL with the prior conversation.'
         events = resumed.turn(session_id, prompt)
         require(any(event['kind'] == 'message' and event['data']['content'] ==
-                    'RELAY_MODEL_SWITCH_OK ' + options['model']['id'] for event in events),
+                    'TANDEM_MODEL_SWITCH_OK ' + options['model']['id'] for event in events),
                 'Resumed remote model did not return the expected response')
         requests = fixture.conversation_requests()[offset:]
         require(bool(requests), 'Resumed remote model never reached inference')
@@ -417,7 +417,8 @@ def check_ssh(remote_server, dev_server, root, endpoint, fixture):
     exports_before = len(fixture.exports)
     try:
         environment = ssh.environment.copy()
-        # Use the staged sibling relay-server, not an ambient artifact override.
+        # Use the staged sibling tandem-server, not an ambient artifact override.
+        environment.pop('TANDEM_REMOTE_ARTIFACTS', None)
         environment.pop('RELAY_REMOTE_ARTIFACTS', None)
         app = Application(dev_server, app_directory, env=environment)
         expect_command_error(app, 'check_connection', 'host key', connection=ssh.connection)
@@ -427,14 +428,14 @@ def check_ssh(remote_server, dev_server, root, endpoint, fixture):
         wrong_key = {**ssh.connection, 'identityFile': str(ssh.directory / 'wrong-identity')}
         expect_command_error(app, 'check_connection', 'authentication', connection=wrong_key)
         app.command('check_connection', connection=ssh.connection)
-        deployed = ssh.home / '.local/share/relay/bin/relay-server'
-        require(deployed.is_file(), 'SSH bootstrap did not deploy relay-server')
+        deployed = ssh.home / '.local/share/tandem/bin/tandem-server'
+        require(deployed.is_file(), 'SSH bootstrap did not deploy tandem-server')
         require(deployed.stat().st_mode & 0o777 == 0o700, 'Deployed server is not private and executable')
-        require(digest(deployed) == digest(remote_server), 'SSH deployed bytes differ from relay-server (the remote artifact)')
+        require(digest(deployed) == digest(remote_server), 'SSH deployed bytes differ from tandem-server (the remote artifact)')
         modification = deployed.stat().st_mtime_ns
         app.command('check_connection', connection=ssh.connection)
         require(deployed.stat().st_mtime_ns == modification, 'Matching server version was needlessly replaced')
-        deployed.write_text('#!/bin/sh\n[ "$1" = "--version" ] || exit 97\nprintf "relay-server 0.1.3\\n"\n')
+        deployed.write_text('#!/bin/sh\n[ "$1" = "--version" ] || exit 97\nprintf "tandem-server 0.1.3\\n"\n')
         app.command('check_connection', connection=ssh.connection)
         require(digest(deployed) == digest(remote_server),
                 'An older server was reused instead of receiving the updated runtime configuration')
@@ -504,29 +505,29 @@ def check_ssh(remote_server, dev_server, root, endpoint, fixture):
 
 def stage_binaries(remote_server, dev_server, directory):
     """Snapshot both roles with sibling names used by production artifact lookup."""
-    remote_snapshot = directory / debug_binary('relay-server').name
+    remote_snapshot = directory / debug_binary('tandem-server').name
     shutil.copy2(remote_server, remote_snapshot)
     dev_snapshot = None
     if dev_server is not None:
-        dev_snapshot = directory / debug_binary('relay-dev-server').name
+        dev_snapshot = directory / debug_binary('tandem-dev-server').name
         shutil.copy2(dev_server, dev_snapshot)
     return remote_snapshot, dev_snapshot
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--server', type=Path, default=debug_binary('relay-server'),
-                        help='Remote stdio executable deployed over SSH (relay-server)')
-    parser.add_argument('--dev-server', type=Path, default=debug_binary('relay-dev-server'),
-                        help='Local HTTP development host executable (relay-dev-server)')
+    parser.add_argument('--server', type=Path, default=debug_binary('tandem-server'),
+                        help='Remote stdio executable deployed over SSH (tandem-server)')
+    parser.add_argument('--dev-server', type=Path, default=debug_binary('tandem-dev-server'),
+                        help='Local HTTP development host executable (tandem-dev-server)')
     parser.add_argument('--skip-ssh', action='store_true', help='Only verify stdio on hosts without an SSH daemon')
     arguments = parser.parse_args()
     remote_server = arguments.server.resolve()
     dev_server = None if arguments.skip_ssh else arguments.dev_server.resolve()
-    require(remote_server.is_file(), 'Build relay-server first, or supply its remote executable with --server')
+    require(remote_server.is_file(), 'Build tandem-server first, or supply its remote executable with --server')
     if dev_server is not None:
-        require(dev_server.is_file(), 'Build relay-dev-server first, or supply the HTTP host with --dev-server')
-    with tempfile.TemporaryDirectory(prefix='relay-remote-e2e-') as temporary:
+        require(dev_server.is_file(), 'Build tandem-dev-server first, or supply the HTTP host with --dev-server')
+    with tempfile.TemporaryDirectory(prefix='tandem-remote-e2e-') as temporary:
         root = Path(temporary)
         # Parallel desktop development may replace target/debug while tests run.
         remote_server, dev_server = stage_binaries(remote_server, dev_server, root)

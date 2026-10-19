@@ -18,7 +18,7 @@ class TitleFixtureTests(unittest.TestCase):
         for key in ("messages", "input"):
             with self.subTest(protocol_field=key):
                 request = {key: [{"role": "user", "content": (
-                    'RELAY_TITLE_SUMMARY\n{"firstUser":"fixture:attack; '
+                    'TANDEM_TITLE_SUMMARY\n{"firstUser":"fixture:attack; '
                     'fixture:work-create quoted conversation"}'
                 )}]}
                 self.assertTrue(is_title_request(request))
@@ -66,7 +66,7 @@ class TitleHttpFixtureTests(unittest.TestCase):
     def request_title(self, path, input_field, stream):
         body = {
             "model": "fixture-title-model",
-            input_field: [{"role": "user", "content": "RELAY_TITLE_SUMMARY\nfixture:chat"}],
+            input_field: [{"role": "user", "content": "TANDEM_TITLE_SUMMARY\nfixture:chat"}],
         }
         if stream is not None:
             body["stream"] = stream

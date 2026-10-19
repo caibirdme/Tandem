@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Opt-in acceptance against the four real inference models requested for Relay.
+"""Opt-in acceptance against the four real inference models requested for Tandem.
 
-Build relay-dev-server first, then run this script and enter the provider key at
+Build tandem-dev-server first, then run this script and enter the provider key at
 its hidden prompt. A non-terminal stdin supplies one key line instead. Never put
 the key in command arguments or environment variables. --models selects retries;
 --output receives a redacted JSON report after every chat/work case.
@@ -348,7 +348,7 @@ def create_session(app, provider, model, project_id=None):
 
 
 def check_chat(app, provider, model, timeout):
-    nonce = "RELAY_CHAT_" + secrets.token_hex(12)
+    nonce = "TANDEM_CHAT_" + secrets.token_hex(12)
     session = create_session(app, provider, model)
     events = run_turn(
         app,
@@ -378,7 +378,7 @@ def check_work(app, provider, model, directory, timeout):
     (directory / "seed.json").write_text(json.dumps(seed), encoding="utf-8")
     draft = f"nonce={nonce}\ntotal={sum(numbers)}\nstatus=draft\n"
     final = draft.replace("status=draft", "status=verified")
-    marker = "RELAY_VERIFIED_" + nonce
+    marker = "TANDEM_VERIFIED_" + nonce
     verifier = directory / "verify.py"
     source = (
         "from pathlib import Path\n"
@@ -503,7 +503,7 @@ def write_report(report, output, key):
             mode="w",
             encoding="utf-8",
             dir=output.parent,
-            prefix=".relay-live-report-",
+            prefix=".tandem-live-report-",
             delete=False,
         ) as stream:
             temporary = Path(stream.name)
@@ -525,7 +525,7 @@ def execute(arguments, key):
         "requests": [],
     }
     exit_code = 0
-    with tempfile.TemporaryDirectory(prefix="relay-live-provider-") as temporary:
+    with tempfile.TemporaryDirectory(prefix="tandem-live-provider-") as temporary:
         root = Path(temporary)
         app_directory = root / "application"
         app_directory.mkdir()
@@ -667,7 +667,7 @@ def self_test():
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--server", type=Path, default=debug_binary("relay-dev-server"))
+    parser.add_argument("--server", type=Path, default=debug_binary("tandem-dev-server"))
     parser.add_argument(
         "--models",
         nargs="+",
@@ -689,7 +689,7 @@ def main():
     if arguments.self_test:
         return self_test()
     if not arguments.server.is_file():
-        parser.error("Build relay-dev-server first or supply --server")
+        parser.error("Build tandem-dev-server first or supply --server")
     key = (
         getpass.getpass("Provider API key: ")
         if sys.stdin.isatty()

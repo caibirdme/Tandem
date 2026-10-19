@@ -18,7 +18,7 @@ export async function dispatch<C extends keyof Commands>(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(request),
   }).catch(() => {
-    throw new Error('无法连接本地服务，请确认 Relay 服务正在运行。');
+    throw new Error('无法连接本地服务，请确认 Tandem 服务正在运行。');
   });
   let result: unknown;
   try {

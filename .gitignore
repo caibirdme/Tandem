@@ -7,6 +7,7 @@ target/
 !.env.example
 test-results/
 playwright-report/
+.tandem-dev/
 .relay-dev/
 src-tauri/gen/
 src-tauri/binaries/

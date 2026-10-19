@@ -7,19 +7,19 @@ import sys
 from pathlib import Path
 
 LAYERS = {
-    "relay-protocol": set(),
+    "tandem-protocol": set(),
     "copilot-runtime": set(),
-    "relay-remote": {"relay-protocol"},
-    "relay-core": {"copilot-runtime", "relay-remote"},
-    "relay-server": {"copilot-runtime", "relay-protocol"},
-    "relay-dev-server": {"relay-core"},
-    "relay-desktop": {"relay-core"},
+    "tandem-remote": {"tandem-protocol"},
+    "tandem-core": {"copilot-runtime", "tandem-remote"},
+    "tandem-server": {"copilot-runtime", "tandem-protocol"},
+    "tandem-dev-server": {"tandem-core"},
+    "tandem-desktop": {"tandem-core"},
 }
 SERVER_FORBIDDEN = {
-    "relay-core",
-    "relay-remote",
-    "relay-dev-server",
-    "relay-desktop",
+    "tandem-core",
+    "tandem-remote",
+    "tandem-dev-server",
+    "tandem-desktop",
     "axum",
     "rusqlite",
     "libsqlite3-sys",
@@ -58,7 +58,7 @@ def violations(metadata):
 
     for package in sorted(members):
         name = names[package]
-        if name == "relay-desktop":
+        if name == "tandem-desktop":
             continue
         for dependency in reachable(graph, package):
             target = names[dependency]
@@ -66,7 +66,7 @@ def violations(metadata):
                 errors.append(
                     f"Only the desktop shell may depend on {target}: found in {name}."
                 )
-            if name == "relay-server" and target in SERVER_FORBIDDEN:
+            if name == "tandem-server" and target in SERVER_FORBIDDEN:
                 errors.append(
                     f"Remote Agent server must not depend on {target} (directly or transitively)."
                 )

@@ -109,32 +109,10 @@ button {
   letter-spacing: -0.65px;
 }
 .brand-symbol {
-  display: inline-flex;
-  position: relative;
-  background: #30372f;
-  color: #fffef7;
+  display: block;
+  flex-shrink: 0;
   width: 27px;
   height: 27px;
-  border-radius: 8px;
-  justify-content: center;
-  align-items: center;
-  font-size: 30px;
-  font-family: Georgia, serif;
-  font-style: italic;
-  font-weight: 600;
-  line-height: 1;
-  padding-right: 3px;
-  padding-bottom: 8px;
-}
-.brand-symbol > span {
-  width: 10px;
-  height: 2px;
-  background: #fffef7;
-  transform: rotate(45deg);
-  position: absolute;
-  right: 5px;
-  bottom: 6px;
-  border-radius: 1px;
 }
 .sidebar-collapse {
   margin-left: auto;
@@ -752,11 +730,10 @@ button {
   margin-bottom: 13px;
 }
 .mini-logo {
-  font:
-    italic 20px Georgia,
-    serif;
-  color: #60635c;
-  padding-right: 4px;
+  display: block;
+  width: 17px;
+  height: 17px;
+  flex-shrink: 0;
 }
 .markdown {
   font-size: 13px;
@@ -1614,8 +1591,6 @@ select {
 .about-card .brand-symbol {
   width: 40px;
   height: 40px;
-  font-size: 42px;
-  border-radius: 12px;
 }
 .about-card h4 {
   font-size: 15px;

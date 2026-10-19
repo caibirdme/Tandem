@@ -8,13 +8,13 @@
 flowchart LR
   UI[React 界面] --> IPC[Tauri 命令与事件]
   IPC --> Core[Rust 应用服务]
-  UI -. 浏览器开发 .-> Dev[relay-dev-server / HTTP]
+  UI -. 浏览器开发 .-> Dev[tandem-dev-server / HTTP]
   Dev --> Core
   Core --> Store[SQLite / 本地密钥配置]
   Core --> SDK[Copilot SDK]
   SDK --> CLI[内置 Copilot CLI]
   Core --> SSH[OpenSSH 加密通道]
-  SSH --> Remote[远端 relay-server]
+  SSH --> Remote[远端 tandem-server]
   Remote --> RemoteSDK[远端 SDK / CLI]
   CLI --> Provider[模型供应商]
   RemoteSDK --> Provider
@@ -22,25 +22,25 @@ flowchart LR
 
 ## 哪一层负责什么
 
-`relay-core` 保存项目、供应商配置、会话和消息，管理运行中的会话，并将运行时事件转换为界面事件。它不依赖 Tauri，因此桌面与浏览器开发模式调用同一个服务。
+`tandem-core` 保存项目、供应商配置、会话和消息，管理运行中的会话，并将运行时事件转换为界面事件。它不依赖 Tauri，因此桌面与浏览器开发模式调用同一个服务。
 
 `copilot-runtime` 只适配官方 SDK。模型调用、工具执行、上下文压缩和会话恢复由 SDK 处理。应用负责工具白名单、权限请求、供应商映射和遥测参数，不维护另一套 Agent 循环。
 
-`relay-remote` 负责系统 SSH、平台检测、原子部署和有请求 ID 的双向 JSON RPC。远端的 `relay-server --stdio` 只接受 Agent 生命周期命令，调用 `copilot-runtime` 执行工作。供应商密钥通过 SSH 内存通道传递，不写入远端偏好文件，也不出现在进程参数中。
+`tandem-remote` 负责系统 SSH、平台检测、原子部署和有请求 ID 的双向 JSON RPC。远端的 `tandem-server --stdio` 只接受 Agent 生命周期命令，调用 `copilot-runtime` 执行工作。供应商密钥通过 SSH 内存通道传递，不写入远端偏好文件，也不出现在进程参数中。
 
-`relay-dev-server` 将本机开发用的 HTTP 请求转给 `relay-core`。正式桌面直接通过 Tauri 调用 `relay-core`，不启动 HTTP 主机；远端也不需要项目管理、SQLite 或系统凭证库。开发主机与远端 Agent 因此使用独立的二进制入口。
+`tandem-dev-server` 将本机开发用的 HTTP 请求转给 `tandem-core`。正式桌面直接通过 Tauri 调用 `tandem-core`，不启动 HTTP 主机；远端也不需要项目管理、SQLite 或系统凭证库。开发主机与远端 Agent 因此使用独立的二进制入口。
 
-两端的 RPC 帧、序列化、大小限制和错误类型集中在 `relay-protocol`。它只依赖 Serde、JSON、Tokio 和错误类型支持，不依赖应用服务、SSH 客户端或 SDK，因此共享协议不会把本机功能带到远端。
+两端的 RPC 帧、序列化、大小限制和错误类型集中在 `tandem-protocol`。它只依赖 Serde、JSON、Tokio 和错误类型支持，不依赖应用服务、SSH 客户端或 SDK，因此共享协议不会把本机功能带到远端。
 
-| 模块               | 允许的 workspace 依赖               | 职责边界                                                               |
-| ------------------ | ----------------------------------- | ---------------------------------------------------------------------- |
-| `relay-desktop`    | `relay-core`                        | Tauri 窗口、系统目录选择、命令与事件桥接                               |
-| `relay-core`       | `copilot-runtime`、`relay-remote`   | 应用业务、历史与凭证；不依赖窗口或 HTTP 框架                           |
-| `copilot-runtime`  | 无                                  | SDK 会话、权限边界与遥测适配                                           |
-| `relay-remote`     | `relay-protocol`                    | SSH 客户端、远端部署与传输                                             |
-| `relay-protocol`   | 无                                  | 两端共享的 RPC 格式与帧读写                                            |
-| `relay-server`     | `copilot-runtime`、`relay-protocol` | 远端 Agent；不依赖 `relay-core`、`relay-remote`、Axum、SQLite 或凭证库 |
-| `relay-dev-server` | `relay-core`                        | 本机 HTTP 开发入口；不进入远端或桌面分发资源                           |
+| 模块                | 允许的 workspace 依赖                | 职责边界                                                                 |
+| ------------------- | ------------------------------------ | ------------------------------------------------------------------------ |
+| `tandem-desktop`    | `tandem-core`                        | Tauri 窗口、系统目录选择、命令与事件桥接                                 |
+| `tandem-core`       | `copilot-runtime`、`tandem-remote`   | 应用业务、历史与凭证；不依赖窗口或 HTTP 框架                             |
+| `copilot-runtime`   | 无                                   | SDK 会话、权限边界与遥测适配                                             |
+| `tandem-remote`     | `tandem-protocol`                    | SSH 客户端、远端部署与传输                                               |
+| `tandem-protocol`   | 无                                   | 两端共享的 RPC 格式与帧读写                                              |
+| `tandem-server`     | `copilot-runtime`、`tandem-protocol` | 远端 Agent；不依赖 `tandem-core`、`tandem-remote`、Axum、SQLite 或凭证库 |
+| `tandem-dev-server` | `tandem-core`                        | 本机 HTTP 开发入口；不进入远端或桌面分发资源                             |
 
 应用命令入口只分发请求和序列化结果。供应商、项目和会话各自负责校验、并发约束与持久化；本地和远端 Agent 的差异集中在 `AgentHandle`，事件到界面历史的转换单独维护。会话状态和消息角色使用枚举，对外仍发送原有 JSON 字符串。
 
@@ -66,13 +66,17 @@ flowchart LR
 
 SQLite 存放用户可见历史与配置，Copilot 自己的会话状态保存在应用私有运行时目录。应用使用同一个 UUID 恢复 SDK 会话，并重新应用供应商、工具和权限配置。删除项目会删除关联对话，删除供应商前必须先处理其关联对话。
 
-API Key 明文保存在应用数据目录的 `relay.sqlite3` 中，使用独立的 `provider_secrets` 表，不混入对话消息。设置接口省略 `apiKey` 表示保留原值，显式空字符串表示清除。普通快照只返回 `hasApiKey`；供应商编辑页通过 `get_provider_api_key` 按需读取实际值，默认显示为密码输入框，用户可切换显示。密钥不写入浏览器持久存储、日志或命令行参数。
+API Key 明文保存在应用数据目录的 SQLite 数据库中，新安装使用 `tandem.sqlite3`；独立的 `provider_secrets` 表保存密钥，不混入对话消息。设置接口省略 `apiKey` 表示保留原值，显式空字符串表示清除。普通快照只返回 `hasApiKey`；供应商编辑页通过 `get_provider_api_key` 按需读取实际值，默认显示为密码输入框，用户可切换显示。密钥不写入浏览器持久存储、日志或命令行参数。
 
 桌面和开发主机使用同一套本地存储，不依赖系统凭证库，也不迁移旧版密钥。开发主机指定 `--data-dir` 时使用该目录的独立本地存储。`--ephemeral-secrets` 显式启用仅供测试的内存存储，凭证随进程结束而消失。
 
+应用标识为 `app.tandem.desktop`。升级时，新应用目录若已有数据库则优先使用；否则旧 `app.relay.desktop` 目录中存在数据库时，继续原地使用整个旧目录，包括数据库、WAL 和 SDK 运行状态。指定 `--data-dir` 的开发主机也能读取原有 `relay.sqlite3`；同一目录中以 `tandem.sqlite3` 优先。此兼容仅选择已有存储，不复制、移动或合并数据，也不读取系统钥匙串。
+
+远端程序部署到 `~/.local/share/tandem/bin/tandem-server`，仅探测和复用此名称的程序。远端 SDK 状态使用 `~/.local/share/tandem/runtime`；只有新目录不存在时，才回退到已有的 `~/.local/share/relay/runtime`。路径检查失败会报告错误，避免把无法读取的旧状态误判为没有历史。
+
 ## 自动标题
 
-首轮回复完成后，`relay-core` 在后台请求模型总结标题。标题模型独立保存在偏好设置中，可选择任意已配置的供应商模型；未指定时使用该会话的模型。更改标题设置不重启当前聊天或工作。旧会话保持原名，用户可主动重新生成。
+首轮回复完成后，`tandem-core` 在后台请求模型总结标题。标题模型独立保存在偏好设置中，可选择任意已配置的供应商模型；未指定时使用该会话的模型。更改标题设置不重启当前聊天或工作。旧会话保持原名，用户可主动重新生成。
 
 总结只传入首个完整轮次中长度受限的用户消息和助手最终回复，跳过中断回复和工具前的开场说明，并明确将内容标为待总结的数据。`copilot-runtime` 为此创建独立临时会话，关闭所有工具、权限与配置发现，保留供应商的模型和 token 参数。结束、失败或取消后限时清理临时会话，标题回复不会进入用户的聊天历史。本地和 SSH 工作均在本机执行标题总结，远端协议无需承担设置或历史管理。
 
@@ -90,4 +94,4 @@ SDK 的文本片段实时送到界面，完整回复持久化后替换临时气�
 
 错误事件会同时使当前连接失效并停止转发，下次显式发送时恢复会话。这样不依赖 SDK 是否在错误后继续发送 `idle`，旧连接的尾部事件不会影响下一轮。
 
-`relay-dev-server` 只绑定回环地址，并校验 Host、Origin 和跨站请求。正式桌面包使用 Tauri IPC，不运行或分发这个 HTTP 入口。界面只获得本地窗口事件和用户主动选择目录所需的系统能力。
+`tandem-dev-server` 只绑定回环地址，并校验 Host、Origin 和跨站请求。正式桌面包使用 Tauri IPC，不运行或分发这个 HTTP 入口。界面只获得本地窗口事件和用户主动选择目录所需的系统能力。

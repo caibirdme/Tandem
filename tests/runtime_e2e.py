@@ -5,7 +5,7 @@ Only inference and the OTLP collector are fixtures. The application server,
 SDK process, tool execution, permission flow, persistence, and telemetry
 exporter are the production code. No external API key is needed.
 
-Run after building relay-dev-server: python3 tests/runtime_e2e.py
+Run after building tandem-dev-server: python3 tests/runtime_e2e.py
 """
 
 from __future__ import annotations
@@ -42,8 +42,8 @@ def main():
     parser.add_argument(
         "--server",
         type=Path,
-        default=debug_binary("relay-dev-server"),
-        help="HTTP development host executable (relay-dev-server)",
+        default=debug_binary("tandem-dev-server"),
+        help="HTTP development host executable (tandem-dev-server)",
     )
     parser.add_argument(
         "--serve-fixture",
@@ -52,7 +52,7 @@ def main():
     )
     parser.add_argument("--port", type=int, default=4891)
     parser.add_argument(
-        "--workspace", type=Path, default=Path("/tmp/relay-ui-acceptance/project")
+        "--workspace", type=Path, default=Path("/tmp/tandem-ui-acceptance/project")
     )
     parser.add_argument(
         "--ephemeral-secrets",
@@ -77,8 +77,8 @@ def main():
         finally:
             fixture_server.server_close()
         return
-    require(arguments.server.is_file(), "Build relay-dev-server first")
-    with tempfile.TemporaryDirectory(prefix="relay-sdk-e2e-") as temporary:
+    require(arguments.server.is_file(), "Build tandem-dev-server first")
+    with tempfile.TemporaryDirectory(prefix="tandem-sdk-e2e-") as temporary:
         root = Path(temporary)
         workspace = root / "project"
         workspace.mkdir()
@@ -153,7 +153,7 @@ def main():
                 require(
                     any(
                         message["role"] == "assistant"
-                        and "RELAY_CHAT_OK" in message["content"]
+                        and "TANDEM_CHAT_OK" in message["content"]
                         for message in messages
                     ),
                     f"{protocol}: final message was not persisted",
