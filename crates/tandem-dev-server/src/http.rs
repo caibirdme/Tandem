@@ -1,6 +1,5 @@
 use std::{convert::Infallible, sync::Arc};
 
-use anyhow::Result;
 use axum::{
     Json, Router,
     extract::{DefaultBodyLimit, Request, State},
@@ -14,7 +13,7 @@ use axum::{
 };
 use futures_util::{Stream, StreamExt};
 use serde_json::{Value, json};
-use tandem_core::App;
+use tandem_core::{App, ErrorCode, ErrorResponse};
 use tokio_stream::wrappers::BroadcastStream;
 use tokio_util::sync::CancellationToken;
 
@@ -24,7 +23,15 @@ struct HttpState {
     stopping: CancellationToken,
 }
 
-pub async fn serve(app: Arc<App>, port: u16) -> Result<()> {
+#[derive(Debug, thiserror::Error)]
+pub enum HttpError {
+    #[error("Cannot bind the local development API: {0}")]
+    Bind(#[source] std::io::Error),
+    #[error("The local development API stopped unexpectedly: {0}")]
+    Serve(#[source] std::io::Error),
+}
+
+pub async fn serve(app: Arc<App>, port: u16) -> Result<(), HttpError> {
     let stopping = CancellationToken::new();
     let state = HttpState {
         app,
@@ -40,14 +47,17 @@ pub async fn serve(app: Arc<App>, port: u16) -> Result<()> {
         .layer(DefaultBodyLimit::max(1024 * 1024))
         .layer(middleware::from_fn(local_requests_only))
         .with_state(state);
-    let listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, port)).await?;
+    let listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, port))
+        .await
+        .map_err(HttpError::Bind)?;
     eprintln!("Tandem development API: http://127.0.0.1:{port}");
     axum::serve(listener, router)
         .with_graceful_shutdown(async move {
             let _ = tokio::signal::ctrl_c().await;
             stopping.cancel();
         })
-        .await?;
+        .await
+        .map_err(HttpError::Serve)?;
     Ok(())
 }
 
@@ -55,7 +65,10 @@ async fn local_requests_only(request: Request, next: Next) -> Response {
     if !local_headers_allowed(request.headers()) {
         return (
             StatusCode::FORBIDDEN,
-            Json(json!({"error":"This development API only accepts local application requests"})),
+            Json(ErrorResponse {
+                code: ErrorCode::InvalidInput,
+                error: "This development API only accepts local application requests".into(),
+            }),
         )
             .into_response();
     }
@@ -97,11 +110,19 @@ async fn dispatch(
 ) -> Response {
     match state.app.dispatch(request).await {
         Ok(value) => Json(value).into_response(),
-        Err(error) => (
-            StatusCode::BAD_REQUEST,
-            Json(json!({"error":format!("{error:#}")})),
-        )
-            .into_response(),
+        Err(error) => {
+            (error_status(error.code()), Json(ErrorResponse::from(error))).into_response()
+        }
+    }
+}
+
+fn error_status(code: ErrorCode) -> StatusCode {
+    match code {
+        ErrorCode::InvalidInput => StatusCode::BAD_REQUEST,
+        ErrorCode::NotFound => StatusCode::NOT_FOUND,
+        ErrorCode::Conflict => StatusCode::CONFLICT,
+        ErrorCode::Unavailable => StatusCode::SERVICE_UNAVAILABLE,
+        ErrorCode::Internal => StatusCode::INTERNAL_SERVER_ERROR,
     }
 }
 
@@ -125,6 +146,49 @@ mod tests {
     use axum::http::HeaderValue;
 
     use super::*;
+
+    #[tokio::test]
+    async fn service_failures_determine_http_status_by_type()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let directory = std::env::temp_dir().join(format!(
+            "tandem-http-errors-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)?
+                .as_nanos(),
+        ));
+        let app = App::open(tandem_core::AppOptions::local(directory.clone()))?;
+        for (request, expected) in [
+            (
+                tandem_core::Request::Messages {
+                    session_id: "missing".into(),
+                },
+                StatusCode::NOT_FOUND,
+            ),
+            (
+                tandem_core::Request::CreateSession {
+                    project_id: None,
+                    provider_id: "missing".into(),
+                    model_id: "model".into(),
+                    permission_mode: tandem_core::model::PermissionMode::AllowAll,
+                },
+                StatusCode::BAD_REQUEST,
+            ),
+        ] {
+            let response = dispatch(
+                State(HttpState {
+                    app: Arc::clone(&app),
+                    stopping: CancellationToken::new(),
+                }),
+                Json(request),
+            )
+            .await;
+            assert_eq!(response.status(), expected);
+        }
+        drop(app);
+        std::fs::remove_dir_all(directory)?;
+        Ok(())
+    }
 
     #[test]
     fn local_request_policy_rejects_rebinding_and_cross_site_requests() {

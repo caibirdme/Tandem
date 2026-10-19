@@ -7,7 +7,7 @@ use tokio::{
     time::timeout,
 };
 
-use crate::RemoteError;
+use crate::{ConnectionValidationError, RemoteError, SshDiagnostic};
 
 pub(crate) const STDERR_LIMIT: usize = 16 * 1024;
 const OUTPUT_LIMIT: usize = 1024 * 1024;
@@ -37,7 +37,7 @@ impl SshConnection {
             });
         if !valid_host {
             return Err(RemoteError::InvalidConnection(
-                "host must be an SSH alias, hostname, or unbracketed IP address".into(),
+                ConnectionValidationError::Host,
             ));
         }
         if self.user.is_empty()
@@ -48,12 +48,12 @@ impl SshConnection {
                 .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
         {
             return Err(RemoteError::InvalidConnection(
-                "invalid SSH username".into(),
+                ConnectionValidationError::Username,
             ));
         }
         if self.port == 0 {
             return Err(RemoteError::InvalidConnection(
-                "port must be greater than zero".into(),
+                ConnectionValidationError::Port,
             ));
         }
         if self
@@ -62,7 +62,7 @@ impl SshConnection {
             .is_some_and(|path| path.is_empty() || path.contains('\0'))
         {
             return Err(RemoteError::InvalidConnection(
-                "invalid identity file path".into(),
+                ConnectionValidationError::IdentityFile,
             ));
         }
         Ok(())
@@ -167,16 +167,16 @@ pub(crate) async fn run(
         if !status.success() {
             return Err(RemoteError::ConnectionFailed {
                 operation,
-                status: status.to_string(),
-                detail: safe_diagnostic(&diagnostic).to_owned(),
+                status,
+                detail: safe_diagnostic(&diagnostic),
             });
         }
         sent?;
         let (output, exceeded) = output?;
         if exceeded {
-            return Err(RemoteError::Protocol(
-                "remote output exceeded the size limit".into(),
-            ));
+            return Err(RemoteError::OutputTooLarge {
+                limit: OUTPUT_LIMIT,
+            });
         }
         Ok(output)
     };
@@ -193,7 +193,7 @@ pub(crate) async fn run(
 }
 
 pub(crate) fn missing_pipe() -> RemoteError {
-    RemoteError::Protocol("SSH standard streams were not created".into())
+    RemoteError::MissingPipe
 }
 
 pub(crate) fn shell_quote(value: &str) -> String {
@@ -220,28 +220,28 @@ async fn read_bounded(
 }
 
 /// Only return recognized failure categories; remote stderr can contain secrets.
-pub(crate) fn safe_diagnostic(stderr: &[u8]) -> &'static str {
+pub(crate) fn safe_diagnostic(stderr: &[u8]) -> SshDiagnostic {
     let message = String::from_utf8_lossy(stderr).to_lowercase();
     if message.contains("host key verification failed")
         || message.contains("host identification has changed")
     {
-        "The host key is unknown or changed. Verify the host fingerprint using your normal SSH client, then reconnect."
+        SshDiagnostic::HostKey
     } else if message.contains("permission denied")
         || message.contains("no supported authentication")
     {
-        "SSH authentication or remote permissions were denied. Check your username, identity file, and ssh-agent keys."
+        SshDiagnostic::PermissionDenied
     } else if message.contains("could not resolve hostname") {
-        "The SSH hostname could not be resolved. Check the host or SSH config alias."
+        SshDiagnostic::Hostname
     } else if message.contains("connection refused") {
-        "The host refused the SSH connection. Check its SSH service and port."
+        SshDiagnostic::ConnectionRefused
     } else if message.contains("timed out") || message.contains("no route to host") {
-        "The SSH host is unreachable. Check its address, VPN, and network connection."
+        SshDiagnostic::Unreachable
     } else if message.contains("not found") || message.contains("no such file") {
-        "A remote directory or executable is missing. Check the selected path and remote runtime installation."
+        SshDiagnostic::MissingPath
     } else if message.contains("exec format") || message.contains("bad cpu type") {
-        "The remote executable does not match the host architecture. Install the correct tandem-server artifact."
+        SshDiagnostic::Architecture
     } else {
-        "Check SSH access, the selected directory, and the remote runtime installation."
+        SshDiagnostic::Other
     }
 }
 
@@ -272,6 +272,51 @@ mod tests {
     }
 
     #[test]
+    fn invalid_connection_fields_have_distinct_variants() {
+        let valid = SshConnection {
+            host: "host".into(),
+            port: 22,
+            user: "developer".into(),
+            identity_file: None,
+        };
+        for (connection, expected) in [
+            (
+                SshConnection {
+                    host: "-unsafe".into(),
+                    ..valid.clone()
+                },
+                ConnectionValidationError::Host,
+            ),
+            (
+                SshConnection {
+                    user: String::new(),
+                    ..valid.clone()
+                },
+                ConnectionValidationError::Username,
+            ),
+            (
+                SshConnection {
+                    port: 0,
+                    ..valid.clone()
+                },
+                ConnectionValidationError::Port,
+            ),
+            (
+                SshConnection {
+                    identity_file: Some(String::new()),
+                    ..valid
+                },
+                ConnectionValidationError::IdentityFile,
+            ),
+        ] {
+            let Err(RemoteError::InvalidConnection(actual)) = connection.validate() else {
+                panic!("invalid SSH field was not classified as {expected:?}");
+            };
+            assert_eq!(actual, expected);
+        }
+    }
+
+    #[test]
     fn quotes_remote_directory_as_one_literal() {
         for (value, expected) in [
             ("/home/user/project", "'/home/user/project'"),
@@ -298,7 +343,11 @@ mod tests {
             "Permission denied: sk-private",
             "Exec format error: sk-private",
         ] {
-            assert!(!safe_diagnostic(diagnostic.as_bytes()).contains("sk-private"));
+            assert!(
+                !safe_diagnostic(diagnostic.as_bytes())
+                    .to_string()
+                    .contains("sk-private")
+            );
         }
     }
 }

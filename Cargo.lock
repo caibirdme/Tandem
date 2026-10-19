@@ -3992,6 +3992,7 @@ dependencies = [
  "serde_json",
  "tandem-remote",
  "tempfile",
+ "thiserror 2.0.21",
  "tokio",
  "tracing",
  "url",
@@ -4016,11 +4017,11 @@ dependencies = [
 name = "tandem-dev-server"
 version = "0.1.4"
 dependencies = [
- "anyhow",
  "axum",
  "futures-util",
  "serde_json",
  "tandem-core",
+ "thiserror 2.0.21",
  "tokio",
  "tokio-stream",
  "tokio-util",
@@ -4056,6 +4057,7 @@ dependencies = [
  "copilot-runtime",
  "serde_json",
  "tandem-protocol",
+ "thiserror 2.0.21",
  "tokio",
  "tracing-subscriber",
 ]

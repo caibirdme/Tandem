@@ -4,12 +4,12 @@ use std::{
     sync::{Arc, Weak},
 };
 
-use anyhow::{Context, Result, bail};
 use copilot_runtime::{Runtime, RuntimeOptions, TelemetryProtocol, TelemetrySettings};
 use tandem_remote::ArtifactLocator;
 use tokio::sync::{Mutex, broadcast};
 
 use crate::{
+    Error, Result,
     agent::LiveSession,
     model::{Event, Preferences, RuntimeStatus, SessionStatus, Settings, Snapshot, Telemetry},
     store::Store,
@@ -43,7 +43,7 @@ impl AppOptions {
     /// Returns an error if the platform does not expose a user data directory.
     pub fn native() -> Result<Self> {
         let directory = dirs::data_local_dir()
-            .context("Cannot determine the application data directory")?
+            .ok_or(Error::DataDirectoryUnavailable)?
             .join("app.tandem.desktop");
         Ok(Self::local(directory))
     }
@@ -152,7 +152,7 @@ impl App {
         let running = Arc::new(
             Runtime::start(options)
                 .await
-                .context("The Copilot runtime failed to start")?,
+                .map_err(Error::RuntimeStartup)?,
         );
         *runtime = Some(running.clone());
         Ok(running)
@@ -168,7 +168,7 @@ impl App {
             && !path.is_empty()
             && !std::path::Path::new(path).is_file()
         {
-            bail!("The specified Copilot CLI file does not exist.");
+            return Err(Error::CliNotFound { path: path.into() });
         }
         let _guard = self.mutation_gate.lock().await;
         self.require_idle()?;
@@ -177,7 +177,7 @@ impl App {
             let mut preferences = self.store.preferences()?;
             preferences.telemetry = telemetry;
             preferences.cli_path = cli_path;
-            self.store.save_preferences(&preferences)
+            Ok(self.store.save_preferences(&preferences)?)
         })?;
         self.shutdown_sessions().await;
         if let Some(runtime) = self.runtime.lock().await.take() {
@@ -193,7 +193,7 @@ impl App {
             .iter()
             .any(|session| session.status == SessionStatus::Running)
         {
-            bail!("Stop running conversations before continuing.");
+            return Err(Error::ConversationsRunning);
         }
         Ok(())
     }

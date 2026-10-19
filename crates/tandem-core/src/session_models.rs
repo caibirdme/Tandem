@@ -1,9 +1,7 @@
 use std::sync::Arc;
 
-use anyhow::{Context, Result, bail};
-
 use crate::{
-    App,
+    App, Error, Result,
     app::now,
     model::{Session, SessionStatus},
 };
@@ -17,9 +15,7 @@ impl App {
     ) -> Result<Session> {
         self.editable_model_session(id)?;
         let gate = self.session_gate(id).await;
-        let session_guard = gate
-            .try_lock_owned()
-            .context("The conversation is initializing or processing an operation. Try switching models again shortly.")?;
+        let session_guard = gate.try_lock_owned().map_err(|_| Error::ModelChangeBusy)?;
         let previous = self
             .sessions
             .lock()
@@ -34,9 +30,10 @@ impl App {
             let session = self.editable_model_session(id)?;
             let provider = self.store.provider(&provider_id)?;
             if !provider.models.iter().any(|model| model.id == model_id) {
-                bail!(
-                    "The selected model is not configured for this provider. Select a model again."
-                );
+                return Err(Error::ModelNotConfigured {
+                    provider_id,
+                    model_id,
+                });
             }
             if session.provider_id == provider_id && session.model_id == model_id {
                 return Ok(session);
@@ -62,14 +59,14 @@ impl App {
             app.disconnect_session(&session_id).await;
         })
         .await
-        .context("The model was saved, but the previous session connection could not be cleaned up. Try sending again.")?;
+        .map_err(Error::ModelConnectionCleanup)?;
         Ok(updated)
     }
 
     fn editable_model_session(&self, id: &str) -> Result<Session> {
         let session = self.store.session(id)?;
         if session.status == SessionStatus::Running || self.turns.has_pending_permissions(id)? {
-            bail!("Wait for the conversation to finish or stop it before switching models.");
+            return Err(Error::ModelChangeRunning);
         }
         Ok(session)
     }
@@ -79,6 +76,7 @@ impl App {
 mod tests {
     use std::time::Duration;
 
+    use anyhow::Result;
     use serde_json::json;
     use tempfile::TempDir;
     use uuid::Uuid;

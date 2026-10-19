@@ -7,11 +7,51 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::io::{AsyncBufRead, AsyncBufReadExt};
 
+/// Redacted JSON parse context. Serde's original message may quote private
+/// input, so only its category and location cross the parsing boundary.
+#[derive(Debug, thiserror::Error)]
+#[error("{category:?} error at line {line}, column {column}")]
+pub struct JsonDecodeError {
+    pub category: serde_json::error::Category,
+    pub line: usize,
+    pub column: usize,
+}
+
+impl From<serde_json::Error> for JsonDecodeError {
+    fn from(error: serde_json::Error) -> Self {
+        Self {
+            category: error.classify(),
+            line: error.line(),
+            column: error.column(),
+        }
+    }
+}
+
 /// Framing failures are independent of SSH, the desktop, and Agent execution.
 #[derive(Debug, thiserror::Error)]
 pub enum ProtocolError {
-    #[error("Invalid RPC frame: {0}")]
-    InvalidFrame(String),
+    #[error("Invalid RPC request envelope")]
+    InvalidRequest(#[source] JsonDecodeError),
+    #[error("Invalid RPC command name; use 1 to 128 ASCII letters, digits, or underscores")]
+    InvalidCommand,
+    #[error("Invalid JSON; stdout must contain only RPC frames")]
+    InvalidJson(#[source] JsonDecodeError),
+    #[error("RPC frame must be an object")]
+    ExpectedObject,
+    #[error("Event frame cannot also be a response")]
+    AmbiguousEvent,
+    #[error("Response is missing a numeric request ID")]
+    MissingRequestId,
+    #[error("Error response must contain a recognized code and a message")]
+    InvalidError(#[source] JsonDecodeError),
+    #[error("Response must contain either value or error")]
+    AmbiguousResponse,
+    #[error("Could not serialize RPC frame")]
+    Serialization(#[source] serde_json::Error),
+    #[error("RPC frame exceeded the {limit} byte limit")]
+    FrameTooLarge { limit: usize },
+    #[error("Connection ended in the middle of an RPC frame")]
+    TruncatedFrame,
     #[error("RPC I/O failed: {0}")]
     Io(#[from] std::io::Error),
 }
@@ -48,7 +88,7 @@ impl RequestEnvelope {
     /// Returns a protocol error for invalid JSON, missing fields, or an invalid command.
     pub fn decode(bytes: &[u8]) -> Result<Self, ProtocolError> {
         let request: Self = serde_json::from_slice(bytes)
-            .map_err(|_| ProtocolError::InvalidFrame("invalid RPC request envelope".into()))?;
+            .map_err(|error| ProtocolError::InvalidRequest(error.into()))?;
         validate_command(&request.command)?;
         Ok(request)
     }
@@ -61,17 +101,33 @@ fn validate_command(command: &str) -> Result<(), ProtocolError> {
             .bytes()
             .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
     {
-        return Err(ProtocolError::InvalidFrame(
-            "invalid RPC command name".into(),
-        ));
+        return Err(ProtocolError::InvalidCommand);
     }
     Ok(())
 }
 
+/// Stable operation categories shared by servers and clients.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RpcErrorCode {
+    UnsupportedCommand,
+    InvalidPayload,
+    SessionNotConnected,
+    RuntimeUnavailable,
+    RuntimeFailure,
+    RuntimeBusy,
+    RuntimeTimeout,
+    ApprovalNotFound,
+    StateDirectoryUnavailable,
+    Internal,
+}
+
 /// A remote operation failed while the underlying connection remained usable.
-#[derive(Serialize)]
+#[derive(Debug, Deserialize, Serialize, thiserror::Error)]
+#[error("Remote server error ({code:?}): {message}")]
+#[serde(deny_unknown_fields)]
 pub struct RpcError {
-    pub code: String,
+    pub code: RpcErrorCode,
     pub message: String,
 }
 
@@ -90,51 +146,32 @@ impl ServerFrame {
     /// # Errors
     /// Returns a protocol error for malformed, ambiguous, or incomplete envelopes.
     pub fn decode(bytes: &[u8]) -> Result<Self, ProtocolError> {
-        let frame: Value = serde_json::from_slice(bytes).map_err(|_| {
-            ProtocolError::InvalidFrame("invalid JSON; stdout must contain only RPC frames".into())
-        })?;
+        let frame: Value = serde_json::from_slice(bytes)
+            .map_err(|error| ProtocolError::InvalidJson(error.into()))?;
         let Value::Object(mut object) = frame else {
-            return Err(ProtocolError::InvalidFrame(
-                "RPC frame must be an object".into(),
-            ));
+            return Err(ProtocolError::ExpectedObject);
         };
         if let Some(event) = object.remove("event") {
             if ["id", "value", "error"]
                 .iter()
                 .any(|key| object.contains_key(*key))
             {
-                return Err(ProtocolError::InvalidFrame(
-                    "event frame cannot also be a response".into(),
-                ));
+                return Err(ProtocolError::AmbiguousEvent);
             }
             return Ok(Self::Event { event });
         }
         let id = object
             .remove("id")
             .and_then(|value| value.as_u64())
-            .ok_or_else(|| {
-                ProtocolError::InvalidFrame("response is missing a numeric request ID".into())
-            })?;
+            .ok_or(ProtocolError::MissingRequestId)?;
         match (object.remove("value"), object.remove("error")) {
             (Some(value), None) => Ok(Self::Response { id, value }),
-            (None, Some(error)) => match (
-                error.get("code").and_then(Value::as_str),
-                error.get("message").and_then(Value::as_str),
-            ) {
-                (Some(code), Some(message)) => Ok(Self::Failure {
-                    id,
-                    error: RpcError {
-                        code: code.into(),
-                        message: message.into(),
-                    },
-                }),
-                _ => Err(ProtocolError::InvalidFrame(
-                    "error response is missing code or message".into(),
-                )),
-            },
-            _ => Err(ProtocolError::InvalidFrame(
-                "response must contain either value or error".into(),
-            )),
+            (None, Some(error)) => Ok(Self::Failure {
+                id,
+                error: serde_json::from_value(error)
+                    .map_err(|error| ProtocolError::InvalidError(error.into()))?,
+            }),
+            _ => Err(ProtocolError::AmbiguousResponse),
         }
     }
 }
@@ -144,12 +181,11 @@ impl ServerFrame {
 /// # Errors
 /// Returns a protocol error for invalid serialization or a frame above 8 MiB.
 pub fn encode_frame(frame: &impl Serialize) -> Result<Vec<u8>, ProtocolError> {
-    let mut bytes = serde_json::to_vec(frame)
-        .map_err(|_| ProtocolError::InvalidFrame("could not serialize RPC frame".into()))?;
+    let mut bytes = serde_json::to_vec(frame).map_err(ProtocolError::Serialization)?;
     if bytes.len() > MAX_FRAME_BYTES {
-        return Err(ProtocolError::InvalidFrame(
-            "RPC frame exceeded the 8 MiB limit".into(),
-        ));
+        return Err(ProtocolError::FrameTooLarge {
+            limit: MAX_FRAME_BYTES,
+        });
     }
     bytes.push(b'\n');
     Ok(bytes)
@@ -169,17 +205,15 @@ pub async fn read_frame(
             return if frame.is_empty() {
                 Ok(None)
             } else {
-                Err(ProtocolError::InvalidFrame(
-                    "connection ended in the middle of an RPC frame".into(),
-                ))
+                Err(ProtocolError::TruncatedFrame)
             };
         }
         let newline = available.iter().position(|byte| *byte == b'\n');
         let count = newline.unwrap_or(available.len());
         if frame.len().saturating_add(count) > MAX_FRAME_BYTES {
-            return Err(ProtocolError::InvalidFrame(
-                "RPC frame exceeded the 8 MiB limit".into(),
-            ));
+            return Err(ProtocolError::FrameTooLarge {
+                limit: MAX_FRAME_BYTES,
+            });
         }
         frame.extend_from_slice(&available[..count]);
         reader.consume(count + usize::from(newline.is_some()));
@@ -206,7 +240,7 @@ mod tests {
             ServerFrame::Failure {
                 id: 2,
                 error: RpcError {
-                    code: "failed".into(),
+                    code: RpcErrorCode::RuntimeFailure,
                     message: "retry".into(),
                 },
             },
@@ -224,7 +258,9 @@ mod tests {
             json!({"id":1,"event":{}}),
             json!({"event":{},"error":{}}),
             json!({"id":1,"value":1,"error":{}}),
-            json!({"id":1,"error":{"code":"failed"}}),
+            json!({"id":1,"error":{"code":"runtime_failure"}}),
+            json!({"id":1,"error":{"code":"unrecognized","message":"retry"}}),
+            json!({"id":1,"error":{"code":"runtime_failure","message":"retry","private":"key"}}),
         ] {
             assert!(ServerFrame::decode(&encode_frame(&invalid)?).is_err());
         }
@@ -237,32 +273,81 @@ mod tests {
             br#"{"id":1,"command":"secret-command!","payload":"private-key"}"#.as_slice(),
             br#"{"id":1,"payload":"private-key"}"#,
             br#"{"id":1,"command":"send","payload":"private-key""#,
+            br#"{"id":"private-key","command":"send"}"#,
+            br#"{"id":1,"command":"secret-command!"}"#,
         ] {
             let Err(error) = RequestEnvelope::decode(input) else {
                 panic!("invalid request was accepted");
             };
             assert!(!error.to_string().contains("private-key"));
             assert!(!error.to_string().contains("secret-command"));
+            assert!(!format!("{error:?}").contains("private-key"));
+            assert!(!format!("{error:?}").contains("secret-command"));
         }
+    }
+
+    #[test]
+    fn malformed_responses_expose_typed_reasons_and_redacted_sources() {
+        for invalid in ["", "a-b", "x y"] {
+            assert!(matches!(
+                RequestEnvelope::new(1, invalid, Value::Null),
+                Err(ProtocolError::InvalidCommand)
+            ));
+        }
+        assert!(matches!(
+            ServerFrame::decode(b"[]"),
+            Err(ProtocolError::ExpectedObject)
+        ));
+        assert!(matches!(
+            ServerFrame::decode(br#"{"value":true}"#),
+            Err(ProtocolError::MissingRequestId)
+        ));
+        assert!(matches!(
+            ServerFrame::decode(br#"{"event":{},"id":1}"#),
+            Err(ProtocolError::AmbiguousEvent)
+        ));
+        assert!(matches!(
+            ServerFrame::decode(br#"{"id":1,"value":null,"error":{}}"#),
+            Err(ProtocolError::AmbiguousResponse)
+        ));
+        let Err(error) = ServerFrame::decode(
+            br#"{"id":1,"error":{"code":"private-key","message":"private-key"}}"#,
+        ) else {
+            panic!("unknown error code was accepted");
+        };
+        assert!(matches!(&error, ProtocolError::InvalidError(_)));
+        assert!(!format!("{error:?}").contains("private-key"));
+        let source = std::error::Error::source(&error)
+            .and_then(|source| source.downcast_ref::<JsonDecodeError>());
+        assert!(source.is_some_and(|source| source.category == serde_json::error::Category::Data));
     }
 
     #[tokio::test]
     async fn bounds_encoding_and_decoding_and_rejects_partial_eof() -> Result<(), ProtocolError> {
         let exact = encode_frame(&"x".repeat(MAX_FRAME_BYTES - 2))?;
         assert_eq!(exact.len(), MAX_FRAME_BYTES + 1);
-        assert!(encode_frame(&"x".repeat(MAX_FRAME_BYTES - 1)).is_err());
+        assert!(matches!(
+            encode_frame(&"x".repeat(MAX_FRAME_BYTES - 1)),
+            Err(ProtocolError::FrameTooLarge {
+                limit: MAX_FRAME_BYTES
+            })
+        ));
         assert_eq!(
             read_frame(&mut exact.as_slice())
                 .await?
                 .map(|value| value.len()),
             Some(MAX_FRAME_BYTES)
         );
-        for mut bytes in [
-            b"{\"id\":1}".as_slice(),
-            vec![b'x'; MAX_FRAME_BYTES + 1].as_slice(),
-        ] {
-            assert!(read_frame(&mut bytes).await.is_err());
-        }
+        assert!(matches!(
+            read_frame(&mut b"{\"id\":1}".as_slice()).await,
+            Err(ProtocolError::TruncatedFrame)
+        ));
+        assert!(matches!(
+            read_frame(&mut vec![b'x'; MAX_FRAME_BYTES + 1].as_slice()).await,
+            Err(ProtocolError::FrameTooLarge {
+                limit: MAX_FRAME_BYTES
+            })
+        ));
         let mut stream = BufReader::new(b"null\n{}\n".as_slice());
         assert_eq!(read_frame(&mut stream).await?, Some(b"null".to_vec()));
         assert_eq!(read_frame(&mut stream).await?, Some(b"{}".to_vec()));

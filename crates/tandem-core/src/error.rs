@@ -1,0 +1,259 @@
+use std::path::PathBuf;
+
+use serde::Serialize;
+
+use crate::{SecretError, StorageError, model::ValidationError};
+
+/// Application failures retain their domain and original cause until the transport boundary.
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+    #[error(transparent)]
+    Validation(#[from] ValidationError),
+    #[error(transparent)]
+    Storage(#[from] StorageError),
+    #[error(transparent)]
+    Secret(#[from] SecretError),
+    #[error(transparent)]
+    Runtime(#[from] copilot_runtime::Error),
+    #[error(transparent)]
+    Remote(#[from] tandem_remote::RemoteError),
+    #[error("Filesystem operation failed: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("Application data could not be encoded or decoded: {0}")]
+    Json(#[from] serde_json::Error),
+    #[error("Cannot determine the application data directory")]
+    DataDirectoryUnavailable,
+    #[error("Cannot determine the user's home directory")]
+    HomeDirectoryUnavailable,
+    #[error("The Copilot runtime failed to start: {0}")]
+    RuntimeStartup(#[source] copilot_runtime::Error),
+    #[error("The specified Copilot CLI file does not exist: {}", path.display())]
+    CliNotFound { path: PathBuf },
+    #[error("Stop running conversations before continuing.")]
+    ConversationsRunning,
+    #[error("The directory does not exist or cannot be accessed: {0}")]
+    DirectoryUnavailable(#[source] std::io::Error),
+    #[error("The project path must be a directory.")]
+    ProjectPathNotDirectory,
+    #[error("This project does not have an SSH connection.")]
+    SshConnectionRequired,
+    #[error("Stop the project's running work before continuing.")]
+    ProjectRunning,
+    #[error("The provider ID is invalid")]
+    InvalidProviderId(#[source] uuid::Error),
+    #[error(
+        "Deleting the API key failed ({secret}), and the provider record could not be restored: {storage}"
+    )]
+    ProviderRestore {
+        secret: Box<SecretError>,
+        #[source]
+        storage: Box<StorageError>,
+    },
+    #[error("Wait for this provider's conversations to finish before changing its settings.")]
+    ProviderRunning,
+    #[error("The selected model is not configured for this provider. Select a model again.")]
+    ModelNotConfigured {
+        provider_id: String,
+        model_id: String,
+    },
+    #[error("Chat does not support automatic permission approval. Create project work instead.")]
+    ChatPermissionMode,
+    #[error("Only project work supports switching permission modes.")]
+    WorkSessionRequired,
+    #[error(
+        "Work is initializing or processing an operation. Try switching permission modes again shortly."
+    )]
+    PermissionModeChangeBusy,
+    #[error("Wait for the work to finish or stop it before switching permission modes.")]
+    PermissionModeChangeRunning,
+    #[error(
+        "The conversation is initializing or processing an operation. Try switching models again shortly."
+    )]
+    ModelChangeBusy,
+    #[error("Wait for the conversation to finish or stop it before switching models.")]
+    ModelChangeRunning,
+    #[error(
+        "The model was saved, but the previous session connection could not be cleaned up. Try sending again."
+    )]
+    ModelConnectionCleanup(#[source] tokio::task::JoinError),
+    #[error("Messages must not be empty or exceed 500 KB.")]
+    InvalidMessage,
+    #[error("The conversation is running. Wait for it to finish or click Stop.")]
+    ConversationRunning,
+    #[error("The session connection is no longer valid. Try again.")]
+    SessionDisconnected,
+    #[error("The session was disconnected, and this permission request is no longer valid.")]
+    PermissionSessionDisconnected,
+    #[error("The runtime event stream was interrupted: {0}")]
+    RuntimeEventStream(#[source] tokio::sync::broadcast::error::RecvError),
+    #[error("The SSH event stream was interrupted: {0}")]
+    RemoteEventStream(#[source] tokio::sync::broadcast::error::RecvError),
+    #[error("The remote event format is invalid: {0}")]
+    InvalidRemoteEvent(#[source] EventDecodeError),
+    #[error("The runtime returned an invalid session state: {0}")]
+    InvalidRuntimeState(#[source] EventDecodeError),
+    #[error("Conversation event forwarding has stopped")]
+    ForwardingStopped(#[source] tokio::sync::watch::error::RecvError),
+    #[error("The conversation completion event is still being processed. Try again shortly.")]
+    CompletionTimeout(#[source] tokio::time::error::Elapsed),
+    #[error("Session state lock is unavailable. Restart the application.")]
+    SessionStatePoisoned,
+    #[error("Title task state is unavailable. Restart the application.")]
+    TitleStatePoisoned,
+    #[error("The application is shutting down.")]
+    ShuttingDown,
+    #[error("Runtime settings are being updated. Try generating the title again shortly.")]
+    TitleConfigurationUpdating,
+    #[error("Complete a conversation turn before generating a title.")]
+    TitleExchangeRequired,
+    #[error("Too many titles are being generated. Try again shortly.")]
+    TitleQueueFull,
+    #[error("Title generation timed out")]
+    TitleTimeout(#[source] tokio::time::error::Elapsed),
+    #[error("The title must be a single line of text.")]
+    TitleNotSingleLine,
+    #[error("The title format is invalid.")]
+    InvalidTitleFormat,
+}
+
+pub type Result<T> = std::result::Result<T, Error>;
+
+/// Stable categories for transport policy; callers can match `Error` for finer detail.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ErrorCode {
+    InvalidInput,
+    NotFound,
+    Conflict,
+    Unavailable,
+    Internal,
+}
+
+/// Serializable command failure shared by desktop IPC and development HTTP.
+#[derive(Debug, Serialize)]
+pub struct ErrorResponse {
+    pub code: ErrorCode,
+    pub error: String,
+}
+
+impl From<Error> for ErrorResponse {
+    fn from(error: Error) -> Self {
+        Self {
+            code: error.code(),
+            error: error.to_string(),
+        }
+    }
+}
+
+impl Error {
+    #[must_use]
+    pub fn code(&self) -> ErrorCode {
+        match self {
+            Self::DirectoryUnavailable(source) if source.kind() == std::io::ErrorKind::NotFound => {
+                ErrorCode::NotFound
+            }
+            Self::Remote(error) => match error.code() {
+                tandem_remote::RpcErrorCode::InvalidPayload
+                | tandem_remote::RpcErrorCode::UnsupportedCommand => ErrorCode::InvalidInput,
+                tandem_remote::RpcErrorCode::ApprovalNotFound => ErrorCode::NotFound,
+                tandem_remote::RpcErrorCode::RuntimeBusy => ErrorCode::Conflict,
+                tandem_remote::RpcErrorCode::Internal => ErrorCode::Internal,
+                tandem_remote::RpcErrorCode::SessionNotConnected
+                | tandem_remote::RpcErrorCode::RuntimeUnavailable
+                | tandem_remote::RpcErrorCode::RuntimeFailure
+                | tandem_remote::RpcErrorCode::RuntimeTimeout
+                | tandem_remote::RpcErrorCode::StateDirectoryUnavailable => ErrorCode::Unavailable,
+            },
+            Self::Runtime(copilot_runtime::Error::InvalidConfiguration(_))
+            | Self::Validation(_)
+            | Self::InvalidProviderId(_)
+            | Self::ProjectPathNotDirectory
+            | Self::SshConnectionRequired
+            | Self::ChatPermissionMode
+            | Self::WorkSessionRequired
+            | Self::InvalidMessage
+            | Self::TitleNotSingleLine
+            | Self::InvalidTitleFormat
+            | Self::TitleExchangeRequired => ErrorCode::InvalidInput,
+            Self::Runtime(copilot_runtime::Error::UnknownApproval)
+            | Self::Storage(
+                StorageError::ProviderNotFound { .. }
+                | StorageError::ProjectNotFound { .. }
+                | StorageError::SessionNotFound { .. },
+            )
+            | Self::ModelNotConfigured { .. }
+            | Self::CliNotFound { .. } => ErrorCode::NotFound,
+            Self::Storage(StorageError::ProviderInUse { .. })
+            | Self::ConversationsRunning
+            | Self::ProjectRunning
+            | Self::ProviderRunning
+            | Self::PermissionModeChangeBusy
+            | Self::PermissionModeChangeRunning
+            | Self::ModelChangeBusy
+            | Self::ModelChangeRunning
+            | Self::ConversationRunning
+            | Self::TitleConfigurationUpdating
+            | Self::TitleQueueFull
+            | Self::Runtime(copilot_runtime::Error::Busy) => ErrorCode::Conflict,
+            Self::DataDirectoryUnavailable
+            | Self::HomeDirectoryUnavailable
+            | Self::DirectoryUnavailable(_)
+            | Self::RuntimeStartup(_)
+            | Self::SessionDisconnected
+            | Self::PermissionSessionDisconnected
+            | Self::RuntimeEventStream(_)
+            | Self::RemoteEventStream(_)
+            | Self::ForwardingStopped(_)
+            | Self::CompletionTimeout(_)
+            | Self::ShuttingDown
+            | Self::TitleTimeout(_)
+            | Self::Runtime(
+                copilot_runtime::Error::Sdk(_)
+                | copilot_runtime::Error::Io(_)
+                | copilot_runtime::Error::Disconnected
+                | copilot_runtime::Error::StartupTimeout
+                | copilot_runtime::Error::AbortTimeout
+                | copilot_runtime::Error::Shutdown(_)
+                | copilot_runtime::Error::Summary(_),
+            ) => ErrorCode::Unavailable,
+            Self::Storage(
+                StorageError::OpenDatabase { .. }
+                | StorageError::Database(_)
+                | StorageError::Json(_)
+                | StorageError::LockPoisoned,
+            )
+            | Self::Secret(
+                SecretError::OpenDatabase { .. }
+                | SecretError::Database(_)
+                | SecretError::LockPoisoned,
+            )
+            | Self::Io(_)
+            | Self::Json(_)
+            | Self::ProviderRestore { .. }
+            | Self::ModelConnectionCleanup(_)
+            | Self::InvalidRemoteEvent(_)
+            | Self::InvalidRuntimeState(_)
+            | Self::SessionStatePoisoned
+            | Self::TitleStatePoisoned => ErrorCode::Internal,
+        }
+    }
+}
+
+/// Event parse errors retain category and location without echoing private event values.
+#[derive(Debug, thiserror::Error)]
+#[error("{category:?} error at line {line}, column {column}")]
+pub struct EventDecodeError {
+    pub category: serde_json::error::Category,
+    pub line: usize,
+    pub column: usize,
+}
+
+impl From<serde_json::Error> for EventDecodeError {
+    fn from(error: serde_json::Error) -> Self {
+        Self {
+            category: error.classify(),
+            line: error.line(),
+            column: error.column(),
+        }
+    }
+}

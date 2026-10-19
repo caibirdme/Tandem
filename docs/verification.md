@@ -1,5 +1,17 @@
 # Verification record
 
+## Typed Rust errors (2026-10-19)
+
+The change was developed from `main` in `.worktrees/typed-rust-errors`. Application services, validation, persistence, credentials, runtime configuration, title inference, SSH, and protocol parsing now return typed `thiserror` failures. Tests match domain variants and verify safe source chains, missing records, provider references, invalid configuration, session conflicts, malformed events, shutdown failures, and private-input redaction. Desktop IPC and HTTP share typed command error categories; SSH preserves its RPC error codes. `AGENTS.md` requires this error-handling approach for future Rust changes.
+
+`just check`, `just check-workspace`, and `just build` passed on macOS / Apple Silicon, including 168 frontend, 120 Rust, and 29 Python tests. Strict Clippy, TypeScript checks, formatting, dependency boundaries, and frontend/server builds passed. An additional HTTP smoke check confirmed five invalid-input, missing-record/path, SSH-validation, and corrupt-storage cases return the expected typed codes and 400, 404, or 500 status.
+
+Full local integration passed with the production Copilot SDK/CLI and deterministic local inference and OTLP test services: 67 inference requests, including 8 title requests, and 8 telemetry export batches. It covered permissions, model switching, cancellation, persistence, restart/runtime recovery, and credential privacy. As in the earlier language verification, system Python 3.9.6 / SQLite 3.54.0 could not read the schema of the closed WAL database. The unchanged scanner passed with bundled Python 3.12.14 / SQLite 3.53.1; inspection of the failed-run database also confirmed the test key appeared only in the allowed `provider_secrets.secret` column. No scan exemptions or production storage behavior were changed.
+
+Remote stdio and OpenSSH integration passed with 28 inference requests and 21 telemetry export batches. It used an isolated local SSH daemon, temporary directories, test credentials, and the production SDK/CLI with test inference and telemetry services. It covered deployment, tools, streaming, recovery with another model/provider and original history, malformed/oversized frames, and shutdown. These runs used no real model provider or API key; the chat web-tool case fetched the public example page.
+
+`CI=true just desktop-build` passed and produced the ad hoc signed Apple Silicon `Tandem.app` and `Tandem_0.1.4_aarch64.dmg`, including the local-platform remote agent. The installer was not installed, the native UI was not exercised, and Windows/Linux builds were not run for this change.
+
 ## Current interfaces and storage (2026-10-19)
 
 The cleanup was developed from `main` in `.worktrees/remove-legacy-compat`. Application storage, remote runtime state, and artifact configuration now use Tandem names directly. Stored sessions require explicit `titleState` and `permissionMode`. Remote session options use `contextWindow` for the model limit and require `permissionMode`; `send_message` requires a caller-supplied `messageId` UUID. Snapshots always include `titleGenerations` and `activeTurns`, including empty collections. The frontend receives title updates through dedicated title events. `AGENTS.md` records the early-stage policy of using current schemas and interfaces directly.

@@ -1,6 +1,5 @@
 use std::sync::{Arc, Weak};
 
-use anyhow::{Context, Result, bail};
 use copilot_runtime::{SessionMode, SessionOptions};
 use serde_json::json;
 use tandem_remote::RemoteTransport;
@@ -8,13 +7,13 @@ use tokio::{sync::Mutex, task::JoinHandle};
 use uuid::Uuid;
 
 use crate::{
-    App,
+    App, Error, Result,
     agent::{AgentEvents, AgentHandle, LiveSession, TurnCompletion},
     app::now,
     events::EventOutcome,
     model::{
-        Connection, Message, MessageRole, PermissionMode, Session, SessionStatus, TitleState,
-        validate_name,
+        Connection, Message, MessageRole, NameField, PermissionMode, Session, SessionStatus,
+        TitleState, validate_name,
     },
 };
 
@@ -57,14 +56,15 @@ impl App {
         permission_mode: PermissionMode,
     ) -> Result<Session> {
         if project_id.is_none() && permission_mode != PermissionMode::Ask {
-            bail!(
-                "Chat does not support automatic permission approval. Create project work instead."
-            );
+            return Err(Error::ChatPermissionMode);
         }
         let _guard = self.mutation_gate.lock().await;
         let provider = self.store.provider(&provider_id)?;
         if !provider.models.iter().any(|model| model.id == model_id) {
-            bail!("The selected model is not configured for this provider.");
+            return Err(Error::ModelNotConfigured {
+                provider_id,
+                model_id,
+            });
         }
         if let Some(id) = &project_id {
             self.store.project(id)?;
@@ -99,7 +99,7 @@ impl App {
         let gate = self.session_gate(id).await;
         let _session_guard = gate
             .try_lock()
-            .context("Work is initializing or processing an operation. Try switching permission modes again shortly.")?;
+            .map_err(|_| Error::PermissionModeChangeBusy)?;
         let updated = {
             let _mutation_guard = self.mutation_gate.lock().await;
             let session = self.editable_work_session(id)?;
@@ -124,10 +124,10 @@ impl App {
     fn editable_work_session(&self, id: &str) -> Result<Session> {
         let session = self.store.session(id)?;
         if session.project_id.is_none() {
-            bail!("Only project work supports switching permission modes.");
+            return Err(Error::WorkSessionRequired);
         }
         if session.status == SessionStatus::Running || self.turns.has_pending_permissions(id)? {
-            bail!("Wait for the work to finish or stop it before switching permission modes.");
+            return Err(Error::PermissionModeChangeRunning);
         }
         Ok(session)
     }
@@ -139,14 +139,14 @@ impl App {
         message_id: Uuid,
     ) -> Result<()> {
         if content.trim().is_empty() || content.len() > 500_000 {
-            bail!("Messages must not be empty or exceed 500 KB.");
+            return Err(Error::InvalidMessage);
         }
         let gate = self.session_gate(session_id).await;
         let _session_guard = gate.lock().await;
         // Do not queue a second prompt behind an active turn. Once idle is visible,
         // wait for its forwarding task to finish before marking the next turn running.
         if self.store.session(session_id)?.status == SessionStatus::Running {
-            bail!("The conversation is running. Wait for it to finish or click Stop.");
+            return Err(Error::ConversationRunning);
         }
         let previous = self
             .sessions
@@ -161,7 +161,7 @@ impl App {
             let _mutation_guard = self.mutation_gate.lock().await;
             let session = self.store.session(session_id)?;
             if session.status == SessionStatus::Running {
-                bail!("The conversation is running. Wait for it to finish or click Stop.");
+                return Err(Error::ConversationRunning);
             }
             self.titles.mark_interrupted(session_id, false)?;
             let first_turn = !self.store.has_messages(session_id)?;
@@ -208,7 +208,7 @@ impl App {
             .lock()
             .await
             .get(&session.id)
-            .context("The session connection is no longer valid")?
+            .ok_or(Error::SessionDisconnected)?
             .completion
             .clone();
         completion.begin().await?;
@@ -408,9 +408,7 @@ impl App {
             .await
             .get(id)
             .map(|live| live.handle.clone())
-            .context(
-                "The session was disconnected, and this permission request is no longer valid.",
-            )?;
+            .ok_or(Error::PermissionSessionDisconnected)?;
         handle.approve(request_id, approved).await?;
         self.turns.resolve_permission(id, request_id)
     }
@@ -431,7 +429,7 @@ impl App {
     pub(crate) async fn delete_session(&self, id: &str) -> Result<()> {
         let _guard = self.mutation_gate.lock().await;
         if self.store.session(id)?.status == SessionStatus::Running {
-            bail!("Stop the conversation before continuing.");
+            return Err(Error::ConversationRunning);
         }
         self.disconnect_session(id).await;
         let mut titles = self.titles.lock()?;
@@ -441,7 +439,7 @@ impl App {
     }
 
     pub(crate) async fn rename_session(&self, id: &str, title: &str) -> Result<()> {
-        validate_name(title, "Conversation name")?;
+        validate_name(title, NameField::ConversationName)?;
         let _guard = self.mutation_gate.lock().await;
         let mut titles = self.titles.lock()?;
         self.store.update_session(id, |session| {
@@ -464,6 +462,7 @@ impl App {
 
 #[cfg(test)]
 mod tests {
+    use anyhow::{Context, Result};
     use copilot_runtime::{EventKind, RuntimeEvent};
     use tempfile::TempDir;
 
@@ -488,29 +487,32 @@ mod tests {
             }))?,
             None,
         ).await?;
-        app.create_session(None, provider.id, "fixture".into(), PermissionMode::Ask)
-            .await
+        Ok(app
+            .create_session(None, provider.id, "fixture".into(), PermissionMode::Ask)
+            .await?)
     }
 
     async fn project(app: &App) -> Result<Project> {
-        app.create_project(
-            "Fixture work".into(),
-            app.options.data_directory.to_string_lossy().into_owned(),
-            Connection::Local,
-        )
-        .await
+        Ok(app
+            .create_project(
+                "Fixture work".into(),
+                app.options.data_directory.to_string_lossy().into_owned(),
+                Connection::Local,
+            )
+            .await?)
     }
 
     async fn work_session(app: &App) -> Result<Session> {
         let chat = session(app).await?;
         let project = project(app).await?;
-        app.create_session(
-            Some(project.id),
-            chat.provider_id,
-            chat.model_id,
-            PermissionMode::Ask,
-        )
-        .await
+        Ok(app
+            .create_session(
+                Some(project.id),
+                chat.provider_id,
+                chat.model_id,
+                PermissionMode::Ask,
+            )
+            .await?)
     }
 
     #[tokio::test]

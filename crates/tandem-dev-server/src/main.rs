@@ -7,8 +7,43 @@ use std::{
     sync::Arc,
 };
 
-use anyhow::{Context, Result, bail, ensure};
 use tandem_core::{App, AppOptions, MemoryVault};
+
+#[derive(Debug, thiserror::Error)]
+enum ArgumentError {
+    #[error("choose either --version or --help")]
+    ConflictingModes,
+    #[error("--port requires a value from 1 to 65535")]
+    MissingPort,
+    #[error("--port must be an integer from 1 to 65535 (received {value:?})")]
+    InvalidPortFormat { value: String },
+    #[error("--port must be an integer from 1 to 65535 (received {value:?})")]
+    InvalidPortNumber {
+        value: String,
+        #[source]
+        source: std::num::ParseIntError,
+    },
+    #[error("--port must be an integer from 1 to 65535")]
+    ZeroPort,
+    #[error("--data-dir requires a path")]
+    MissingDataDirectory,
+    #[error("unknown option: {option}; use --help for development server options")]
+    UnknownOption { option: String },
+}
+
+#[derive(Debug, thiserror::Error)]
+enum Error {
+    #[error(transparent)]
+    Arguments(#[from] ArgumentError),
+    #[error(transparent)]
+    Application(#[from] tandem_core::Error),
+    #[error("Cannot locate the development server executable: {0}")]
+    ExecutablePath(#[source] std::io::Error),
+    #[error(transparent)]
+    Http(#[from] http::HttpError),
+}
+
+type Result<T> = std::result::Result<T, Error>;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -39,10 +74,13 @@ async fn main() -> Result<()> {
         options.secrets = Arc::new(MemoryVault::default());
     }
     // SSH deployment needs the remote host, never this HTTP development binary.
-    options.remote_artifacts.local_server = Some(remote_server_path(&std::env::current_exe()?));
+    let executable = std::env::current_exe().map_err(Error::ExecutablePath)?;
+    options.remote_artifacts.local_server = Some(remote_server_path(&executable));
     let app = App::open(options)?;
-    let result = http::serve(Arc::clone(&app), arguments.port).await;
-    let stop_result = app.shutdown().await;
+    let result = http::serve(Arc::clone(&app), arguments.port)
+        .await
+        .map_err(Error::from);
+    let stop_result = app.shutdown().await.map_err(Error::from);
     result.and(stop_result)
 }
 
@@ -66,7 +104,9 @@ struct Arguments {
     data_directory: Option<PathBuf>,
 }
 
-fn arguments(arguments: impl IntoIterator<Item = String>) -> Result<Arguments> {
+fn arguments(
+    arguments: impl IntoIterator<Item = String>,
+) -> std::result::Result<Arguments, ArgumentError> {
     let mut parsed = Arguments {
         port: 4317,
         ..Arguments::default()
@@ -75,10 +115,9 @@ fn arguments(arguments: impl IntoIterator<Item = String>) -> Result<Arguments> {
     while let Some(argument) = arguments.next() {
         match argument.as_str() {
             "--version" | "--help" => {
-                ensure!(
-                    parsed.mode == Mode::Http,
-                    "choose either --version or --help"
-                );
+                if parsed.mode != Mode::Http {
+                    return Err(ArgumentError::ConflictingModes);
+                }
                 parsed.mode = if argument == "--version" {
                     Mode::Version
                 } else {
@@ -87,29 +126,32 @@ fn arguments(arguments: impl IntoIterator<Item = String>) -> Result<Arguments> {
             }
             "--ephemeral-secrets" => parsed.ephemeral_secrets = true,
             "--port" => {
-                let port = arguments
-                    .next()
-                    .context("--port requires a value from 1 to 65535")?;
-                ensure!(
-                    port.bytes().all(|byte| byte.is_ascii_digit()),
-                    "--port must be an integer from 1 to 65535"
-                );
+                let port = arguments.next().ok_or(ArgumentError::MissingPort)?;
+                if port.is_empty() || !port.bytes().all(|byte| byte.is_ascii_digit()) {
+                    return Err(ArgumentError::InvalidPortFormat { value: port });
+                }
                 parsed.port = port
                     .parse()
-                    .context("--port must be an integer from 1 to 65535")?;
-                ensure!(
-                    parsed.port != 0,
-                    "--port must be an integer from 1 to 65535"
-                );
+                    .map_err(|source| ArgumentError::InvalidPortNumber {
+                        value: port,
+                        source,
+                    })?;
+                if parsed.port == 0 {
+                    return Err(ArgumentError::ZeroPort);
+                }
             }
             "--data-dir" => {
                 let directory = arguments
                     .next()
                     .filter(|value| !value.is_empty() && !value.starts_with("--"))
-                    .context("--data-dir requires a path")?;
+                    .ok_or(ArgumentError::MissingDataDirectory)?;
                 parsed.data_directory = Some(directory.into());
             }
-            other => bail!("unknown option: {other}; use --help for development server options"),
+            other => {
+                return Err(ArgumentError::UnknownOption {
+                    option: other.into(),
+                });
+            }
         }
     }
     Ok(parsed)
@@ -151,24 +193,53 @@ mod tests {
     }
 
     #[test]
-    fn invalid_ports_paths_and_remote_modes_are_rejected() {
+    fn invalid_ports_paths_and_remote_modes_are_typed() {
+        for option in ["--stdio", "--install-runtime"] {
+            assert!(matches!(
+                arguments([option.into()]),
+                Err(ArgumentError::UnknownOption { option: actual }) if actual == option
+            ));
+        }
+        assert!(matches!(
+            arguments(["--port".into()]),
+            Err(ArgumentError::MissingPort)
+        ));
+        for value in ["", "-1", "+4317", "invalid"] {
+            assert!(matches!(
+                arguments(["--port", value].map(str::to_owned)),
+                Err(ArgumentError::InvalidPortFormat { value: actual }) if actual == value
+            ));
+        }
+        for value in ["65536", "99999999999999999999"] {
+            assert!(matches!(
+                arguments(["--port", value].map(str::to_owned)),
+                Err(ArgumentError::InvalidPortNumber { value: actual, source })
+                    if actual == value && *source.kind() == std::num::IntErrorKind::PosOverflow
+            ));
+        }
+        assert!(matches!(
+            arguments(["--port", "0"].map(str::to_owned)),
+            Err(ArgumentError::ZeroPort)
+        ));
         for input in [
-            vec!["--stdio"],
-            vec!["--install-runtime"],
-            vec!["--port"],
-            vec!["--port", "0"],
-            vec!["--port", "65536"],
-            vec!["--port", "-1"],
-            vec!["--port", "+4317"],
-            vec!["--port", "invalid"],
             vec!["--data-dir"],
+            vec!["--data-dir", ""],
             vec!["--data-dir", "--help"],
-            vec!["--help", "--version"],
         ] {
-            assert!(
-                arguments(input.iter().map(ToString::to_string)).is_err(),
-                "{input:?}"
-            );
+            assert!(matches!(
+                arguments(input.into_iter().map(str::to_owned)),
+                Err(ArgumentError::MissingDataDirectory)
+            ));
+        }
+        for input in [
+            ["--help", "--version"],
+            ["--help", "--help"],
+            ["--version", "--help"],
+        ] {
+            assert!(matches!(
+                arguments(input.map(str::to_owned)),
+                Err(ArgumentError::ConflictingModes)
+            ));
         }
     }
 

@@ -4,19 +4,20 @@ use std::{
     time::Duration,
 };
 
-use anyhow::{Context, Result, bail};
 use copilot_runtime::{
     AgentSession, ApprovalDecision, EventKind, Runtime, RuntimeEvent, RuntimeOptions,
     SessionOptions, TelemetrySettings,
 };
 use serde_json::{Value, json};
-use tandem_protocol::{RequestEnvelope, RpcError, ServerFrame, encode_frame, read_frame};
+use tandem_protocol::{RequestEnvelope, ServerFrame, encode_frame, read_frame};
 use tokio::{
     io::{AsyncRead, AsyncWrite, AsyncWriteExt, BufReader},
     sync::{broadcast, mpsc},
     task::JoinHandle,
     time::timeout,
 };
+
+use crate::error::{Result, ServerError};
 
 const OUTPUT_CAPACITY: usize = 1024;
 const OUTPUT_DRAIN_TIMEOUT: Duration = Duration::from_secs(5);
@@ -85,7 +86,7 @@ async fn run_connection(
     let (stop_result, drain_result) = tokio::join!(cleanup, async {
         timeout(OUTPUT_DRAIN_TIMEOUT, writer)
             .await
-            .context("Remote output did not drain before shutdown")?
+            .map_err(ServerError::OutputDrainTimeout)?
     });
     result.and(stop_result).and(drain_result)
 }
@@ -112,13 +113,13 @@ async fn read_commands(host: &mut AgentHost, input: impl AsyncRead + Unpin) -> R
             },
             Err(error) => ServerFrame::Failure {
                 id: request.id,
-                error: RpcError {
-                    code: "runtime_error".into(),
-                    message: format!("{error:#}"),
-                },
+                error: error.into_rpc(),
             },
         };
-        host.output.send(response).await?;
+        host.output
+            .send(response)
+            .await
+            .map_err(|_| ServerError::OutputClosed)?;
     }
     Ok(())
 }
@@ -132,14 +133,17 @@ async fn forward_events(
         let (event, stream_failed) = match events.recv().await {
             Ok(event) => (event, false),
             Err(broadcast::error::RecvError::Closed) => break,
-            Err(broadcast::error::RecvError::Lagged(_)) => (
-                RuntimeEvent {
-                    session_id: session_id.clone(),
-                    kind: EventKind::Error,
-                    data: json!({"message":"The remote event stream overflowed. Send the message again to resume the session."}),
-                },
-                true,
-            ),
+            Err(broadcast::error::RecvError::Lagged(dropped)) => {
+                let error = ServerError::EventStreamOverflow { dropped }.into_rpc();
+                (
+                    RuntimeEvent {
+                        session_id: session_id.clone(),
+                        kind: EventKind::Error,
+                        data: json!({"code":error.code,"message":error.message}),
+                    },
+                    true,
+                )
+            }
         };
         // RuntimeEvent contains only known serializable values.
         let Ok(event) = serde_json::to_value(event) else {
@@ -179,7 +183,7 @@ impl AgentHost {
         if self.runtime.is_none() {
             let home = std::env::var_os("HOME")
                 .map(std::path::PathBuf::from)
-                .context("HOME is required on a remote host")?;
+                .ok_or(ServerError::MissingHome)?;
             let directory = runtime_directory(&home)?;
             self.runtime = Some(
                 Runtime::start(RuntimeOptions {
@@ -190,7 +194,7 @@ impl AgentHost {
                 .await?,
             );
         }
-        self.runtime.as_ref().context("Runtime unavailable")
+        self.runtime.as_ref().ok_or(ServerError::RuntimeUnavailable)
     }
 
     async fn dispatch(&mut self, command: &str, payload: Value) -> Result<Value> {
@@ -208,7 +212,7 @@ impl AgentHost {
             "approve_agent" => {
                 let approved = payload["approved"]
                     .as_bool()
-                    .context("approved must be a boolean")?;
+                    .ok_or(ServerError::InvalidBoolean { field: "approved" })?;
                 self.session(&payload)?.approve(
                     required(&payload, "requestId")?,
                     if approved {
@@ -225,16 +229,22 @@ impl AgentHost {
                 }
                 Ok(Value::Null)
             }
-            _ => bail!("Unsupported remote command"),
+            _ => Err(ServerError::UnsupportedCommand),
         }
     }
 
     async fn start(&mut self, payload: Value) -> Result<Value> {
-        let options: SessionOptions = serde_json::from_value(payload["options"].clone())?;
+        let options: SessionOptions =
+            serde_json::from_value(payload["options"].clone()).map_err(|source| {
+                ServerError::InvalidPayload {
+                    field: "options",
+                    source: source.into(),
+                }
+            })?;
         let id = options
             .session_id
             .as_deref()
-            .context("sessionId is required")?
+            .ok_or(ServerError::RequiredField { field: "sessionId" })?
             .to_owned();
         if self
             .sessions
@@ -247,7 +257,14 @@ impl AgentHost {
             let _ = previous.disconnect().await;
         }
         let telemetry = if payload["telemetry"]["enabled"].as_bool() == Some(true) {
-            Some(serde_json::from_value(payload["telemetry"].clone())?)
+            Some(
+                serde_json::from_value(payload["telemetry"].clone()).map_err(|source| {
+                    ServerError::InvalidPayload {
+                        field: "telemetry",
+                        source: source.into(),
+                    }
+                })?,
+            )
         } else {
             None
         };
@@ -271,7 +288,7 @@ impl AgentHost {
         self.sessions
             .get(required(payload, "sessionId")?)
             .map(|session| &session.agent)
-            .context("Session not connected")
+            .ok_or(ServerError::SessionNotConnected)
     }
 }
 
@@ -284,7 +301,9 @@ fn runtime_directory(home: &Path) -> Result<PathBuf> {
 fn validate_state_directory(path: &Path) -> Result<()> {
     match std::fs::metadata(path) {
         Ok(metadata) if metadata.is_dir() => Ok(()),
-        Ok(_) => bail!("SDK state path is not a directory: {}", path.display()),
+        Ok(_) => Err(ServerError::StatePathNotDirectory {
+            path: path.to_owned(),
+        }),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
             // Windows can report a missing child when its parent is a regular
             // file. Report the invalid parent before starting the SDK.
@@ -293,19 +312,22 @@ fn validate_state_directory(path: &Path) -> Result<()> {
             }
             Ok(())
         }
-        Err(error) => Err(error)
-            .with_context(|| format!("Cannot inspect SDK state directory: {}", path.display())),
+        Err(source) => Err(ServerError::StateDirectoryIo {
+            path: path.to_owned(),
+            source,
+        }),
     }
 }
 
-fn required<'a>(payload: &'a Value, key: &str) -> Result<&'a str> {
+fn required<'a>(payload: &'a Value, key: &'static str) -> Result<&'a str> {
     payload[key]
         .as_str()
-        .with_context(|| format!("{key} is required"))
+        .ok_or(ServerError::RequiredField { field: key })
 }
 
 #[cfg(test)]
 mod tests {
+    use anyhow::{Context, Result};
     use tokio::io::{AsyncReadExt, duplex};
 
     use super::*;
@@ -363,12 +385,62 @@ mod tests {
         let error = runtime_directory(&home.0)
             .err()
             .context("invalid state must be reported")?;
-        assert!(error.to_string().contains(&path.display().to_string()));
+        assert!(
+            matches!(&error, ServerError::StatePathNotDirectory { path: invalid } if invalid == &path)
+        );
         assert_eq!(std::fs::read(&path)?, b"not a directory");
         let home = TestDirectory::new()?;
         std::fs::create_dir_all(home.0.join(".local/share"))?;
         std::fs::write(home.0.join(".local/share/tandem"), b"blocked parent")?;
-        assert!(runtime_directory(&home.0).is_err());
+        match runtime_directory(&home.0) {
+            Err(ServerError::StatePathNotDirectory { .. }) => {}
+            Err(ServerError::StateDirectoryIo { source, .. }) => {
+                assert_eq!(source.kind(), std::io::ErrorKind::NotADirectory);
+            }
+            result => panic!("expected a non-directory state path error, got {result:?}"),
+        }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn invalid_command_payloads_have_typed_errors_without_starting_runtime() -> Result<()> {
+        type InvalidCommandCase = (&'static str, Value, fn(&ServerError) -> bool);
+        let (output, _frames) = mpsc::channel(8);
+        let mut host = AgentHost::new(output);
+        let cases: [InvalidCommandCase; 4] = [
+            ("send_agent", Value::Null, |error| {
+                matches!(error, ServerError::RequiredField { field: "sessionId" })
+            }),
+            ("send_agent", json!({"sessionId":"missing"}), |error| {
+                matches!(error, ServerError::SessionNotConnected)
+            }),
+            (
+                "approve_agent",
+                json!({"sessionId":"missing","approved":"true"}),
+                |error| matches!(error, ServerError::InvalidBoolean { field: "approved" }),
+            ),
+            (
+                "start_agent",
+                json!({"options":{"mode":"private-key"}}),
+                |error| {
+                    matches!(
+                        error,
+                        ServerError::InvalidPayload {
+                            field: "options",
+                            ..
+                        }
+                    )
+                },
+            ),
+        ];
+        for (command, payload, expected) in cases {
+            let Err(error) = host.dispatch(command, payload).await else {
+                panic!("invalid command was accepted");
+            };
+            assert!(expected(&error), "{error:?}");
+            assert!(!format!("{error:?}").contains("private-key"));
+        }
+        assert!(host.runtime.is_none());
         Ok(())
     }
 
@@ -392,7 +464,7 @@ mod tests {
         let first = read_frame(&mut response).await?.context("first response")?;
         assert!(matches!(
             ServerFrame::decode(&first)?,
-            ServerFrame::Failure { id: 0, .. }
+            ServerFrame::Failure { id: 0, error } if error.code == tandem_protocol::RpcErrorCode::UnsupportedCommand
         ));
         let second = read_frame(&mut response)
             .await?
@@ -455,7 +527,7 @@ mod tests {
         forward_events(incoming, output, "session".into()).await;
         let frame = frames.recv().await.context("overflow event")?;
         assert!(
-            matches!(frame, ServerFrame::Event { event } if event["sessionId"] == "session" && event["kind"] == "error")
+            matches!(frame, ServerFrame::Event { event } if event["sessionId"] == "session" && event["kind"] == "error" && event["data"]["code"] == "runtime_failure")
         );
         assert!(frames.recv().await.is_none());
         Ok(())

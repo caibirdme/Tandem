@@ -1,13 +1,15 @@
 use std::path::PathBuf;
 
-use anyhow::{Context, Result, bail};
 use tandem_remote::{RemoteClient, SshConnection};
 use uuid::Uuid;
 
 use crate::{
-    App,
+    App, Error, Result,
     app::now,
-    model::{Connection, DirectoryEntry, DirectoryListing, Project, SessionStatus, validate_name},
+    model::{
+        Connection, DirectoryEntry, DirectoryListing, NameField, Project, SessionStatus,
+        validate_name,
+    },
 };
 
 impl App {
@@ -17,14 +19,14 @@ impl App {
         path: String,
         connection: Connection,
     ) -> Result<Project> {
-        validate_name(&name, "Project name")?;
+        validate_name(&name, NameField::ProjectName)?;
         let path = match &connection {
             Connection::Local => {
                 let canonical = tokio::fs::canonicalize(expand_home(&path)?)
                     .await
-                    .context("The directory does not exist or cannot be accessed")?;
+                    .map_err(Error::DirectoryUnavailable)?;
                 if !tokio::fs::metadata(&canonical).await?.is_dir() {
-                    bail!("The project path must be a directory.");
+                    return Err(Error::ProjectPathNotDirectory);
                 }
                 canonical.to_string_lossy().into_owned()
             }
@@ -54,7 +56,7 @@ impl App {
             identity_file,
         } = connection
         else {
-            bail!("This project does not have an SSH connection.");
+            return Err(Error::SshConnectionRequired);
         };
         Ok(RemoteClient::new(
             SshConnection {
@@ -89,7 +91,7 @@ impl App {
         }
         let path = tokio::fs::canonicalize(expand_home(path)?)
             .await
-            .context("The directory does not exist or cannot be accessed")?;
+            .map_err(Error::DirectoryUnavailable)?;
         let mut directory = tokio::fs::read_dir(&path).await?;
         let mut entries = Vec::new();
         while let Some(entry) = directory.next_entry().await? {
@@ -118,7 +120,7 @@ impl App {
             .iter()
             .any(|session| session.status == SessionStatus::Running)
         {
-            bail!("Stop the project's running work before continuing.");
+            return Err(Error::ProjectRunning);
         }
         for session in &project_sessions {
             self.disconnect_session(&session.id).await;
@@ -145,7 +147,7 @@ impl App {
 
 fn expand_home(path: &str) -> Result<PathBuf> {
     if path == "~" || path.starts_with("~/") || path.is_empty() {
-        let home = dirs::home_dir().context("Cannot determine the user's home directory")?;
+        let home = dirs::home_dir().ok_or(Error::HomeDirectoryUnavailable)?;
         Ok(home.join(path.trim_start_matches('~').trim_start_matches('/')))
     } else {
         Ok(PathBuf::from(path))

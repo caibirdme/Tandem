@@ -1,8 +1,9 @@
 //! Remote Agent host. Stdout is reserved for the private stdio protocol.
 
+mod error;
 mod stdio;
 
-use anyhow::{Result, bail, ensure};
+use error::{Result, ServerError};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -42,9 +43,15 @@ fn arguments(arguments: impl IntoIterator<Item = String>) -> Result<Mode> {
             "--install-runtime" => Mode::InstallRuntime,
             "--version" => Mode::Version,
             "--help" => Mode::Help,
-            other => bail!("unknown option: {other}; use --help for remote server options"),
+            other => {
+                return Err(ServerError::UnknownOption {
+                    option: other.to_owned(),
+                });
+            }
         };
-        ensure!(mode.is_none(), "choose only one tandem-server mode");
+        if mode.is_some() {
+            return Err(ServerError::ConflictingModes);
+        }
         mode = Some(requested);
     }
     Ok(mode.unwrap_or(Mode::Stdio))
@@ -80,7 +87,10 @@ mod tests {
             vec!["unknown"],
         ] {
             assert!(
-                arguments(input.iter().map(ToString::to_string)).is_err(),
+                matches!(
+                    arguments(input.iter().map(ToString::to_string)),
+                    Err(ServerError::UnknownOption { .. } | ServerError::ConflictingModes)
+                ),
                 "{input:?}"
             );
         }

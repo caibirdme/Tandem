@@ -12,7 +12,9 @@ export async function dispatch<C extends keyof Commands>(
   const request = { command, payload };
   if (isDesktop()) {
     const { invoke } = await import('@tauri-apps/api/core');
-    return invoke<Commands[C]['result']>('dispatch', { request });
+    return invoke<Commands[C]['result']>('dispatch', { request }).catch((error: unknown) => {
+      throw commandError(error);
+    });
   }
   const response = await fetch('/api/dispatch', {
     method: 'POST',
@@ -32,11 +34,7 @@ export async function dispatch<C extends keyof Commands>(
     );
   }
   if (!response.ok || (typeof result === 'object' && result !== null && 'error' in result)) {
-    throw new Error(
-      typeof result === 'object' && result !== null && 'error' in result
-        ? String(result.error)
-        : t('error.requestFailed', { status: response.status }),
-    );
+    throw commandError(result, t('error.requestFailed', { status: response.status }));
   }
   return result as Commands[C]['result'];
 }
@@ -84,6 +82,39 @@ export async function subscribe(
   return () => source.close();
 }
 
+export type ErrorCode = 'invalid_input' | 'not_found' | 'conflict' | 'unavailable' | 'internal';
+
+export class CommandError extends Error {
+  constructor(
+    message: string,
+    public readonly code: ErrorCode,
+  ) {
+    super(message);
+    this.name = 'CommandError';
+  }
+}
+
+function isErrorCode(value: unknown): value is ErrorCode {
+  return ['invalid_input', 'not_found', 'conflict', 'unavailable', 'internal'].some(
+    (code) => code === value,
+  );
+}
+
+export function commandError(value: unknown, fallback?: string): Error {
+  if (value instanceof Error) return value;
+  if (
+    typeof value === 'object' &&
+    value !== null &&
+    'error' in value &&
+    'code' in value &&
+    typeof value.error === 'string' &&
+    isErrorCode(value.code)
+  ) {
+    return new CommandError(value.error, value.code);
+  }
+  return new Error(fallback ?? String(value));
+}
+
 export function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+  return commandError(error).message;
 }

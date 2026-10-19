@@ -9,7 +9,7 @@ use github_copilot_sdk::{
 use serde::{Deserialize, Serialize};
 use url::Url;
 
-use crate::{Error, Result};
+use crate::{ConfigurationError, Result};
 
 /// Supported inference wire protocols.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -53,12 +53,11 @@ pub struct ModelSettings {
 
 impl ModelSettings {
     fn token_limits(&self) -> Result<ModelCapabilitiesOverrideLimits> {
-        if self.context_window.is_some_and(|limit| limit <= 0)
-            || self.max_output_tokens.is_some_and(|limit| limit <= 0)
-        {
-            return Err(Error::InvalidConfiguration(
-                "token limits must be positive".into(),
-            ));
+        if self.context_window.is_some_and(|limit| limit <= 0) {
+            return Err(ConfigurationError::NonPositiveContextWindow.into());
+        }
+        if self.max_output_tokens.is_some_and(|limit| limit <= 0) {
+            return Err(ConfigurationError::NonPositiveMaxOutputTokens.into());
         }
         // Reserve an explicit output allowance within the total window. When it
         // is omitted, preserve the SDK's output default and override the total
@@ -67,9 +66,7 @@ impl ModelSettings {
             .context_window
             .map(|context| context - self.max_output_tokens.unwrap_or(0));
         if prompt.is_some_and(|limit| limit <= 0) {
-            return Err(Error::InvalidConfiguration(
-                "maximum output tokens must be smaller than the context window".into(),
-            ));
+            return Err(ConfigurationError::OutputExceedsContextWindow.into());
         }
         Ok(ModelCapabilitiesOverrideLimits {
             max_context_window_tokens: self.context_window,
@@ -154,9 +151,7 @@ impl ProviderSettings {
     pub(crate) fn to_sdk(&self, model: &ModelSettings) -> Result<ProviderConfig> {
         validate_http_endpoint(&self.base_url)?;
         if model.id.trim().is_empty() {
-            return Err(Error::InvalidConfiguration(
-                "model ID cannot be empty".into(),
-            ));
+            return Err(ConfigurationError::EmptyModelId.into());
         }
         let limits = model.token_limits()?;
         let (provider_type, wire_api) = match self.protocol {
@@ -197,26 +192,31 @@ impl TelemetrySettings {
 }
 
 fn validate_http_endpoint(endpoint: &str) -> Result<()> {
-    let url = Url::parse(endpoint).map_err(|_| {
-        Error::InvalidConfiguration("endpoint must be an absolute HTTP(S) URL".into())
-    })?;
-    if !matches!(url.scheme(), "http" | "https")
-        || url.host_str().is_none()
-        || !url.username().is_empty()
-        || url.password().is_some()
-        || url.query().is_some()
-        || url.fragment().is_some()
-    {
-        return Err(Error::InvalidConfiguration(
-            "endpoint must use HTTP(S), without embedded credentials, query, or fragment".into(),
-        ));
+    let url = Url::parse(endpoint).map_err(ConfigurationError::InvalidEndpoint)?;
+    if !matches!(url.scheme(), "http" | "https") {
+        return Err(ConfigurationError::UnsupportedEndpointScheme.into());
+    }
+    if url.host_str().is_none() {
+        return Err(ConfigurationError::MissingEndpointHost.into());
+    }
+    if !url.username().is_empty() || url.password().is_some() {
+        return Err(ConfigurationError::EndpointCredentials.into());
+    }
+    if url.query().is_some() {
+        return Err(ConfigurationError::EndpointQuery.into());
+    }
+    if url.fragment().is_some() {
+        return Err(ConfigurationError::EndpointFragment.into());
     }
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
+    use std::error::Error as _;
+
     use super::*;
+    use crate::Error;
 
     #[test]
     fn remote_permission_mode_is_required_and_round_trips_explicit_choices()
@@ -264,20 +264,39 @@ mod tests {
                 context.is_some() || output.is_some()
             );
         }
-        for (context, output) in [
-            (Some(0), None),
-            (Some(-1), None),
-            (None, Some(0)),
-            (None, Some(-1)),
-            (Some(128_000), Some(128_000)),
-            (Some(128_000), Some(128_001)),
+        for (context, output, expected) in [
+            (Some(0), None, ConfigurationError::NonPositiveContextWindow),
+            (Some(-1), None, ConfigurationError::NonPositiveContextWindow),
+            (
+                None,
+                Some(0),
+                ConfigurationError::NonPositiveMaxOutputTokens,
+            ),
+            (
+                None,
+                Some(-1),
+                ConfigurationError::NonPositiveMaxOutputTokens,
+            ),
+            (
+                Some(128_000),
+                Some(128_000),
+                ConfigurationError::OutputExceedsContextWindow,
+            ),
+            (
+                Some(128_000),
+                Some(128_001),
+                ConfigurationError::OutputExceedsContextWindow,
+            ),
         ] {
             let model = ModelSettings {
                 context_window: context,
                 max_output_tokens: output,
                 ..Default::default()
             };
-            assert!(model.token_limits().is_err(), "{context:?} {output:?}");
+            assert!(
+                matches!(model.token_limits(), Err(Error::InvalidConfiguration(error)) if error == expected),
+                "{context:?} {output:?}"
+            );
         }
         Ok(())
     }
@@ -372,20 +391,56 @@ mod tests {
 
     #[test]
     fn endpoint_validation_rejects_ambiguous_or_credential_bearing_urls() {
-        for (endpoint, valid) in [
-            ("https://api.example.com/v1", true),
-            ("http://127.0.0.1:4318", true),
-            ("file:///etc/passwd", false),
-            ("api.example.com", false),
-            ("https://user:password@example.com", false),
-            ("https://example.com?key=secret", false),
-            ("https://example.com/#fragment", false),
+        for endpoint in ["https://api.example.com/v1", "http://127.0.0.1:4318"] {
+            assert!(validate_http_endpoint(endpoint).is_ok(), "{endpoint}");
+        }
+        for (endpoint, expected) in [
+            (
+                "file:///etc/passwd",
+                ConfigurationError::UnsupportedEndpointScheme,
+            ),
+            (
+                "api.example.com",
+                ConfigurationError::InvalidEndpoint(url::ParseError::RelativeUrlWithoutBase),
+            ),
+            (
+                "https://user:password@example.com",
+                ConfigurationError::EndpointCredentials,
+            ),
+            (
+                "https://example.com?key=secret",
+                ConfigurationError::EndpointQuery,
+            ),
+            (
+                "https://example.com/#fragment",
+                ConfigurationError::EndpointFragment,
+            ),
         ] {
-            assert_eq!(
-                validate_http_endpoint(endpoint).is_ok(),
-                valid,
+            assert!(
+                matches!(validate_http_endpoint(endpoint), Err(Error::InvalidConfiguration(error)) if error == expected),
                 "{endpoint}"
             );
         }
+    }
+
+    #[test]
+    fn endpoint_parse_errors_retain_the_parser_source_without_retaining_the_url() {
+        let Err(error) = validate_http_endpoint("https://private-secret:invalid-port") else {
+            panic!("invalid port must fail validation");
+        };
+        assert!(matches!(
+            &error,
+            Error::InvalidConfiguration(ConfigurationError::InvalidEndpoint(
+                url::ParseError::InvalidPort
+            ))
+        ));
+        assert!(
+            error
+                .source()
+                .and_then(std::error::Error::source)
+                .and_then(|source| source.downcast_ref::<url::ParseError>())
+                .is_some()
+        );
+        assert!(!format!("{error:?}").contains("private-secret"));
     }
 }
