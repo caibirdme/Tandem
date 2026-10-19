@@ -22,17 +22,17 @@ class TitleFixtureTests(unittest.TestCase):
                     'fixture:work-create quoted conversation"}'
                 )}]}
                 self.assertTrue(is_title_request(request))
-                self.assertEqual(fixture.response(request), "验收文件操作")
+                self.assertEqual(fixture.response(request), "Acceptance file operations")
         self.assertFalse(is_title_request({"messages": [{"role": "user", "content": "normal"}]}))
 
     def test_title_completion_requires_a_persisted_title(self):
-        for saved, expected in [("简洁标题", True), ("旧标题", False)]:
+        for saved, expected in [("Concise title", True), ("Previous title", False)]:
             with self.subTest(saved=saved):
                 app = Mock()
                 app.command.return_value = {"sessions": [{"id": "session", "title": saved}]}
-                event = {"sessionId": "session", "kind": "title", "data": {"title": "简洁标题"}}
+                event = {"sessionId": "session", "kind": "title", "data": {"title": "Concise title"}}
                 if expected:
-                    self.assertEqual(Application.wait_title(app, "session", [event]), "简洁标题")
+                    self.assertEqual(Application.wait_title(app, "session", [event]), "Concise title")
                 else:
                     with self.assertRaisesRegex(AssertionError, "persisted"):
                         Application.wait_title(app, "session", [event])
@@ -92,7 +92,7 @@ class TitleHttpFixtureTests(unittest.TestCase):
                         self.assertEqual(response["object"], "chat.completion")
                         choice = response["choices"][0]
                         self.assertEqual(choice["finish_reason"], "stop")
-                        self.assertEqual(choice["message"], {"role": "assistant", "content": "验收对话总结"})
+                        self.assertEqual(choice["message"], {"role": "assistant", "content": "Acceptance conversation summary"})
                         self.assertEqual(response["usage"]["completion_tokens"], 10)
                     elif output_field == "output":
                         self.assertEqual(response["object"], "response")
@@ -101,13 +101,13 @@ class TitleHttpFixtureTests(unittest.TestCase):
                         self.assertEqual(item["type"], "message")
                         self.assertEqual(item["role"], "assistant")
                         self.assertEqual(item["status"], "completed")
-                        self.assertEqual(item["content"], [{"type": "output_text", "text": "验收对话总结", "annotations": []}])
+                        self.assertEqual(item["content"], [{"type": "output_text", "text": "Acceptance conversation summary", "annotations": []}])
                         self.assertEqual(response["usage"]["output_tokens"], 10)
                     else:
                         self.assertEqual(response["type"], "message")
                         self.assertEqual(response["role"], "assistant")
                         self.assertEqual(response["stop_reason"], "end_turn")
-                        self.assertEqual(response["content"], [{"type": "text", "text": "验收对话总结"}])
+                        self.assertEqual(response["content"], [{"type": "text", "text": "Acceptance conversation summary"}])
                         self.assertEqual(response["usage"]["output_tokens"], 10)
 
     def test_explicit_streaming_title_requests_keep_sse_protocol(self):

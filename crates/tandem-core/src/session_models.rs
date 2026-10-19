@@ -19,7 +19,7 @@ impl App {
         let gate = self.session_gate(id).await;
         let session_guard = gate
             .try_lock_owned()
-            .context("对话正在初始化或处理操作，请稍后切换模型")?;
+            .context("The conversation is initializing or processing an operation. Try switching models again shortly.")?;
         let previous = self
             .sessions
             .lock()
@@ -34,7 +34,9 @@ impl App {
             let session = self.editable_model_session(id)?;
             let provider = self.store.provider(&provider_id)?;
             if !provider.models.iter().any(|model| model.id == model_id) {
-                bail!("该供应商未配置选中的模型，请重新选择");
+                bail!(
+                    "The selected model is not configured for this provider. Select a model again."
+                );
             }
             if session.provider_id == provider_id && session.model_id == model_id {
                 return Ok(session);
@@ -60,14 +62,14 @@ impl App {
             app.disconnect_session(&session_id).await;
         })
         .await
-        .context("模型已保存，但旧会话连接未能完成清理，请重试发送")?;
+        .context("The model was saved, but the previous session connection could not be cleaned up. Try sending again.")?;
         Ok(updated)
     }
 
     fn editable_model_session(&self, id: &str) -> Result<Session> {
         let session = self.store.session(id)?;
         if session.status == SessionStatus::Running || self.turns.has_pending_permissions(id)? {
-            bail!("请等待对话结束或停止对话后再切换模型");
+            bail!("Wait for the conversation to finish or stop it before switching models.");
         }
         Ok(session)
     }

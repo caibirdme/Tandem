@@ -31,7 +31,8 @@ impl Drop for Submission<'_> {
             if let Some(completion) = &self.completion {
                 completion.fail();
             }
-            self.app.fail_session(self.session_id, "发送已取消，请重试");
+            self.app
+                .fail_session(self.session_id, "Sending was canceled. Try again.");
         }
     }
 }
@@ -56,12 +57,14 @@ impl App {
         permission_mode: PermissionMode,
     ) -> Result<Session> {
         if project_id.is_none() && permission_mode != PermissionMode::Ask {
-            bail!("聊天不支持自动批准权限，请创建项目工作");
+            bail!(
+                "Chat does not support automatic permission approval. Create project work instead."
+            );
         }
         let _guard = self.mutation_gate.lock().await;
         let provider = self.store.provider(&provider_id)?;
         if !provider.models.iter().any(|model| model.id == model_id) {
-            bail!("该供应商未配置选中的模型");
+            bail!("The selected model is not configured for this provider.");
         }
         if let Some(id) = &project_id {
             self.store.project(id)?;
@@ -70,9 +73,9 @@ impl App {
             title_state: TitleState::Pending,
             id: Uuid::new_v4().to_string(),
             title: if project_id.is_some() {
-                "新工作"
+                "New work"
             } else {
-                "新对话"
+                "New chat"
             }
             .into(),
             project_id,
@@ -96,7 +99,7 @@ impl App {
         let gate = self.session_gate(id).await;
         let _session_guard = gate
             .try_lock()
-            .context("工作正在初始化或处理操作，请稍后切换权限模式")?;
+            .context("Work is initializing or processing an operation. Try switching permission modes again shortly.")?;
         let updated = {
             let _mutation_guard = self.mutation_gate.lock().await;
             let session = self.editable_work_session(id)?;
@@ -121,10 +124,10 @@ impl App {
     fn editable_work_session(&self, id: &str) -> Result<Session> {
         let session = self.store.session(id)?;
         if session.project_id.is_none() {
-            bail!("只有项目工作可以切换权限模式");
+            bail!("Only project work supports switching permission modes.");
         }
         if session.status == SessionStatus::Running || self.turns.has_pending_permissions(id)? {
-            bail!("请等待工作结束或停止工作后再切换权限模式");
+            bail!("Wait for the work to finish or stop it before switching permission modes.");
         }
         Ok(session)
     }
@@ -136,14 +139,14 @@ impl App {
         message_id: Option<Uuid>,
     ) -> Result<()> {
         if content.trim().is_empty() || content.len() > 500_000 {
-            bail!("消息不能为空，且不能超过 500 KB");
+            bail!("Messages must not be empty or exceed 500 KB.");
         }
         let gate = self.session_gate(session_id).await;
         let _session_guard = gate.lock().await;
         // Do not queue a second prompt behind an active turn. Once idle is visible,
         // wait for its forwarding task to finish before marking the next turn running.
         if self.store.session(session_id)?.status == SessionStatus::Running {
-            bail!("该对话正在运行，请等待完成或点击停止");
+            bail!("The conversation is running. Wait for it to finish or click Stop.");
         }
         let previous = self
             .sessions
@@ -158,7 +161,7 @@ impl App {
             let _mutation_guard = self.mutation_gate.lock().await;
             let session = self.store.session(session_id)?;
             if session.status == SessionStatus::Running {
-                bail!("该对话正在运行，请等待完成或点击停止");
+                bail!("The conversation is running. Wait for it to finish or click Stop.");
             }
             self.titles.mark_interrupted(session_id, false)?;
             let first_turn = !self.store.has_messages(session_id)?;
@@ -189,7 +192,7 @@ impl App {
                 completion.fail();
             }
             self.disconnect_session(session_id).await;
-            self.fail_session(session_id, &format!("发送失败：{error}"));
+            self.fail_session(session_id, &format!("Sending failed: {error}"));
             submission.settled = true;
             return Err(error);
         }
@@ -211,7 +214,7 @@ impl App {
             .lock()
             .await
             .get(&session.id)
-            .context("会话连接已失效")?
+            .context("The session connection is no longer valid")?
             .completion
             .clone();
         completion.begin().await?;
@@ -411,7 +414,9 @@ impl App {
             .await
             .get(id)
             .map(|live| live.handle.clone())
-            .context("会话已断开，该授权请求已失效")?;
+            .context(
+                "The session was disconnected, and this permission request is no longer valid.",
+            )?;
         handle.approve(request_id, approved).await?;
         self.turns.resolve_permission(id, request_id)
     }
@@ -432,7 +437,7 @@ impl App {
     pub(crate) async fn delete_session(&self, id: &str) -> Result<()> {
         let _guard = self.mutation_gate.lock().await;
         if self.store.session(id)?.status == SessionStatus::Running {
-            bail!("请先停止对话");
+            bail!("Stop the conversation before continuing.");
         }
         self.disconnect_session(id).await;
         let mut titles = self.titles.lock()?;
@@ -442,7 +447,7 @@ impl App {
     }
 
     pub(crate) async fn rename_session(&self, id: &str, title: &str) -> Result<()> {
-        validate_name(title, "对话名称")?;
+        validate_name(title, "Conversation name")?;
         let _guard = self.mutation_gate.lock().await;
         let mut titles = self.titles.lock()?;
         self.store.update_session(id, |session| {

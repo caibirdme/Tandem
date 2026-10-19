@@ -1,6 +1,7 @@
 import { Save, Sparkles } from 'lucide-react';
 import { useState } from 'react';
 
+import { useI18n } from '../i18n';
 import { dispatch, errorMessage } from '../lib/api';
 import { titleModelPayload, titleModelValue } from '../lib/settingsForm';
 import type { Settings } from '../lib/types';
@@ -13,6 +14,7 @@ export function TitlePreferences({
   settings: Settings;
   onSaved: () => Promise<unknown>;
 }) {
+  const { t } = useI18n();
   const [value, setValue] = useState(() => titleModelValue(settings.titleModel ?? null));
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<{ text: string; error: boolean } | null>(null);
@@ -30,7 +32,7 @@ export function TitlePreferences({
     try {
       await dispatch('save_title_model', titleModelPayload(value, settings.providers));
       await onSaved();
-      setNotice({ text: '标题总结模型已保存，下次生成标题时生效。', error: false });
+      setNotice({ text: t('titles.saved'), error: false });
     } catch (reason) {
       setNotice({ text: errorMessage(reason), error: true });
     } finally {
@@ -48,13 +50,13 @@ export function TitlePreferences({
     >
       <div className="settings-section-heading">
         <div>
-          <h3>对话标题</h3>
-          <p>让模型根据对话内容生成简短、易辨认的标题。</p>
+          <h3>{t('common.conversationTitles')}</h3>
+          <p>{t('titles.description')}</p>
         </div>
         <Sparkles size={20} />
       </div>
       <label>
-        标题总结模型
+        {t('titles.model')}
         <select
           value={value}
           disabled={busy}
@@ -63,10 +65,10 @@ export function TitlePreferences({
             setNotice(null);
           }}
         >
-          <option value="">跟随对话模型</option>
+          <option value="">{t('titles.followModel')}</option>
           {!available && (
             <option value={value} disabled>
-              已保存的模型不可用，请重新选择
+              {t('titles.unavailable')}
             </option>
           )}
           {settings.providers.map((provider) => (
@@ -82,16 +84,17 @@ export function TitlePreferences({
             </optgroup>
           ))}
         </select>
-        <small>适用于聊天和工作。首轮回复完成后自动生成，也可在对话菜单中重新生成。</small>
+        <small>{t('titles.hint')}</small>
       </label>
       <div className="info-box">
         <Sparkles size={16} />
-        <p>标题总结会使用所选模型处理对话内容。手动命名的标题会保留，直到你主动重新生成。</p>
+        <p>{t('titles.privacy')}</p>
       </div>
       {notice && <Notice tone={notice.error ? 'error' : 'success'}>{notice.text}</Notice>}
       <div className="form-footer">
         <button className="button primary" type="submit" disabled={busy || !available}>
-          {busy ? <Spinner /> : <Save size={15} />}保存标题设置
+          {busy ? <Spinner /> : <Save size={15} />}
+          {t('titles.save')}
         </button>
       </div>
     </form>

@@ -33,7 +33,7 @@ impl LocalVault {
 
     fn open(&self) -> Result<Connection> {
         let database = Connection::open(database_path(&self.database)?)
-            .context("无法打开本地 API Key 数据库")?;
+            .context("Cannot open the local API key database")?;
         database.busy_timeout(Duration::from_secs(5))?;
         database.execute_batch(
             "CREATE TABLE IF NOT EXISTS provider_secrets (

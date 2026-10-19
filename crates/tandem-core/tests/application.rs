@@ -127,7 +127,7 @@ async fn missing_and_keyless_providers_do_not_read_credential_storage() -> Resul
         json!({"id":"unknown"}),
     )
     .await;
-    assert!(unknown.is_err_and(|error| error.to_string().contains("供应商不存在")));
+    assert!(unknown.is_err_and(|error| error.to_string().contains("Provider does not exist")));
     let saved = call(
         &application,
         "save_provider",

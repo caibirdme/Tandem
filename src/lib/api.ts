@@ -1,3 +1,4 @@
+import { translate as t } from '../i18n';
 import type { Commands, RuntimeEvent } from './types';
 
 export function isDesktop(): boolean {
@@ -18,7 +19,7 @@ export async function dispatch<C extends keyof Commands>(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(request),
   }).catch(() => {
-    throw new Error('无法连接本地服务，请确认 Tandem 服务正在运行。');
+    throw new Error(t('error.serviceConnection'));
   });
   let result: unknown;
   try {
@@ -26,15 +27,15 @@ export async function dispatch<C extends keyof Commands>(
   } catch {
     throw new Error(
       response.ok
-        ? '本地服务返回了无法识别的数据，请重试。'
-        : `本地服务暂时不可用 (${String(response.status)})，正在等待重新连接。`,
+        ? t('error.serviceData')
+        : t('error.serviceUnavailable', { status: response.status }),
     );
   }
   if (!response.ok || (typeof result === 'object' && result !== null && 'error' in result)) {
     throw new Error(
       typeof result === 'object' && result !== null && 'error' in result
         ? String(result.error)
-        : `请求失败 (${String(response.status)})`,
+        : t('error.requestFailed', { status: response.status }),
     );
   }
   return result as Commands[C]['result'];

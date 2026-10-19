@@ -17,14 +17,14 @@ impl App {
         path: String,
         connection: Connection,
     ) -> Result<Project> {
-        validate_name(&name, "项目名称")?;
+        validate_name(&name, "Project name")?;
         let path = match &connection {
             Connection::Local => {
                 let canonical = tokio::fs::canonicalize(expand_home(&path)?)
                     .await
-                    .context("目录不存在或无法访问")?;
+                    .context("The directory does not exist or cannot be accessed")?;
                 if !tokio::fs::metadata(&canonical).await?.is_dir() {
-                    bail!("项目路径必须是目录");
+                    bail!("The project path must be a directory.");
                 }
                 canonical.to_string_lossy().into_owned()
             }
@@ -54,7 +54,7 @@ impl App {
             identity_file,
         } = connection
         else {
-            bail!("该项目没有 SSH 连接");
+            bail!("This project does not have an SSH connection.");
         };
         Ok(RemoteClient::new(
             SshConnection {
@@ -89,7 +89,7 @@ impl App {
         }
         let path = tokio::fs::canonicalize(expand_home(path)?)
             .await
-            .context("目录不存在或无法访问")?;
+            .context("The directory does not exist or cannot be accessed")?;
         let mut directory = tokio::fs::read_dir(&path).await?;
         let mut entries = Vec::new();
         while let Some(entry) = directory.next_entry().await? {
@@ -118,7 +118,7 @@ impl App {
             .iter()
             .any(|session| session.status == SessionStatus::Running)
         {
-            bail!("请先停止项目中正在运行的工作");
+            bail!("Stop the project's running work before continuing.");
         }
         for session in &project_sessions {
             self.disconnect_session(&session.id).await;
@@ -133,11 +133,11 @@ impl App {
 
     pub(crate) async fn check_connection(&self, connection: &Connection) -> Result<String> {
         if matches!(connection, Connection::Local) {
-            return Ok("本地连接已就绪".into());
+            return Ok("Local connection is ready".into());
         }
         let report = self.remote_client(connection)?.bootstrap().await?;
         Ok(format!(
-            "SSH 已连接，远端服务已就绪（{} / {}）",
+            "SSH connected; remote service is ready ({} / {})",
             report.platform.os, report.platform.architecture
         ))
     }
@@ -145,7 +145,7 @@ impl App {
 
 fn expand_home(path: &str) -> Result<PathBuf> {
     if path == "~" || path.starts_with("~/") || path.is_empty() {
-        let home = dirs::home_dir().context("无法确定用户目录")?;
+        let home = dirs::home_dir().context("Cannot determine the user's home directory")?;
         Ok(home.join(path.trim_start_matches('~').trim_start_matches('/')))
     } else {
         Ok(PathBuf::from(path))

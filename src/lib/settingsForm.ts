@@ -1,3 +1,4 @@
+import { translate as t } from '../i18n';
 import type {
   Commands,
   ModelSelection,
@@ -36,7 +37,7 @@ export function titleModelPayload(
       if (titleModelValue(selection) === value) return { titleModel: selection };
     }
   }
-  throw new Error('所选标题模型已不可用，请重新选择。');
+  throw new Error(t('error.titleModelUnavailable'));
 }
 
 export type CredentialEdit =
@@ -51,7 +52,7 @@ export function providerPayload(
 ): Commands['save_provider']['payload'] {
   const apiKey = credential.kind === 'replace' ? credential.value.trim() : '';
   if (credential.kind === 'replace' && !apiKey) {
-    throw new Error('替换密钥不能为空。');
+    throw new Error(t('error.blankReplacement'));
   }
   const models = draft.models.map((model) => ({
     id: model.id.trim(),
@@ -60,10 +61,10 @@ export function providerPayload(
     contextWindow: model.contextWindow,
     maxOutputTokens: model.maxOutputTokens,
   }));
-  if (models.length === 0) throw new Error('请至少添加一个模型。');
-  if (models.some((model) => !model.id)) throw new Error('请填写每个模型的 ID。');
+  if (models.length === 0) throw new Error(t('error.noModels'));
+  if (models.some((model) => !model.id)) throw new Error(t('error.blankModelId'));
   if (new Set(models.map((model) => model.id)).size !== models.length) {
-    throw new Error('同一供应商下的模型 ID 不能重复。');
+    throw new Error(t('error.duplicateModelIds'));
   }
   return {
     provider: {

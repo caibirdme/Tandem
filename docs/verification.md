@@ -1,221 +1,233 @@
-# 验收记录
+# Verification record
 
-## 聊天工具自动授权（2026-10-19）
+## English documentation, interface languages, and PR platforms (2026-10-19)
 
-聊天模式对所有 SDK 工具权限请求立即批准，不发布审批事件、不创建待审批项；提示词明确要求直接执行可用工具。工具白名单仍只开放网页读取。工作会话继续使用原有逐次询问或完全授权模式。需求改动从 `main` 在 `.worktrees/chat-tool-auto-approval` 中完成，`AGENTS.md` 已规定后续需求必须使用 `.worktrees/` 下的独立 worktree，目录加入 `.gitignore`。
+The change was developed from `main` in `.worktrees/english-i18n-ci`. Existing Markdown documentation and built-in project messages were translated into English. `AGENTS.md` now requires English documentation, comments, commits, PRs, release notes, logs, and diagnostics, with localized UI copy in message catalogs. The interface starts in English, supports an immediate switch to Simplified Chinese in **Settings > General > Language**, and restores the saved `tandem.locale` preference before rendering. Pending session-title placeholders follow the interface language while generated and manually saved titles remain unchanged.
 
-Linux 环境下 `just check`、`just build` 通过，包含前端 149 项、Rust 103 项、Python 29 项测试，以及格式、类型、严格 lint / Clippy 和 workspace 依赖边界检查。权限回归覆盖所有已知类型、未知及缺省类型、两种保存的权限值，以及有无界面事件订阅时均立即批准；工作审批的允许、拒绝和取消继续通过。
+`just check`, `just check-workspace`, and `just build` passed on macOS / Apple Silicon. The final frontend regression run passed 165 tests, including saved-language restoration, unsupported preferences, unavailable storage, document language, catalog key and placeholder parity, safe interpolation, Chinese chat rendering, and default-title localization without changing stored content. The Python suite passed 29 tests. Formatting, strict lint / Clippy, TypeScript checks, workspace Rust tests, and production frontend builds passed. Browser verification against a temporary snapshot test service confirmed the default English interface, switching both ways, and Chinese after a full page reload. Screenshots are in the ignored `artifacts/i18n/` directory; this UI check used no provider or credential.
 
-完整本地集成使用真实 Copilot SDK/CLI、本地测试推理与 OTLP 服务，通过 67 次推理（含 8 次标题）和 8 批遥测导出。新增用例通过真实 `web_fetch` 读取 `https://example.com`，核对结果回传、无审批事件且无待审批项，并在 SDK 冷恢复、整个应用服务重启后重复验证。三协议聊天、工作审批、工具白名单、模型切换、持久化、取消、异常恢复和密钥扫描均通过。网页工具执行使用 OpenAI Completions 测试协议；本轮未扩展其他协议的工具调用测试。
+Full local integration used the production Copilot SDK/CLI with local inference and OTLP test services and passed with 67 inference requests, including 8 title requests, and 8 telemetry export batches. Permissions, model switching, persistence, server restart, unexpected SDK exit, web tools, and credential privacy passed. The initial run with system Python 3.9.6 / SQLite 3.54.0 failed because a read-only scan could not open the schema of the closed WAL database; the scanner reports database read failures through the same result as unexpected key storage. The unmodified scanner and application passed with the existing bundled Python 3.12.14 / SQLite 3.53.1. No scan exemptions were broadened. SSH integration also passed using the production SDK/CLI and an isolated sshd with 28 inference requests and 21 telemetry export batches. Both suites used isolated temporary data and test keys, with no real providers. Inherited runtime/provider overrides were removed for the successful runs.
 
-验收前清除了测试进程继承的 `COPILOT_OFFLINE` 与供应商覆盖环境变量；离线配置会使 SDK 不公开网页工具。网页用例访问公开示例站点，因为 SDK 会拒绝回环地址；模型推理和遥测仍全部使用本地测试服务，没有使用真实供应商或真实密钥。本轮未执行桌面打包、原生界面或 SSH 部署验收。
+macOS desktop bundling with `CI=true just desktop-build` passed and produced `Tandem.app` and `Tandem_0.1.4_aarch64.dmg` with the configured ad hoc signature. The local bundle includes the Apple Silicon remote agent; it does not establish Linux artifact packaging or Windows installer results. The installer was not installed, and the native application was not launched against existing user data.
 
-## PR 检测与 tag 发布（2026-10-19）
+Workflow YAML and runner/gate assertions passed. PR frontend tests and builds now run on macOS and Windows; Rust tests retain those platforms. Linux SSH integration runs only on pushes to `main`. Linux change detection, formatting, gate aggregation, and remote artifact builds remain available on PRs. This local verification did not execute GitHub-hosted Windows jobs or establish the result of a new hosted workflow run.
 
-原流水线对每次推送都在 macOS 和 Windows 上运行全部检查并打包，且从未通过：Windows 检出时把 LF 转为 CRLF，oxfmt 判定全部文件格式错误。现拆为三条：PR 检测按改动路径运行并汇总为 `Required checks`；可复用的打包流程；推送 `v*` tag 时校验版本、打包并上传到草稿 Release。格式和前端检查只在 Linux 运行，Rust 检测在 macOS 和 Windows 运行，并新增 Linux 上的 SSH 集成验收。
+## Automatic approval of chat tools (2026-10-19)
 
-本机 Linux x64 按 CI 的命令验证：actionlint（含 shellcheck）无告警；oxfmt、oxlint、类型检查、前端 149 项测试、生产构建、nightly rustfmt、依赖边界和 Python 29 项测试通过；全 workspace 严格 Clippy 与 Rust 103 项测试通过。真实 SDK/CLI 的本地集成通过，共 61 次推理（含 8 次标题）和 8 批 OTLP 导出；SSH 集成在隔离的 sshd 中通过，共 29 次推理和 23 批导出。两者都使用本地测试推理服务，没有访问真实供应商。用 paths-filter 相同的匹配库模拟 23 种改动组合，各检测的运行与跳过符合设计；tag 版本校验在一致时通过，不一致时列出对应文件并失败。
+Chat immediately approves every SDK tool permission request without publishing approval events or creating pending approvals. Its prompt explicitly requests direct use of available tools. The tool allowlist still exposes only web reading. Work retains its existing ask-each-time or full-access modes. The change was developed from `main` in `.worktrees/chat-tool-auto-approval`. `AGENTS.md` now requires separate worktrees under `.worktrees/` for subsequent changes, and `.gitignore` excludes that directory.
 
-本机 shell 设置 `COPILOT_OFFLINE=true` 时，本地集成会因聊天缺少 `web_fetch` 而失败，去掉该变量后通过；GitHub runner 不设置该变量。
+On Linux, `just check` and `just build` passed, including 149 frontend, 103 Rust, and 29 Python tests, plus formatting, types, strict lint / Clippy, and workspace dependency boundaries. Permission regressions covered all known types, unknown and missing types, both stored permission values, and immediate approval with or without UI event subscribers. Work approval, denial, and cancellation continued to pass.
 
-[PR #1](https://github.com/caibirdme/Tandem/pull/1) 在 GitHub runner 上运行：格式与前端检测通过；macOS 的 Rust 检测通过，含 103 项 Rust 测试和本地 SDK 集成；Windows 的 Rust 检测通过，含 98 项 Rust 测试和本地 SDK 集成，共 59 次推理，强制结束 SDK 的场景按脚本在 Windows 跳过；Linux 的 SSH 集成通过。首轮 Windows 检测曾在依赖边界检查失败：脚本按系统默认的 cp1252 解码 `cargo metadata` 的 UTF-8 输出，遇到非 ASCII 字节即报错，此前在中文 Windows 上按 GBK 解码碰巧通过。现改为显式按 UTF-8 解码。该轮 `Required checks` 随之失败，合入门禁按预期生效。
+Full local integration used the real Copilot SDK/CLI with local inference and OTLP test services. It passed with 67 inference requests (including 8 title requests) and 8 telemetry export batches. A new case used the real `web_fetch` tool to read `https://example.com`, verified returned results with no approval events or pending approvals, and repeated the checks after SDK cold recovery and a full application service restart. Three-protocol chat, work approvals, tool allowlists, model switching, persistence, cancellation, failure recovery, and secret scans passed. The web-tool case used the OpenAI Completions test protocol; this run did not extend tool-call testing to other protocols.
 
-首轮打包构建了四个远端 Agent 和 Apple 芯片、Intel、Windows 三个安装包，均成功；每个安装包约 900 MiB，主要来自内置的远端 Agent，每个压缩后约 180 MiB。随后发布范围收窄为 Apple 芯片 macOS 与 Windows x64 安装包，远端 Agent 只保留 Linux x64 和 Apple 芯片 macOS。收窄后的运行中，两个远端 Agent 和两个安装包均构建成功：DMG 约 529 MiB，Windows 的 MSI 与 NSIS 安装包各约 524 MiB；全部检测通过，`Required checks` 随之通过。
+Before verification, inherited `COPILOT_OFFLINE` and provider override variables were cleared from test processes; offline configuration prevents the SDK from exposing web tools. The web case accessed a public example site because the SDK rejects loopback addresses. Inference and telemetry still used only local test services, with no real provider or key. Desktop packaging, native UI, and SSH deployment were not verified in this run.
 
-tag 发布和草稿 Release 上传尚未实际运行，留待首次发版验证。
+## PR checks and tag releases (2026-10-19)
 
-## Tandem 更名（2026-10-19）
+The original workflow ran all checks and packaging on macOS and Windows for every push and had never passed: Windows checkout converted LF to CRLF, causing oxfmt to reject every file. It was split into three workflows: path-selected PR checks aggregated into `Required checks`, reusable packaging, and version validation plus draft Release uploads on `v*` tags. At that time, formatting and frontend checks ran only on Linux, Rust checks ran on macOS and Windows, and Linux SSH integration was added.
 
-项目、桌面应用、Rust crate、前端标识、服务二进制、构建脚本和当前使用文档统一使用 Tandem。新安装使用 `app.tandem.desktop`、`tandem.sqlite3` 与 `tandem-server`；旧数据库、SDK 会话状态和旧远端产物目录环境变量保留读取兼容。远端部署新的 `tandem-server`，不把旧 `relay-server` 当作新版本复用。新旧数据各自存在时优先新数据，不自动合并。
+Local Linux x64 verification followed CI commands. actionlint, including shellcheck, reported no warnings. oxfmt, oxlint, types, 149 frontend tests, production build, nightly rustfmt, dependency boundaries, and 29 Python tests passed. Strict Clippy for the whole workspace and 103 Rust tests passed. Real SDK/CLI local integration passed with 61 inference requests (including 8 title requests) and 8 OTLP batches. SSH integration passed against an isolated sshd with 29 requests and 23 export batches. Both used local inference test services without contacting real providers. The same matching library as paths-filter simulated 23 change combinations, with checks running or skipping as designed. Tag version validation passed for matching versions and listed inconsistent files before failing on mismatches.
 
-前端 149 项、Rust 98 项、Python 29 项测试通过，共 276 项。格式、类型、严格 lint / Clippy、生产前端构建、workspace 全目标 debug 构建和依赖边界检查通过；锁文件核对确认仅更改 workspace 包名，外部依赖没有升级。新增本地真实 SQLite 回归覆盖旧配置、项目、会话、消息、密钥和 SDK 状态原位保留，新旧数据库同时存在时优先新库；远端回归覆盖旧状态复用、新目录优先及无效路径报错。
+Local integration failed when the host shell set `COPILOT_OFFLINE=true`, because chat lacked `web_fetch`; it passed after removing the variable. GitHub runners did not set that variable.
 
-真实 SDK/CLI 的完整本地回归通过，共 59 次推理（含 8 次标题）和 10 批 OTLP 导出；新 `tandem-server` 的 stdio 回归通过，共 2 次推理和 4 批导出，含跨供应商冷恢复及原历史保留。测试使用隔离临时目录和本地推理服务，没有使用真实供应商或执行 SSH 部署。实际 React 界面已核对网页标题、侧栏、聊天作者、设置及统一 T 图标，发送后获得 `TANDEM_CHAT_OK`；截图为 `test-results/tandem-branding-chat.png` 和 `test-results/tandem-branding-settings.png`。
+[PR #1](https://github.com/caibirdme/Tandem/pull/1) ran on GitHub runners. Format and frontend checks passed. macOS Rust checks passed, including 103 Rust tests and local SDK integration. Windows Rust checks passed, including 98 Rust tests and local SDK integration with 59 inference requests; forced SDK termination cases were skipped on Windows by the script. Linux SSH integration passed. The first Windows run had failed in the dependency boundary checker: it decoded `cargo metadata` UTF-8 output using the system default cp1252 and failed on non-ASCII bytes. Earlier Chinese Windows runs had happened to pass with GBK. Explicit UTF-8 decoding fixed the issue. That first run's `Required checks` failed as intended, demonstrating the merge gate.
 
-`pnpm tauri build` 在 Windows x64 通过，生成 release 程序 `target/release/tandem-desktop.exe`、`Tandem_0.1.4_x64_en-US.msi` 和 `Tandem_0.1.4_x64-setup.exe` 两种安装包；程序的产品名和文件描述均为 Tandem。本地产物未包含 Linux/macOS 远端二进制，跨平台远端仍由 CI 构建并收集。本轮未安装程序，也未使用用户原配置启动原生窗口。
+Initial packaging successfully built four remote agents and three installers for Apple Silicon, Intel Mac, and Windows. Each installer was about 900 MiB, mostly from bundled remote agents, each about 180 MiB compressed. Release scope was then narrowed to Apple Silicon macOS and Windows x64 installers, with only Linux x64 and Apple Silicon remote agents. The narrower run built both agents and both desktop targets successfully: the DMG was about 529 MiB, and Windows MSI and NSIS installers were about 524 MiB each. All checks and `Required checks` passed.
 
-以下各节为更名前使用 Relay 名称时的验收归档。`Relay.app`、`relay-server`、`relay.sqlite3`、`RELAY_CHAT_OK` 等名称保留当时真实产物和测试结果，不代表本轮已完成同样的 Tandem 打包或原生验收。
+Tag release and draft Release uploads had not yet been executed and remained for the first release to verify.
 
-更名前最后一轮修复验证环境：2026-10-19，Windows x64；此前桌面打包验收环境为 2026-10-18，macOS / Apple Silicon。应用使用 Rust 1.99.1、TypeScript 7、Vite 8，当时固定的 Copilot SDK 为 `v1.0.23-preview.5`，内置 CLI 为 `1.0.100-1`。以下按版本保留各轮验证范围。
+## Rename to Tandem (2026-10-19)
 
-## 首条工作消息的权限提醒（0.1.4 修复）
+The project, desktop application, Rust crates, frontend identifiers, service binaries, build scripts, and current documentation were renamed to Tandem. New installations use `app.tandem.desktop`, `tandem.sqlite3`, and `tandem-server`. Existing databases, SDK session state, and the old remote-artifact environment variable remain readable for compatibility. Remote hosts receive the new `tandem-server`; the old `relay-server` is not reused as the new version. If both old and new data exist, new data takes precedence without automatic merging.
 
-新工作的默认权限仍为逐次询问。首条用户消息发出前若仍是该模式，先弹窗说明工具审批可能频繁打断，提供「确认并继续」「切换到完全授权并继续」「取消」。取消、Esc 或关闭弹窗保留草稿和原权限；已有用户消息的工作、普通聊天、已选择完全授权的工作不重复提醒。已保存但尚无用户消息的空工作同样适用，选择完全授权后必须确认保存成功才发送；保存失败或状态不明时保留草稿并阻止发送。
+149 frontend, 98 Rust, and 29 Python tests passed, totaling 276. Formatting, types, strict lint / Clippy, production frontend build, workspace all-target debug build, and dependency boundaries passed. Lockfile review confirmed only workspace package names changed; external dependencies were not upgraded. New real SQLite regressions covered preserving old configuration, projects, sessions, messages, keys, and SDK state in place, with new databases taking precedence when both existed. Remote regressions covered old state reuse, new-directory precedence, and invalid-path errors.
 
-前端 149 项、Rust 91 项、Python 29 项测试通过，共 269 项；前端格式、lint、类型、生产构建、Rust 格式、严格 Clippy 和 workspace 依赖边界检查通过。新增覆盖首条消息判定、历史未知时的重载入口，以及权限保存结果丢失、状态不符、会话删除时不能把请求值当成已确认值。已有空工作的历史读取失败时，不允许绕过提醒发送，可重新载入对话后继续。
+Full local regression with the real SDK/CLI passed with 59 inference requests (including 8 title requests) and 10 OTLP batches. The new `tandem-server` stdio regression passed with 2 requests and 4 export batches, including cross-provider cold recovery and preserved history. Tests used isolated temporary directories and local inference services without real providers or SSH deployment. The actual React UI was checked for the page title, sidebar, chat author, settings, and consistent T icon. Sending returned `TANDEM_CHAT_OK`. Screenshots were `test-results/tandem-branding-chat.png` and `test-results/tandem-branding-settings.png`.
 
-浏览器使用实际 React 界面、Rust 开发服务、真实 SDK/CLI 与本地测试推理服务，验证 Enter 和按钮弹窗、取消焦点、取消/关闭保稿、双击仅发送一次、第二条消息不重复提醒、新工作与已有空工作切换完全授权并持久化、预选完全授权与普通聊天直接发送。界面共产生 6 次成功推理，消息和权限均核对服务端保存结果；截图为 `test-results/first-work-permission.png`。
+`pnpm tauri build` passed on Windows x64, generating `target/release/tandem-desktop.exe`, `Tandem_0.1.4_x64_en-US.msi`, and `Tandem_0.1.4_x64-setup.exe`. The executable's product name and file description were both Tandem. Local artifacts did not include Linux/macOS remote binaries; CI still builds and collects those. The installer was not installed, and the native window was not launched with the user's existing configuration in this run.
 
-完整本地 SDK 集成再次通过，共 59 次测试推理，其中 8 次标题，9 批 OTLP 导出，包含逐次批准/拒绝、完全授权实际文件与命令操作、忙碌拒绝更改、会话恢复及密钥扫描。本轮使用隔离临时目录及测试凭证，没有访问真实外部模型服务，没有执行原生窗口或安装包验收。
+The following sections archive verification performed under the former Relay name. Names such as `Relay.app`, `relay-server`, `relay.sqlite3`, and `RELAY_CHAT_OK` preserve actual artifacts and results from those runs. They do not establish equivalent Tandem packaging or native verification for this change.
 
-## 已有对话切换模型（0.1.4 修复）
+The last pre-rename fix was verified on 2026-10-19 on Windows x64. Earlier desktop packaging verification ran on 2026-10-18 on macOS / Apple Silicon. The application used Rust 1.99.1, TypeScript 7, and Vite 8; the SDK was pinned to `v1.0.23-preview.5`, with bundled CLI `1.0.100-1`. The sections below preserve each version's verification scope.
 
-已有聊天和工作可从输入框旁的模型菜单更换模型或供应商，下一条消息使用新选择，保留原会话 ID、消息历史、标题、草稿和工具权限。生成中、初始化中和等待工具审批时拒绝切换；保存结果未确认时可重新确认模型，避免显示选择与实际推理配置不同。选择和供应商外键同步持久化，取消切换请求后仍会完成旧连接清理。
+## Permission reminder before the first work message (0.1.4 fix)
 
-前端 129 项、Rust 91 项、Python 29 项测试通过，共 249 项。全量前端格式、lint、类型、生产构建、Rust 格式、严格 Clippy 及 workspace 依赖边界检查通过；最终 `cargo build --locked --workspace --all-targets` 通过，生成桌面 debug 程序及两个服务。新增回归覆盖无效模型、同供应商与跨供应商选择、持久化和外键约束、忙碌与待审批拒绝、取消及配置竞争、迟到结果和快照、失败确认，以及标题和历史保留。
+New work still defaults to asking each time. Before the first user message in that mode, a dialog explains that tool approvals may interrupt frequently and offers confirmation, switching to full access and continuing, or cancellation. Cancel, Escape, and closing preserve the draft and original mode. Work with existing user messages, ordinary chat, and work already set to full access do not repeat the reminder. Saved work without user messages follows the same rule. Switching to full access must be confirmed as saved before sending; failed or uncertain saves preserve the draft and block sending.
 
-完整本地 SDK 集成通过，共 59 次测试推理请求，其中 8 次标题请求，8 批 OTLP 导出。同一会话依次从 OpenAI Completions 切到同供应商另一模型、OpenAI Responses、Anthropic，再切回；逐次核对实际请求的协议路径、模型 ID，以及既有用户和助手消息的全文与顺序。工作授权保留，生成及审批中的切换被拒绝且原操作可继续，应用重启后选择和历史均保留。该轮只使用本地测试推理和遥测服务，没有访问真实供应商或使用真实密钥。
+149 frontend, 91 Rust, and 29 Python tests passed, totaling 269. Frontend formatting, lint, types, production build, Rust formatting, strict Clippy, and workspace boundaries passed. New regressions covered first-message detection, reloading unknown history, and not treating a requested permission as confirmed after a lost save result, state mismatch, or deleted session. If an existing empty work session's history cannot be read, sending cannot bypass the reminder; reloading the conversation allows another attempt.
 
-远端二进制的 stdio 回归通过，共两次推理和四批遥测导出；关闭首轮 OpenAI 会话的 stdio 进程后，以同一 ID 和 Anthropic 配置恢复，实际新请求保留首轮用户与助手消息。原有 EOF、畸形及超限帧、退出刷新和密钥检查继续通过。该轮采用 `--skip-ssh`，没有执行 OpenSSH 部署。
+Browser verification used the actual React UI, Rust development service, real SDK/CLI, and local inference test service. It covered Enter and button-triggered dialogs, focus after canceling, draft retention on cancel/close, double-click deduplication, no repeated reminder on the second message, switching new and existing empty work to full access with persistence, and direct sending for preselected full access and ordinary chat. The UI produced 6 successful inference requests; saved messages and permissions were checked against the service. The screenshot was `test-results/first-work-permission.png`.
 
-实际 React 界面额外验证了四轮连续对话：模型 A、同供应商模型 B、另一供应商模型 C，以及重启后继续模型 C；始终只有一个会话，切换前的未发送草稿保留，所有回复都已落盘。界面证据使用浏览器与真实应用服务，原生安装包未重新验收。
+Full local SDK integration passed again with 59 test inference requests, including 8 title requests, and 9 OTLP batches. It covered individual approval/denial, real file and command operations under full access, rejection of permission changes while busy, session recovery, and secret scans. This run used isolated temporary directories and test credentials, with no real external inference service, native window, or installer verification.
 
-同时修复 Windows 验收脚本的路径显示和文件占用问题：报告路径统一使用斜杠；所有功能断言完成后先关闭隔离应用，再对完整目录进行密钥扫描，保留原来的唯一凭证列豁免。纯 Python 测试及完整 SDK 扫描均通过。此前记录中的 Windows 路径断言和运行中扫描失败属于修复前结果。
+## Switching models in existing conversations (0.1.4 fix)
 
-## Copilot SDK 升级（v1.0.23-preview.5）
+Existing chat and work can change model or provider from the model menu beside the composer. The next message uses the new selection while preserving session ID, history, title, draft, and tool permissions. Switching is rejected during generation, initialization, and pending approval. Unconfirmed saves can be reconfirmed to keep displayed and actual inference configuration aligned. The selection and provider foreign key persist together, and old connection cleanup completes even after cancellation of the switch request.
 
-SDK 从 `v1.0.23-preview.3` 升到官方标签 `v1.0.23-preview.5`，锁文件固定到提交 `b96cd2b54f7eb87458fd50f485a751c712e88f62`。配套 CLI 与运行时更新为 `1.0.100-1`，仍由 SDK 在构建时内嵌，无需用户另行安装；通用设置中的 CLI 路径默认留空。
+129 frontend, 91 Rust, and 29 Python tests passed, totaling 249. Full frontend formatting, lint, types, production build, Rust formatting, strict Clippy, and workspace boundaries passed. The final `cargo build --locked --workspace --all-targets` passed, producing the desktop debug executable and both services. New regressions covered invalid models, selections within and across providers, persistence and foreign keys, busy/pending-approval rejection, cancellation and configuration races, late results and snapshots, failed confirmation, and title/history retention.
 
-当前使用的供应商、模型参数、权限、遥测、创建及恢复会话接口保持兼容，无需修改应用服务或传输契约。界面的 SDK 版本、运行时版本常量、README 和开发约束同步更新。锁文件只更换 SDK 的标签与提交，保留其他依赖版本和关系。
+Full local SDK integration passed with 59 test inference requests, including 8 title requests, and 8 OTLP batches. A single session switched from OpenAI Completions to another model at the same provider, then to OpenAI Responses, Anthropic, and back. Each step verified the actual protocol path, model ID, and full text/order of existing user and assistant messages. Work permissions were preserved. Switching during generation or approval was rejected while the original operation could continue. Selection and history survived application restart. Only local inference and telemetry test services were used, without real providers or keys.
 
-新版 SDK 的本地集成使用真实 CLI 和本地测试推理、遥测服务，通过 12 组检查：45 次推理请求，其中 6 次标题请求，7 批 OTLP 导出。覆盖三协议聊天、标题、取消、文件和 PowerShell 工具、逐次与完全授权、冷恢复、应用重启，以及密钥持久化和泄漏检查；未使用真实供应商密钥或付费服务。Windows 验收包装仅在最后密钥扫描前关闭隔离的测试应用，避免读取仍被 SDK 占用的 `inuse` 文件；没有修改验收脚本。强制结束 SDK 后的恢复场景仍按原脚本在 Windows 跳过。
+Remote binary stdio regression passed with 2 inference requests and 4 telemetry batches. After the first OpenAI session's stdio process was closed, the same ID resumed with Anthropic configuration, and the new request retained the first turn's user and assistant messages. Existing EOF, malformed/oversized frame, shutdown flushing, and secret checks passed. The run used `--skip-ssh` and did not exercise OpenSSH deployment.
 
-独立 `relay-server` 的真实 stdio 回归也通过，共两次推理请求和四批遥测导出，覆盖流式回复、冷恢复、EOF 退出、畸形与超限帧，以及退出时刷新遥测。该轮使用 `--skip-ssh`，未执行 OpenSSH 部署与传输验收；状态目录和测试进程均已清理。
+The actual React UI additionally verified four consecutive turns: model A, model B at the same provider, model C at another provider, and model C again after restarting. A single session remained throughout, unsent drafts survived switching, and all replies were persisted. This evidence used the browser and real application services; native installers were not reverified.
 
-前端 109 项测试、lint、类型检查和生产构建通过；两个 Rust 服务使用 `--locked` 构建通过，Rust workspace 的 84 项测试、严格 Clippy、Rust 格式及 workspace 依赖边界检查通过。本轮未重新打包桌面程序。
+Windows verification scripts also received path-display and file-lock fixes. Report paths now use forward slashes. After all functional assertions, the isolated application stops before scanning the complete directory for secrets, retaining the original single credential-column exemption. Pure Python tests and the full SDK scan passed. Earlier Windows path-assertion and live-scan failures refer to the state before these fixes.
 
-## 冷启动首次发送（0.1.4 修复）
+## Copilot SDK upgrade (v1.0.23-preview.5)
 
-以下冷启动修复的验证使用升级前的 SDK `v1.0.23-preview.3` 和 CLI `1.0.99-3`。配置供应商和模型后可直接发送第一条消息，由后端自动准备内置运行环境。修复前，界面要求运行时已经启动才能发送，阻断了首次发送触发的自动初始化；旧版可以先点击「准备运行环境」绕过。现已移除这一前置条件，SSH 工作也不再显示无关的本机初始化提示。
+The SDK was upgraded from `v1.0.23-preview.3` to official tag `v1.0.23-preview.5`, locked to commit `b96cd2b54f7eb87458fd50f485a751c712e88f62`. The matching CLI/runtime became `1.0.100-1`, still embedded by the SDK at build time without a separate user installation. The CLI path in General settings remains empty by default.
 
-使用独立临时数据目录、测试凭证和本地推理服务，在实际 React 界面验证了两次冷启动：首次按 Enter 发送，以及重启服务后点击发送按钮。每次发送前均确认 `runtime.available=false`，输入后按钮可用，随后由真实 Copilot SDK/CLI 启动并获得 `RELAY_CHAT_OK` 回复。两条用户消息和两条回复均已持久化，共两次对话推理请求；未使用真实供应商密钥或付费服务。这是浏览器界面与应用服务验证，未替代 Windows 原生窗口及安装包验收。
+Existing provider, model parameter, permission, telemetry, and session creation/recovery interfaces remained compatible, requiring no application service or transport contract changes. The UI SDK version, runtime version constant, README, and development constraints were updated together. The lockfile changed only the SDK tag and commit, preserving other dependency versions and relationships.
 
-前端 109 项测试、lint、类型检查和生产构建通过；新增三项回归覆盖聊天、本地工作和 SSH 的运行环境提示。Windows 上 Rust workspace 的 84 项测试、严格 Clippy、两个服务的编译均通过；改动文件的格式检查、Rust 格式和 workspace 依赖边界检查通过。完整 SDK 集成脚本已通过发送、标题、权限及恢复等功能断言，最终密钥扫描遇到 Windows 占用的 SDK 文件而失败，因此不记为整套通过。
+Local integration for the new SDK used the real CLI with local inference and telemetry test services. All 12 check groups passed with 45 inference requests, including 6 title requests, and 7 OTLP batches. Coverage included three-protocol chat, titles, cancellation, file and PowerShell tools, ask/full-access modes, cold recovery, application restart, and key persistence/leak checks. No real provider keys or paid services were used. The Windows verification wrapper stopped the isolated test application only before the final secret scan to avoid reading the SDK's locked `inuse` file; the verification script was unchanged. Forced SDK termination recovery remained skipped on Windows by the original script.
 
-全量检查仍有既有 Windows 边界：Python 测试中 11 项断言因路径反斜杠与预期斜杠不一致而失败；全库格式检查受 Git 自动转换的 CRLF 行尾影响。本次未批量改写其他文件，也未重新打包正在运行的桌面程序。SSH 集成与真实供应商验收未重跑。
+The separate `relay-server` also passed real stdio regression with 2 inference requests and 4 telemetry batches, covering streaming replies, cold recovery, EOF exit, malformed/oversized frames, and shutdown flushing. This run used `--skip-ssh` and did not verify OpenSSH deployment or transport. State directories and test processes were cleaned up.
 
-## 智能对话标题（0.1.4）
+109 frontend tests, lint, types, and production build passed. Both Rust services built with `--locked`; 84 Rust workspace tests, strict Clippy, Rust formatting, and workspace boundaries passed. Desktop packaging was not rerun.
 
-聊天和工作在首个完整回复轮次结束后，由模型在后台生成标题。「设置 → 对话标题」可选择任意已配置的供应商模型，或跟随当前会话模型。旧会话可从菜单重新生成，手动命名会保留。总结使用该轮最终回复，避免把工具前的开场说明作为结果；中断消息不与下一轮回复拼接。总结使用独立、无工具的临时 SDK 会话，不改变会话历史或运行状态。
+## First send after a cold start (0.1.4 fix)
 
-`just check` 全部通过：前端 106 项、Rust 89 项、Python 27 项，共 222 项测试，以及格式、类型、严格 lint 和 workspace 边界检查。新增回归覆盖模型选择持久化、自动与手动生成、迟到结果与重命名/删除/配置更新的竞争、停止与关闭、标题内容边界，以及 SDK 成功、失败和取消时的临时会话清理。另修复了未确认的权限操作会阻止重连恢复标题与生成状态的问题，标题更新与权限状态分别校验。
+This cold-start fix was verified before the SDK upgrade, using SDK `v1.0.23-preview.3` and CLI `1.0.99-3`. After configuring a provider and model, users can send their first message directly and let the backend prepare the bundled runtime. Before the fix, the UI required the runtime to have already started, preventing the first send from triggering automatic initialization. Clicking **Prepare runtime** was an earlier workaround. That prerequisite was removed, and SSH work no longer shows irrelevant local initialization guidance.
 
-前端和 Rust 构建通过。真实 SDK 与测试推理服务的本地回归通过，共 47 次请求，其中 6 次标题请求，7 批遥测导出；额外的内存凭证模式计数相同。三协议的流式对话与普通标题回复、跨供应商标题模型、已有会话重新生成、手动名字保留、历史隔离和重启恢复均通过。SSH 回归通过，共 28 次请求和 21 批遥测导出，包含远端工作结束后在本机生成标题，以及旧远端 Agent 更新到 0.1.4。
+Using isolated temporary data, test credentials, and a local inference service, the actual React UI verified two cold starts: sending first with Enter, then with the send button after a service restart. Before each send, `runtime.available=false` was confirmed, input enabled the send button, and the real SDK/CLI started and returned `RELAY_CHAT_OK`. Two user messages and two replies were persisted, with two conversation inference requests. No real provider key or paid service was used. This browser UI/application service verification did not replace Windows native window or installer verification.
 
-两个 CAMP 供应商已用用户提供的密钥重新保存到实际应用数据目录。四个模型的上下文均为 1,000,000；两个 Anthropic 模型的最大输出均为 128,000。标题模型设置为 `CAMP Anthropic / glm-5.3-flashx`。密钥仍直接保存在本地数据库，未重新引入钥匙串或迁移逻辑。
+109 frontend tests, lint, types, and production build passed. Three new regressions covered runtime guidance for chat, local work, and SSH. On Windows, 84 Rust workspace tests, strict Clippy, and both service builds passed. Formatting of changed files, Rust formatting, and workspace boundaries passed. The full SDK integration script completed functional assertions for sends, titles, permissions, and recovery, but its final secret scan failed on a Windows-locked SDK file; the entire suite was therefore not recorded as passed.
 
-四个模型各执行真实聊天和工作，共 8 项全部通过；每项均额外验证真实模型生成并持久化标题。共 39 次真实网关请求，全部 HTTP 200，其中 8 次是标题总结，工具数量均为 0。19 次 Anthropic 请求（含标题）的实际 `max_tokens` 全部为 128000。聊天准确返回临时随机标记；工作完成读取、创建、编辑和经批准执行指定验证命令，实际文件及命令输出均符合预期。
+Full checks still had existing Windows limitations: 11 Python assertions failed because backslash paths differed from expected forward slashes, and repository formatting was affected by Git-converted CRLF endings. Other files were not rewritten in bulk, and the running desktop was not repackaged. SSH integration and real-provider verification were not rerun.
 
-| 模型                  | 聊天及标题 | 工作及标题 | 真实请求数 |
-| --------------------- | ---------- | ---------- | ---------- |
-| `claude-haiku-5.5`    | 通过       | 通过       | 9          |
-| `glm-5.3-flashx`      | 通过       | 通过       | 10         |
-| `gpt-6.1-sol`         | 通过       | 通过       | 10         |
-| `deepseek-v4.1-flash` | 通过       | 通过       | 10         |
+## Generated conversation titles (0.1.4)
 
-本轮真实验收使用原样转发请求正文的本机观察代理，标题与对话请求分别记录；脱敏报告保存在本机 `test-results/live-providers-014.json`，不纳入版本控制。隔离验收进程通过标准输入接收密钥，使用内存凭证模式；临时状态、SDK 数据和日志的密钥扫描通过。
+After the first completed reply turn, chat and work generate titles through a background model request. **Settings > Conversation titles** selects any configured provider model or follows the current session model. Existing sessions can regenerate from the menu, and manual names are preserved. Summarization uses the turn's final reply rather than pre-tool introductions; interrupted messages are not combined with later replies. A separate temporary SDK session with no tools generates the title without altering conversation history or execution state.
 
-`CI=true just desktop-build` 通过，生成 0.1.4 的 `Relay.app` 和 Apple Silicon DMG。应用签名完整性与 DMG 校验通过；包内远端 Agent 版本为 0.1.4，SHA-256 与 release 产物一致，未包含开发 HTTP 主机。原生窗口复验暂被 Mac 锁屏阻止，已请求用户手动解锁。
+`just check` passed with 106 frontend, 89 Rust, and 27 Python tests, totaling 222, plus formatting, types, strict lint, and workspace boundaries. New regressions covered title-model persistence, automatic/manual generation, late-result races with renaming/deletion/configuration updates, stop/shutdown, title content boundaries, and temporary session cleanup after SDK success, failure, or cancellation. A related fix stopped unconfirmed permission operations from blocking title/generation recovery on reconnect; title updates and permission state are validated independently.
 
-## 本地密钥与显示按钮（0.1.3）
+Frontend and Rust builds passed. Local regression with the real SDK and inference test service passed with 47 requests, including 6 title requests, and 7 telemetry batches. The additional in-memory credential mode produced the same counts. Three-protocol streaming conversations and nonstreaming title replies, a title model from another provider, regeneration of existing sessions, preservation of manual names, history isolation, and restart recovery passed. SSH regression passed with 28 requests and 21 export batches, including local title generation after remote work and upgrading the old remote agent to 0.1.4.
 
-供应商 API Key 改为直接保存在本机 `relay.sqlite3` 的 `provider_secrets.secret` 中。编辑供应商时按需读取已保存的密钥，默认隐藏，眼睛按钮可以显示或再次隐藏；修改后保存即可。按开发阶段要求，已删除系统凭证库依赖和迁移逻辑，不读取或转存旧版钥匙串密钥。旧供应商需要重新填写一次 API Key。
+Two CAMP providers were saved again in actual application data using user-provided keys. All four models used context 1,000,000; the two Anthropic models used maximum output 128,000. The title model was `CAMP Anthropic / glm-5.3-flashx`. Keys remained directly in the local database, without reintroducing keychain or migration logic.
 
-`just check` 全部通过：前端 96 项、Rust 76 项、Python 22 项，共 194 项测试；格式、类型、严格 lint 和 workspace 边界检查通过。新增回归覆盖本地存储重启、覆盖与清空、按需读取、普通快照不含密钥、取消请求不打断密钥与配置保存，以及密钥加载与用户编辑之间的竞争。另修复迟到的保存结果会关闭后来打开的编辑页的问题，并覆盖切换供应商与重新打开同一供应商两种情况。
+All four models completed both real chat and work, passing all 8 cases. Each case also verified that a real model generated and persisted its title. There were 39 real gateway requests, all HTTP 200, including 8 title requests with 0 tools each. All 19 Anthropic requests, including titles, actually sent `max_tokens` equal to 128000. Chat returned temporary random markers exactly; work read, created, and edited files and executed an approved verification command, with actual files and command output matching expectations.
 
-`just build`、`just integration`、`just integration-ssh` 全部通过。真实 SDK 的本地与 SSH 回归分别产生 40 / 26 次测试推理请求和 6 / 16 批遥测导出。默认本地存储模式在完整重启后无需重填密钥即可继续已保存会话，清空的密钥仍为空；三种协议的聊天、文件读写、命令、权限与恢复检查通过。额外运行 `--ephemeral-secrets` 验证专用于真实供应商验收的内存模式，共 40 次测试推理请求与 6 批遥测导出。
+| Model                 | Chat and title | Work and title | Real requests |
+| --------------------- | -------------- | -------------- | ------------- |
+| `claude-haiku-5.5`    | Passed         | Passed         | 9             |
+| `glm-5.3-flashx`      | Passed         | Passed         | 10            |
+| `gpt-6.1-sol`         | Passed         | Passed         | 10            |
+| `deepseek-v4.1-flash` | Passed         | Passed         | 10            |
 
-凭证检查只允许指定本机数据库的 `provider_secrets.secret` 列包含测试密钥；其他表、字段、schema、日志、SDK 状态与遥测均检查无密钥。数据库检查读取已提交的 WAL；远端文件和命令行参数仍完全禁止持久化密钥。扫描器增加了独立数据库、错误字段、WAL 和跨块日志等回归。
+Real-provider verification used a local observation proxy that forwarded request bodies unchanged, recording title and conversation requests separately. The redacted report was saved locally at `test-results/live-providers-014.json` and excluded from version control. The isolated verification process received keys through standard input and used in-memory credentials. Secret scans of temporary state, SDK data, and logs passed.
 
-使用独立临时数据目录和假密钥完成了实际 React 界面与开发服务验收：新建时默认隐藏，眼睛按钮可切换显示，保存后重新编辑默认隐藏；替换密钥、完全重启服务并刷新页面后，新值仍可正确显示。实际数据库中的值与替换后的测试值一致。未访问真实供应商密钥，也未重跑四模型付费请求；此前真实网关结果仍归属于 0.1.1 的记录。
+`CI=true just desktop-build` passed, generating 0.1.4 `Relay.app` and an Apple Silicon DMG. Application signature integrity and DMG verification passed. The bundled remote agent was version 0.1.4, with SHA-256 matching the release artifact; the development HTTP host was excluded. Native window reverification was temporarily blocked by the locked Mac, and the user was asked to unlock it.
 
-`CI=true just desktop-build` 通过，生成 0.1.3 的 `Relay.app` 与 Apple Silicon DMG。应用签名完整性与 DMG 校验通过，包内远端 Agent 的版本和 SHA-256 与本轮 release 产物一致，未包含开发 HTTP 主机。启动打包应用后，设置页显示 0.1.3；用未保存的测试草稿确认原生密码输入、眼睛显示与再次隐藏均正常，随后取消草稿。未修改现有供应商配置。
+## Local API keys and visibility toggle (0.1.3)
 
-## 工作权限模式（0.1.2）
+Provider API keys moved to direct storage in local `relay.sqlite3`, column `provider_secrets.secret`. The provider editor reads saved keys on demand, hides them by default, and offers an eye button to reveal or hide them. Changes require saving. As requested during development, system credential-store dependencies and migration logic were removed; old keychain keys are neither read nor transferred. Existing providers require entering their keys again once.
 
-工作输入框旁新增「逐次询问 / 完全授权」。新工作和旧版本会话均默认逐次询问；已有工作的选择随会话保存。本地和 SSH 使用同一策略，聊天仍不具备文件和命令权限。
+`just check` passed with 96 frontend, 76 Rust, and 22 Python tests, totaling 194, plus formatting, types, strict lint, and workspace boundaries. New regressions covered local-store restart, replacement/clearing, on-demand reads, snapshots excluding keys, cancellation not interrupting key/configuration persistence, and races between key loading and user edits. Late save results no longer close a subsequently opened editor, with regressions for switching providers and reopening the same provider.
 
-真实 SDK 的本地与 SSH 集成回归均通过，外部推理使用测试服务：完全授权下完成文件创建、读取、编辑与命令执行，且没有产生待审批事件；切回询问后拒绝写入，确认文件未创建；等待审批时更改模式被拒绝；再次完全授权后恢复同一会话，写入成功且原有历史不变。本地额外验证了服务完全重启后仍使用保存的完全授权。两轮分别产生 40 / 26 次测试推理请求和 6 / 16 批有效遥测导出。
+`just build`, `just integration`, and `just integration-ssh` passed. Real SDK local and SSH regressions produced 40 / 26 test inference requests and 6 / 16 telemetry batches respectively. Default local storage allowed saved sessions to continue after a full restart without reentering keys; cleared keys remained empty. Three-protocol chat, file I/O, commands, permissions, and recovery passed. An additional `--ephemeral-secrets` run verified the in-memory mode used for real-provider verification, producing 40 inference requests and 6 export batches.
 
-本轮也补齐了工作提示中的实际项目路径，避免文件工具将相对路径误解为应用私有状态目录；修复了运行中会话标题不及时更新，以及设置页版本号写死的问题。
+Credential checks allowed test keys only in `provider_secrets.secret` of the designated local database. Other tables, fields, schema, logs, SDK state, and telemetry contained no keys. Database checks included committed WAL data; remote files and command-line arguments still prohibited all key persistence. Independent-database, incorrect-field, WAL, and cross-chunk log regressions were added to the scanner.
 
-权限变更检查覆盖默认值、旧数据兼容、聊天权限边界、失败后撤销完全授权和运行中拒绝切换。前端额外覆盖保存响应丢失、确认失败后的禁发与重试、不同会话的独立操作，以及删除工作或项目后迟到的响应和旧快照不能恢复已删状态。
+The actual React UI and development service were verified with isolated temporary data and a fake key. New-provider keys were hidden by default, the eye button toggled visibility, and saved keys were hidden again on reopening. After replacement, a full service restart, and a page refresh, the new value could still be displayed correctly. The actual database matched the replacement test value. No real provider key was accessed, and the four-model paid requests were not rerun; earlier real-gateway results remained attributed to 0.1.1.
 
-`just check` 全部通过：前端 78 项、Rust 73 项、Python 15 项，共 166 项测试；格式、类型、严格 lint 和 workspace 依赖边界检查通过。`just build` 与 macOS 桌面打包通过，生成 0.1.2 的 `Relay.app` 和 Apple Silicon DMG。应用签名完整性和 DMG 校验通过，包内远端 Agent 的 SHA-256 与本轮 release 产物一致，版本为 0.1.2，未包含开发 HTTP 主机。
+`CI=true just desktop-build` passed, generating 0.1.3 `Relay.app` and an Apple Silicon DMG. Application signature integrity and DMG verification passed. The bundled remote agent's version and SHA-256 matched the release artifact, and no development HTTP host was included. After launching the packaged application, Settings showed 0.1.3. An unsaved test draft verified native password input, eye-button reveal, and hiding again; the draft was then canceled. Existing provider configuration was not changed.
 
-用户解锁后，0.1.2 打包应用的原生窗口复验已完成：设置页显示正确版本；聊天没有权限选择器；工作菜单正确显示两个模式与说明；未发送草稿可切换到完全授权，另建工作后恢复逐次询问；旧工作默认逐次询问且历史保留。真实 GLM 新工作首次读取即使用正确项目绝对路径，经两次单独批准后完成读取种子和创建 `path-check-012.txt`，磁盘内容完全符合预期，回复 `PATH-FIXED-012`。运行和等待审批时权限选择器禁用，完成后恢复；侧栏标题在运行期间及时更新，无需重新打开会话。此次沿用已保存的供应商和钥匙串凭证，无需重新输入密钥。
+## Work permission modes (0.1.2)
 
-本次新增完全授权的自动执行、模式持久化及切换后的恢复证据来自上述真实 SDK 与测试推理服务；原生窗口补验了菜单选择和草稿重置，并用真实 GLM 复验逐次审批与工作路径。此前 0.1.1 的四模型聊天与工作原生验收记录见下一节。
+An ask-each-time / full-access selector was added beside the work composer. New work and older sessions default to asking each time; each existing work session saves its selection. Local and SSH work use the same policy. Chat still has no file or command tools.
 
-## 指定供应商的真实验收（0.1.1）
+Real SDK local and SSH integration regressions passed with inference test services. Full access created, read, and edited files and ran commands without pending-approval events. Switching back to ask mode and denying a write left the file uncreated. Mode changes were rejected while approval was pending. Switching back to full access and resuming the same session allowed writing while preserving history. Local verification also confirmed saved full access after a complete service restart. The runs produced 40 / 26 test inference requests and 6 / 16 valid telemetry batches respectively.
 
-按要求配置了两个 CAMP 供应商。Anthropic 的 base URL 是 `https://camp-dev.woa.com/pingress`；OpenAI Responses 的 base URL 是 `https://camp-dev.woa.com/pingress/v1`。四个模型的总上下文均为 1,000,000，两个 Anthropic 模型的最大输出均为 128,000；Responses 保留默认输出设置。
+Work prompts were also updated to include the actual project path, preventing file tools from interpreting relative paths as the application's private state directory. Other fixes made active session titles update promptly and removed the hardcoded Settings version.
 
-2026-10-17 使用真实网关、真实 Copilot SDK 和应用服务，四模型各执行聊天及工作验收，8 项全部通过。共发出 40 次推理请求，均返回 HTTP 200。
+Permission-change checks covered defaults, old data compatibility, chat boundaries, revoking full access after failure, and rejection while running. Frontend checks additionally covered lost save responses, blocking and retrying after failed confirmation, independent operations in separate sessions, and late responses/old snapshots not restoring deleted work or projects.
 
-| 模型                  | 协议             | 聊天 | 工作 | 推理请求数 | 实际 Anthropic `max_tokens` |
-| --------------------- | ---------------- | ---- | ---- | ---------- | --------------------------- |
-| `claude-haiku-5.5`    | Anthropic        | 通过 | 通过 | 9          | 每次均为 128000             |
-| `glm-5.3-flashx`      | Anthropic        | 通过 | 通过 | 13         | 每次均为 128000             |
-| `gpt-6.1-sol`         | OpenAI Responses | 通过 | 通过 | 8          | 不适用                      |
-| `deepseek-v4.1-flash` | OpenAI Responses | 通过 | 通过 | 10         | 不适用                      |
+`just check` passed with 78 frontend, 73 Rust, and 15 Python tests, totaling 166, plus formatting, types, strict lint, and workspace boundaries. `just build` and macOS desktop packaging passed, generating 0.1.2 `Relay.app` and an Apple Silicon DMG. Application signature integrity and DMG verification passed. The bundled remote agent's SHA-256 matched the release artifact, its version was 0.1.2, and the development HTTP host was excluded.
 
-聊天要求助手准确回复临时随机标记，并验证流式文本和持久化。工作分两轮：读取随机种子、计算并创建文件，再编辑文件、经审批执行预先限定的验证命令，核对真实文件和工具返回的随机标记。测试只批准隔离目录中的指定文件写入及精确验证命令，其他请求被拒绝。
+After the user unlocked the machine, native window reverification of packaged 0.1.2 completed. Settings showed the correct version; chat had no permission selector; work showed both modes and explanations. An unsent draft could switch to full access, and another new work session returned to ask mode. Old work defaulted to ask mode with history preserved. A real GLM work session used the correct absolute project path on its first read. After two separate approvals, it read the seed and created `path-check-012.txt` with exactly the expected content, replying `PATH-FIXED-012`. The selector was disabled during execution and pending approval and reenabled afterward. Sidebar titles updated while running without reopening the conversation. This run used saved provider and keychain credentials without requiring keys again.
 
-本机观察代理将请求正文原样转发给真实 HTTPS 网关，只记录模型、路径、token 参数、流式标志和状态码。22 次 Anthropic 请求的 `max_tokens` 全部实际等于 128000。测试凭证只通过隐藏输入进入内存；临时应用状态与日志扫描未发现密钥。脱敏的逐请求结果保存于本机 `test-results/live-providers.json`，不纳入版本控制。
+Evidence for automatic full-access execution, persistence, and recovery after switching came from the real SDK with inference test services described above. Native verification covered menu selection and draft reset and used real GLM to recheck individual approvals and work paths. Four-model native chat/work verification from 0.1.1 appears next.
 
-验收发现并修复了上下文映射错误：此前把总窗口当成输入预算，现明确设置 SDK 的总上下文限制，并为显式输出预留输入空间；Anthropic 对应总量 1,000,000、输入 872,000、输出 128,000。创建和恢复会话采用相同配置。此次还将版本提升至 0.1.1，并实际验证 SSH 会替换旧 0.1.0 远端服务，同版本仍复用，避免旧 runtime 漏掉参数修复。
+## Real verification with specified providers (0.1.1)
 
-修复后 `just check` 全部通过：前端 53 项、Rust 63 项、Python 15 项，共 131 项测试。构建、本地 SDK 回归、真实 SSH 回归、0.1.1 macOS 打包全部通过；签名完整性和 DMG 校验通过，包内远端 Agent 的摘要与本轮 release 产物一致。
+Two CAMP providers were configured as requested. Anthropic used base URL `https://camp-dev.woa.com/pingress`; OpenAI Responses used `https://camp-dev.woa.com/pingress/v1`. All four models had total context 1,000,000. Both Anthropic models had maximum output 128,000; Responses retained default output settings.
 
-两个供应商已保存到应用实际数据目录。解锁 Mac 并由用户允许钥匙串读取后，补做了打包 `Relay.app` 的原生窗口验收：四模型分别完成聊天及工作，聊天返回指定标记，工作完成读取种子、创建文件、编辑文件和经审批执行验证命令；四份实际文件的内容均正确。原生目录选择器、权限批准与拒绝均已实际操作。完全退出并重新启动应用后，历史和项目恢复，Claude 继续原会话成功，两家供应商均无需重新填写 API Key。
+On 2026-10-17, the real gateway, Copilot SDK, and application services ran chat and work for each model. All 8 cases passed, with 40 inference requests, all HTTP 200.
 
-原生验收使用直接连接真实网关的已保存配置，与上面的观察代理 40 次请求独立记录。未执行接近 1M 的长上下文压缩压力测试。
+| Model                 | Protocol         | Chat   | Work   | Inference requests | Actual Anthropic `max_tokens` |
+| --------------------- | ---------------- | ------ | ------ | ------------------ | ----------------------------- |
+| `claude-haiku-5.5`    | Anthropic        | Passed | Passed | 9                  | 128000 every time             |
+| `glm-5.3-flashx`      | Anthropic        | Passed | Passed | 13                 | 128000 every time             |
+| `gpt-6.1-sol`         | OpenAI Responses | Passed | Passed | 8                  | Not applicable                |
+| `deepseek-v4.1-flash` | OpenAI Responses | Passed | Passed | 10                 | Not applicable                |
 
-## 此前的服务入口拆分
+Chat required exact replies with temporary random markers and checked streaming and persistence. Work ran in two turns: read a random seed, calculate and create a file, then edit it and execute a prelimited verification command after approval. Actual files and random markers in tool results were checked. Tests approved only designated writes within isolated directories and exact verification commands; all other requests were denied.
 
-此前的拆分将本机 HTTP 开发主机移到 `relay-dev-server`，共享 RPC 移到 `relay-protocol`，`relay-server` 只保留远端 Agent。HTTP 行为与远端协议保持兼容，开发命令、验收脚本和 CI 已同步到两个独立二进制。
+A local observation proxy forwarded request bodies unchanged to the real HTTPS gateway and recorded only model, path, token parameters, streaming flag, and status code. All 22 Anthropic requests actually used `max_tokens` equal to 128000. Test credentials entered memory only through hidden input; temporary application state and log scans found no keys. Redacted per-request results were saved locally in `test-results/live-providers.json`, outside version control.
 
-拆分后的验证结果：
+Verification found and fixed context mapping: the total window had previously been treated as the input budget. The SDK now receives the total context limit explicitly and reserves input space for explicit output. Anthropic uses total 1,000,000, input 872,000, and output 128,000. Creation and recovery use the same configuration. The version was also raised to 0.1.1. SSH verification confirmed replacement of an old 0.1.0 server and reuse at the same version, preventing an old runtime from missing the parameter fix.
 
-- `just check` 全部通过：前端 53 项、Rust 59 项、Python 10 项测试，共 122 项，以及格式、类型和严格 lint 检查。
-- `relay-protocol` 单独测试通过，未依赖整个 workspace 的 Tokio feature 合并。
-- `just build` 通过，生成前端、开发主机与远端 Agent；两个二进制的帮助、版本和错误模式均已实际调用验证。
-- Cargo 依赖图检查通过，覆盖七个 crate 的单向依赖，以及普通和构建依赖的传递关系。远端 Agent 不引入本机应用服务、SSH 客户端、开发 HTTP、SQLite、系统凭证库或 Tauri。检查已纳入本地和 CI 门禁。
-- 本地 SDK 与真实 SSH 集成验收全部通过。SSH 验收核对部署文件的 SHA-256，确认远端收到独立的 `relay-server`，而非开发主机。
-- `CI=true just desktop-build` 通过，生成 Apple Silicon macOS 应用和 DMG。应用通过严格签名完整性检查，DMG 校验和有效；打包后的应用已启动并保持运行。
-- 包内远端 Agent 与本轮 release 二进制的 SHA-256 一致；其版本、帮助与 HTTP 参数拒绝行为已验证，安装包不包含 `relay-dev-server`。
+After the fixes, `just check` passed with 53 frontend, 63 Rust, and 15 Python tests, totaling 131. Builds, local SDK regression, real SSH regression, and 0.1.1 macOS packaging passed. Signature integrity and DMG verification passed, and the bundled remote agent digest matched the release artifact.
 
-新增回归测试覆盖服务模式混用、开发主机查找远端二进制、验收脚本暂存两个同名来源文件，以及直接、传递和构建依赖越界。共享协议原有的大小限制、截断、歧义响应和敏感数据错误处理测试保留在独立 crate 中。
+Both providers were saved in actual application data. After unlocking the Mac and granting keychain read access, native verification of packaged `Relay.app` completed: all four models performed chat and work, chat returned the specified markers, and work read seeds, created and edited files, and ran approved verification commands. All four actual output files were correct. Native directory selection, approval, and denial were exercised. After fully quitting and restarting the application, history and projects recovered, Claude continued its original session, and both providers worked without reentering API keys.
 
-## 测试服务回归的验证方法
+Native verification used saved configuration connected directly to the real gateway and was recorded separately from the 40 observation-proxy requests above. No long-context compaction stress test near 1M was performed.
 
-集成验证启动真实 Rust 服务、Copilot SDK 和 CLI。只有外部模型推理与 OTLP 接收端使用本地测试服务；文件修改、命令执行、权限审批、会话恢复和 SSH 都走实际实现。测试使用独立临时目录与测试凭证，不依赖付费账号。
+## Earlier service entry point split
 
-拆分后的本地验收完成 26 次 SDK 推理请求与 6 批有效 OTLP 导出；SSH 验收完成 14 次请求与 10 批导出。0.1.1 修复后两套脚本再次通过全部断言，计数相同。这些回归使用内存凭证库；当时的真实供应商原生窗口与 Keychain 证据见「指定供应商的真实验收（0.1.1）」一节。
+The earlier split moved the local HTTP development host to `relay-dev-server` and shared RPC to `relay-protocol`, leaving `relay-server` responsible only for the remote agent. HTTP behavior and remote protocol remained compatible. Development commands, verification scripts, and CI were updated for two separate binaries.
 
-| 范围       | 已验证行为                                                                                                                   |
-| ---------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| 供应商     | OpenAI Completions、OpenAI Responses、Anthropic 的实际请求路径、鉴权和流式回复；模型参数映射                                 |
-| 聊天       | 模型只能看到网页工具；即使测试模型发出文件和 shell 调用，也无法修改宿主文件                                                  |
-| 本地工作   | 选择目录、创建与编辑文件；允许、拒绝、多项独立审批；取消后旧审批 ID 失效                                                     |
-| 历史与停止 | 连续发送相同内容、停止流式回复后继续、SDK 冷恢复、服务重启后恢复且不重复消息                                                 |
-| 密钥       | macOS Keychain 实际存取、重启后读取；SQLite、SDK 状态与导出数据不包含测试 API Key                                            |
-| SSH        | 隔离的真实 sshd；主机指纹和密钥校验、自动上传、文件权限、相同版本复用、特殊字符目录、断线重连                                |
-| 远端退出   | EOF、畸形请求与超长帧均结束会话并清理子进程；退出前刷新遥测                                                                  |
-| 遥测       | `http/json` 与 `http/protobuf`；解码导出数据并检查 trace ID、span ID 和 span 名称                                            |
-| 界面       | 通过实际服务配置供应商、模型和遥测，聊天、浏览目录、创建项目、审批文件操作、拒绝请求、停止、重命名和刷新历史；窄屏无横向溢出 |
+Verification after the split:
 
-此前的界面验收使用应用的 React 界面和真实开发服务，没有替换应用接口。随后已用打包的 macOS 原生窗口补验供应商配置、目录选择、四模型聊天和工作、审批与重启恢复。消息身份、状态管理和表单规则另有单元回归。
+- `just check` passed with 53 frontend, 59 Rust, and 10 Python tests, totaling 122, plus formatting, types, and strict lint.
+- `relay-protocol` passed standalone tests without relying on workspace-wide Tokio feature unification.
+- `just build` generated the frontend, development host, and remote agent. Both binaries' help, version, and error modes were exercised.
+- Cargo dependency graph checks passed for one-way dependencies across seven crates, including transitive normal/build dependencies. The remote agent excluded local application services, the SSH client, development HTTP, SQLite, system credential stores, and Tauri. The check was added to local and CI gates.
+- Local SDK and real SSH integration passed. SSH verification compared the deployed SHA-256 and confirmed the remote host received the separate `relay-server`, not the development host.
+- `CI=true just desktop-build` generated an Apple Silicon macOS application and DMG. Strict signature integrity and DMG checksum verification passed. The packaged application was launched and remained running.
+- The bundled remote agent's SHA-256 matched the release binary. Its version, help, and rejection of HTTP arguments were verified; `relay-dev-server` was absent from the installer.
 
-恢复测试还包括强制结束本地或远端 CLI，然后由下一次用户发送恢复；断言不会自动重放任务。另一项 SSH 测试暂停第二个会话的初始化，确认第一个会话仍能在 3 秒内停止，并保存已收到的回复。
+New regressions covered mixed service modes, development-host discovery of the remote binary, staging same-named files from two sources in verification scripts, and direct/transitive/build dependency violations. Existing shared protocol tests for size limits, truncation, ambiguous responses, and sensitive-data error handling remained in the separate crate.
 
-## 拆分前的代码审查
+## Test-service regression method
 
-该轮围绕职责边界、状态一致性、资源所有权和可测试性调整实现：
+Integration verification starts real Rust services, Copilot SDK, and CLI. Only external model inference and OTLP receivers use local test services. File edits, command execution, permissions, recovery, and SSH exercise the actual implementation. Tests use separate temporary directories and test credentials without paid accounts.
 
-| 原问题                                                       | 调整与回归覆盖                                                                             |
-| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------ |
-| 请求分发承担业务规则，本地和 SSH 会话分支重复                | 分离供应商、项目、会话和事件处理；`AgentHandle` 统一执行位置差异；状态和消息角色改为枚举   |
-| 界面状态在多个更新入口间同步，历史与乐观消息靠内容或顺序确认 | 纯 reducer 原子更新会话状态；发送沿用客户端消息 UUID，覆盖确认丢失、旧历史与重复文本       |
-| 发送失败可能丢稿，空白替换密钥可能误删已存密钥               | 保存未确认输入并允许手动恢复；明确保留、替换、删除三种密钥操作；设置页只修改自己负责的字段 |
-| 停止、取消发送和错误后的尾部事件可能覆盖后续状态             | 完成屏障包含事件落盘；取消与同步事件处理共享锁；错误连接失效，回收时等待旧转发任务退出     |
-| SDK 取消审批回调后仍可能保留请求                             | 作用域清理待审批项，覆盖取消后请求 ID 失效                                                 |
-| SSH 两端协议重复，连接结束路径难以独立测试                   | 共用有大小限制的帧协议，注入连接输入输出，覆盖截断、输出失败和事件积压                     |
-| 单条记录读取依赖全表反序列化，删除密钥失败可能丢失供应商入口 | 按 ID 查询、SQL 存在性检查；密钥删除失败恢复供应商记录，保留重试入口                       |
-| 验收脚本丢弃其他会话事件，启动失败后的清理分散               | 共用事件分流与进程管理，增加 Python 标准库回归测试并纳入本地与 CI 门禁                     |
+After the split, local verification made 26 SDK inference requests and 6 valid OTLP batches; SSH made 14 requests and 10 batches. Both scripts passed all assertions again after the 0.1.1 fixes with the same counts. These regressions used an in-memory credential store. Native window and Keychain evidence with real providers from that period appears in [Real verification with specified providers (0.1.1)](#real-verification-with-specified-providers-011).
 
-## 复现
+| Scope                | Verified behavior                                                                                                                                                                                               |
+| -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Providers            | Actual OpenAI Completions, OpenAI Responses, and Anthropic paths, authentication, and streaming replies; model parameter mapping                                                                                |
+| Chat                 | Only web tools visible to the model; attempted file/shell calls by the test model cannot change host files                                                                                                      |
+| Local work           | Directory selection, file creation/editing, approval, denial, independent approvals, and invalidation of old approval IDs after cancellation                                                                    |
+| History and stopping | Repeated identical sends, continuing after stopped streams, SDK cold recovery, and service-restart recovery without duplicate messages                                                                          |
+| Keys                 | Actual macOS Keychain reads/writes and restart reads; no test key in SQLite, SDK state, or exports                                                                                                              |
+| SSH                  | Isolated real sshd, host fingerprint/key checks, automatic uploads, file permissions, same-version reuse, special-character paths, and reconnects                                                               |
+| Remote exit          | EOF, malformed requests, and oversized frames terminate sessions and clean up child processes; telemetry flushes before exit                                                                                    |
+| Telemetry            | `http/json` and `http/protobuf`; decoded exports checked for trace IDs, span IDs, and span names                                                                                                                |
+| UI                   | Provider/model/telemetry configuration, chat, directory browsing, project creation, approvals, denials, stopping, renaming, and history refresh against real services; no horizontal overflow on narrow screens |
+
+Earlier UI verification used the application's React UI and real development service without replacing application APIs. Packaged macOS native windows later supplemented it with provider configuration, directory selection, four-model chat/work, approvals, and restart recovery. Message identity, state management, and form rules also have unit regressions.
+
+Recovery tests forcefully terminate local or remote CLI processes, then recover on the next user send and assert that tasks are not automatically replayed. Another SSH test pauses initialization of a second session and confirms the first can still stop within 3 seconds while saving its received reply.
+
+## Code review before the split
+
+That review adjusted responsibility boundaries, state consistency, resource ownership, and testability:
+
+| Previous issue                                                                                                    | Change and regression coverage                                                                                                                                              |
+| ----------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Request dispatch owned business rules; local/SSH session branches were duplicated                                 | Separate provider, project, session, and event handling; `AgentHandle` centralizes execution-location differences; states and message roles use enums                       |
+| UI state synchronized through multiple update paths; optimistic/history messages were matched by content or order | A pure reducer updates session state atomically; sends retain client message UUIDs, covering lost confirmations, stale history, and duplicate text                          |
+| Failed sends could lose drafts; blank replacement keys could delete saved keys                                    | Preserve unconfirmed input with manual recovery; distinguish retaining, replacing, and deleting keys; settings sections modify only their own fields                        |
+| Trailing events after stop, canceled sends, or errors could overwrite later state                                 | Completion barrier includes event persistence; cancellation and synchronous event handling share a lock; errors invalidate connections; cleanup awaits old forwarding tasks |
+| Canceled SDK permission callbacks could leave requests pending                                                    | Scoped cleanup of pending approvals, covering invalid request IDs after cancellation                                                                                        |
+| Duplicated SSH endpoint protocols and hard-to-test connection termination                                         | Shared bounded frame protocol with injectable I/O, covering truncation, output failure, and event backlogs                                                                  |
+| Reading one record required whole-table deserialization; failed key deletion could lose the provider entry        | Query by ID and SQL existence checks; restore provider records after key deletion failures to retain a retry path                                                           |
+| Verification scripts discarded other sessions' events and scattered startup-failure cleanup                       | Shared event routing/process management with Python standard-library regressions in local and CI gates                                                                      |
+
+## Reproduce
 
 ```sh
 just check
@@ -225,15 +237,15 @@ just integration-ssh
 just desktop-build
 ```
 
-无桌面交互的构建环境使用 `CI=true just desktop-build`。这会跳过 DMG 窗口的装饰步骤，不影响应用功能。
+Use `CI=true just desktop-build` without desktop interaction. It skips DMG window decoration without affecting application features.
 
-`tests/runtime_e2e.py` 默认在临时目录中验证本地密钥持久化与重启恢复；`--ephemeral-secrets` 可额外验证只在进程内保存的测试模式。旧版 `--native-vault` 验收已由本地持久化验证替代。SSH 测试要求本机有 `ssh`、`sshd` 和 `ssh-keygen`；它自行生成密钥和主机记录，不改用户的 SSH 配置。
+`tests/runtime_e2e.py` verifies local key persistence and restart recovery in temporary directories by default. `--ephemeral-secrets` additionally tests process-only storage. Local persistence verification has replaced the old `--native-vault` flow. SSH tests require local `ssh`, `sshd`, and `ssh-keygen`. They generate their own keys and host records without modifying the user's SSH configuration.
 
-最终验收轮已清理测试凭证。早期调试失败轮可能遗留仅含占位值的 Relay Keychain 条目；其随机 ID 未能恢复，锁屏也阻止进一步确认，因此没有尝试批量删除系统凭证。
+The final verification run cleaned up test credentials. Failed early debugging runs may have left Relay Keychain entries containing only placeholder values. Their random IDs could not be recovered, and a locked screen prevented further confirmation, so no bulk system-credential deletion was attempted.
 
-## 验证边界
+## Verification limits
 
-- 指定的四模型已完成真实网关验收；该结果不代表其他模型、长期稳定性、额度上限或接近 1M 上下文时的压缩边界。测试服务回归另行验证固定的协议与异常路径。
-- macOS 应用已完成打包和上述原生窗口交互验收；这不代表全部系统权限提示、辅助功能组合或长时间运行情形均已覆盖。
-- CI 已构建 Apple 芯片 macOS 与 Windows x64 安装包，以及 Linux x64 与 Apple 芯片 macOS 的远端 Agent；这些安装包尚未在对应系统上安装运行。Linux arm64 与 Intel Mac 不在发布范围内。本地 `just desktop-build` 的产物只内置本机平台的远端 Agent。
-- 本地和 tag 发布的安装包都使用 ad-hoc 签名，未配置正式签名和 Apple 公证；macOS 用户首次打开前需解除系统隔离。
+- The specified four models completed real-gateway verification. This does not establish other models' behavior, long-term stability, quota limits, or compaction boundaries near 1M context. Test-service regressions separately check fixed protocols and failure paths.
+- macOS packaging and the native interactions described above were verified. This does not cover every system permission prompt, accessibility combination, or extended runtime scenario.
+- CI built Apple Silicon macOS and Windows x64 installers, plus Linux x64 and Apple Silicon remote agents. Those CI installers had not been installed or run on their target systems. Linux arm64 and Intel Mac were outside release scope. Local `just desktop-build` bundles only the local platform's remote agent.
+- Local and tag-release installers use ad hoc signing without formal signing or Apple notarization. macOS users must remove quarantine before first launch.

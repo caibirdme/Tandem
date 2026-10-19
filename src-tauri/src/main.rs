@@ -62,7 +62,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                                     "sessionId": "",
                                     "kind": "error",
                                     "data": {
-                                        "message": "界面事件暂时中断，请重新打开对话恢复历史记录",
+                                        "message": "UI events were interrupted. Reopen the conversation to restore its history.",
                                     },
                                 }),
                             );

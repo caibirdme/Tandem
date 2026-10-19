@@ -1,6 +1,7 @@
 import { Eye, EyeOff } from 'lucide-react';
 import { useId } from 'react';
 
+import { useI18n } from '../i18n';
 import type { CredentialEditorAction, CredentialEditorState } from '../lib/credentialEditor';
 import { Notice, Spinner } from './ui';
 
@@ -15,10 +16,11 @@ export function ProviderKeyInput({
   update: (action: CredentialEditorAction) => void;
   onRetry: () => void;
 }) {
+  const { t } = useI18n();
   const id = useId();
   return (
     <div className="credential-field">
-      <label htmlFor={id}>API Key</label>
+      <label htmlFor={id}>{t('key.label')}</label>
       <div className="credential-input">
         <input
           id={id}
@@ -28,13 +30,13 @@ export function ProviderKeyInput({
           spellCheck={false}
           value={state.removing ? '' : state.value}
           onChange={(event) => update({ type: 'edited', value: event.target.value })}
-          placeholder={hasSavedKey ? '留空保留已保存的密钥' : '输入 API 密钥，本地服务可留空'}
+          placeholder={hasSavedKey ? t('key.keepPlaceholder') : t('key.emptyPlaceholder')}
           aria-describedby={`${id}-hint`}
         />
         <button
           className="icon-button credential-visibility"
           type="button"
-          aria-label={state.visible ? '隐藏密钥' : '显示密钥'}
+          aria-label={state.visible ? t('key.hide') : t('key.show')}
           aria-pressed={state.visible}
           onClick={() => update({ type: 'visibilityToggled' })}
         >
@@ -43,24 +45,22 @@ export function ProviderKeyInput({
       </div>
       <small id={`${id}-hint`}>
         {state.removing
-          ? '保存后将清除现有密钥。'
+          ? t('key.removeHint')
           : hasSavedKey
-            ? '密钥保存在本机。直接编辑可替换，留空或仅空格会保留现有密钥。'
-            : '密钥保存在本机，编辑时默认隐藏。'}
+            ? t('key.editHint')
+            : t('key.localHint')}
       </small>
       {state.loadingRequest !== null && (
         <output className="credential-loading">
           <Spinner size={13} />
-          正在读取已保存的密钥，也可以直接输入新密钥。
+          {t('key.loading')}
         </output>
       )}
       {state.error && (
         <Notice>
-          <div>
-            无法读取已保存的密钥：{state.error}。你仍可输入新密钥替换；留空保存不会更改现有密钥。
-          </div>
+          <div>{t('key.loadFailed', { error: state.error })}</div>
           <button className="text-button" type="button" onClick={onRetry}>
-            重新读取密钥
+            {t('key.retry')}
           </button>
         </Notice>
       )}
@@ -70,7 +70,7 @@ export function ProviderKeyInput({
           className="text-button key-remove"
           onClick={() => update({ type: 'removalToggled' })}
         >
-          {state.removing ? '取消清除密钥' : '清除已保存的密钥'}
+          {state.removing ? t('key.cancelRemoval') : t('key.remove')}
         </button>
       )}
     </div>

@@ -2,20 +2,20 @@ set dotenv-load := false
 
 python := if os() == "windows" { "python" } else { "python3" }
 
-# 默认展示开发入口和质量门禁。
+# List development commands and quality checks by default.
 default:
     @just --list
 
-# 安装前端依赖；Rust 使用 rust-toolchain.toml 中的版本。
+# Install frontend dependencies; Rust uses the version in rust-toolchain.toml.
 setup:
     pnpm install --frozen-lockfile
     rustup toolchain install nightly --profile minimal --component rustfmt
 
-# 启动完整桌面应用。
+# Start the complete desktop application.
 dev:
     pnpm tauri dev
 
-# 浏览器开发：另一个终端执行 just web。
+# For browser development, run just web in another terminal.
 server:
     cargo build -p tandem-server
     cargo run -p tandem-dev-server
@@ -54,20 +54,20 @@ build:
     pnpm build
     cargo build -p tandem-dev-server -p tandem-server
 
-# 同时构建本机开发主机与 SSH 远端 Agent。
+# Build both the local development host and the SSH remote Agent.
 build-server:
     cargo build -p tandem-dev-server -p tandem-server
 
-# 使用真实 Copilot SDK；推理服务和遥测接收端由测试提供。
+# Use the real Copilot SDK with test inference and telemetry servers.
 integration:
     cargo build -p tandem-dev-server
     {{python}} tests/runtime_e2e.py
 
-# 需要本机 ssh/sshd；所有密钥和主机记录均隔离在临时目录。
+# Requires local ssh/sshd; all keys and host records stay in a temporary directory.
 integration-ssh: build-server
     {{python}} tests/remote_e2e.py
 
-# 只打包远端 Agent，开发 HTTP 主机不进入分发资源。
+# Bundle only the remote Agent; exclude the development HTTP host from resources.
 remote-build:
     cargo build --release -p tandem-server
     node scripts/prepare-remote.mjs

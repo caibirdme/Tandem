@@ -19,8 +19,10 @@ import { Chat } from './components/Chat';
 import { Sidebar } from './components/Sidebar';
 import { Modal, Notice, Spinner } from './components/ui';
 import { useTandem } from './hooks/useTandem';
+import { useI18n } from './i18n';
 import { dispatch, errorMessage } from './lib/api';
 import { newSessionPayload } from './lib/sessionOptions';
+import { displaySessionTitle } from './lib/sessionTitles';
 import type { ModelSelection, PermissionMode, Project, Session } from './lib/types';
 
 const Settings = lazy(async () => ({ default: (await import('./components/Settings')).Settings }));
@@ -29,6 +31,7 @@ const ProjectDialog = lazy(async () => ({
 }));
 
 export function App() {
+  const { t } = useI18n();
   const tandem = useTandem();
   const [projectId, setProjectId] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -121,8 +124,7 @@ export function App() {
       }
       if (target.projectId && target.permissionMode !== permissionMode) {
         const confirmedMode = await tandem.changePermissionMode(target.id, permissionMode);
-        if (confirmedMode !== permissionMode)
-          throw new Error('未能确认所选工具权限，消息尚未发送。请重新确认权限后再试。');
+        if (confirmedMode !== permissionMode) throw new Error(t('app.permissionUnconfirmed'));
       }
       await tandem.send(target.id, content);
     } finally {
@@ -177,7 +179,7 @@ export function App() {
     }
   }
   function rename(value: Session) {
-    setSessionTitle(value.title);
+    setSessionTitle(displaySessionTitle(value));
     setSessionAction({ session: value, action: 'rename' });
   }
 
@@ -187,7 +189,7 @@ export function App() {
         <>
           <button
             className="sidebar-backdrop"
-            aria-label="关闭侧栏"
+            aria-label={t('app.closeSidebar')}
             onClick={() => setSidebarOpen(false)}
           />
           <Sidebar
@@ -217,7 +219,7 @@ export function App() {
             {!sidebarOpen && (
               <button
                 className="icon-button"
-                aria-label="展开侧栏"
+                aria-label={t('app.expandSidebar')}
                 onClick={() => setSidebarOpen(true)}
               >
                 <PanelLeft size={18} />
@@ -233,12 +235,16 @@ export function App() {
               </>
             ) : null}
             <span className="current-session-title">
-              {session?.title || (project ? '新工作' : '新对话')}
+              {session
+                ? displaySessionTitle(session)
+                : project
+                  ? t('common.newWork')
+                  : t('common.newChat')}
             </span>
             {session && tandem.titleGenerations.has(session.id) && (
               <output className="title-progress">
                 <Spinner size={12} />
-                正在生成标题
+                {t('common.titleGenerating')}
               </output>
             )}
           </div>
@@ -246,32 +252,32 @@ export function App() {
             {project && (
               <span className="environment-badge">
                 <span />
-                {project.connection.kind === 'ssh' ? 'SSH' : '本地'}
+                {project.connection.kind === 'ssh' ? 'SSH' : t('app.local')}
               </span>
             )}
             {session && (
               <button
                 className="icon-button"
-                aria-label={project ? '新建工作' : '新建对话'}
+                aria-label={project ? t('common.createWork') : t('common.createChat')}
                 onClick={() => newDraft(project?.id ?? null)}
               >
                 <Plus size={18} />
               </button>
             )}
             <Dropdown.Root>
-              <Dropdown.Trigger className="icon-button" aria-label="更多选项">
+              <Dropdown.Trigger className="icon-button" aria-label={t('app.moreOptions')}>
                 <MoreHorizontal size={20} />
               </Dropdown.Trigger>
               <Dropdown.Portal>
                 <Dropdown.Content className="dropdown" sideOffset={8} align="end">
                   <Dropdown.Item className="dropdown-item" onSelect={() => setSettingsOpen(true)}>
                     <Settings2 size={14} />
-                    设置
+                    {t('common.settings')}
                   </Dropdown.Item>
                   {session && (
                     <Dropdown.Item className="dropdown-item" onSelect={() => rename(session)}>
                       <SquarePen size={14} />
-                      重命名对话
+                      {t('common.renameChat')}
                     </Dropdown.Item>
                   )}
                   {session && (
@@ -283,7 +289,9 @@ export function App() {
                       }}
                     >
                       <Sparkles size={14} />
-                      {tandem.titleGenerations.has(session.id) ? '正在生成标题…' : '重新生成标题'}
+                      {tandem.titleGenerations.has(session.id)
+                        ? t('common.titleGeneratingBusy')
+                        : t('common.regenerateTitle')}
                     </Dropdown.Item>
                   )}
                   <Dropdown.Item
@@ -295,7 +303,7 @@ export function App() {
                     }}
                   >
                     <RefreshCw size={14} />
-                    刷新连接状态
+                    {t('app.refreshConnection')}
                   </Dropdown.Item>
                   {project && (
                     <Dropdown.Item
@@ -303,7 +311,7 @@ export function App() {
                       onSelect={() => setDeleteProject(project)}
                     >
                       <Trash2 size={14} />
-                      移除项目
+                      {t('common.removeProject')}
                     </Dropdown.Item>
                   )}
                 </Dropdown.Content>
@@ -314,7 +322,7 @@ export function App() {
         {session && tandem.titleError && (
           <div className="title-notice">
             <Notice tone="neutral">
-              <span>标题生成失败：{tandem.titleError}。原标题已保留。</span>
+              <span>{t('app.titleFailed', { error: tandem.titleError })}</span>
               <button
                 className="text-button"
                 disabled={!tandem.connected || tandem.titleGenerations.has(session.id)}
@@ -322,11 +330,11 @@ export function App() {
                   void tandem.regenerateTitle(session.id);
                 }}
               >
-                重新生成
+                {t('app.regenerate')}
               </button>
               <button
                 className="icon-button"
-                aria-label="关闭标题提示"
+                aria-label={t('app.dismissTitleNotice')}
                 onClick={() => tandem.dismissTitleError(session.id)}
               >
                 <X size={14} />
@@ -346,7 +354,7 @@ export function App() {
                     .catch((reason: unknown) => tandem.setError(errorMessage(reason)));
                 }}
               >
-                重试
+                {t('common.retry')}
                 <RefreshCw size={12} />
               </button>
             </Notice>
@@ -355,7 +363,7 @@ export function App() {
         {tandem.loading ? (
           <div className="app-loading">
             <Spinner size={23} />
-            <span>正在连接你的工作空间…</span>
+            <span>{t('app.connecting')}</span>
           </div>
         ) : (
           <Chat
@@ -437,11 +445,11 @@ export function App() {
         onOpenChange={(value) => {
           if (!value) setSessionAction(null);
         }}
-        title={sessionAction?.action === 'rename' ? '重命名对话' : '删除对话'}
+        title={sessionAction?.action === 'rename' ? t('common.renameChat') : t('common.deleteChat')}
         description={
           sessionAction?.action === 'rename'
-            ? '让对话更容易找到。'
-            : '这会删除该对话的消息记录，此操作无法撤销。'
+            ? t('app.renameDescription')
+            : t('app.deleteDescription')
         }
       >
         <form
@@ -454,7 +462,7 @@ export function App() {
           {tandem.error && <Notice>{tandem.error}</Notice>}
           {sessionAction?.action === 'rename' ? (
             <label>
-              对话标题
+              {t('app.conversationTitle')}
               <input
                 required
                 value={sessionTitle}
@@ -462,11 +470,15 @@ export function App() {
               />
             </label>
           ) : (
-            <p>确认删除「{sessionAction?.session.title}」？</p>
+            <p>
+              {t('app.confirmDelete', {
+                title: sessionAction ? displaySessionTitle(sessionAction.session) : '',
+              })}
+            </p>
           )}
           <div className="form-footer">
             <button type="button" className="button" onClick={() => setSessionAction(null)}>
-              取消
+              {t('common.cancel')}
             </button>
             <button
               className={`button ${sessionAction?.action === 'delete' ? 'destructive' : 'primary'}`}
@@ -474,7 +486,7 @@ export function App() {
               disabled={actionBusy}
             >
               {actionBusy && <Spinner />}
-              {sessionAction?.action === 'rename' ? '保存' : '删除'}
+              {sessionAction?.action === 'rename' ? t('common.save') : t('common.delete')}
             </button>
           </div>
         </form>
@@ -484,15 +496,15 @@ export function App() {
         onOpenChange={(value) => {
           if (!value) setDeleteProject(null);
         }}
-        title="移除项目"
-        description="移除项目及其会话记录。项目目录中的文件会保留。"
+        title={t('common.removeProject')}
+        description={t('app.removeDescription')}
       >
         <div className="simple-form">
           {tandem.error && <Notice>{tandem.error}</Notice>}
-          <p>确认移除「{deleteProject?.name}」？</p>
+          <p>{t('app.confirmRemove', { name: deleteProject?.name ?? '' })}</p>
           <div className="form-footer">
             <button className="button" onClick={() => setDeleteProject(null)}>
-              取消
+              {t('common.cancel')}
             </button>
             <button
               className="button destructive"
@@ -512,7 +524,8 @@ export function App() {
                   .finally(() => setActionBusy(false));
               }}
             >
-              {actionBusy && <Spinner />}移除项目
+              {actionBusy && <Spinner />}
+              {t('common.removeProject')}
             </button>
           </div>
         </div>

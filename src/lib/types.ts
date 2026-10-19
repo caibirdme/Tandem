@@ -43,6 +43,7 @@ export interface Project {
 export type SessionStatus = 'idle' | 'running' | 'error';
 export type PermissionMode = 'ask' | 'allow-all';
 export interface Session {
+  titleState?: 'preserved' | 'pending' | 'attempted';
   id: string;
   title: string;
   projectId: string | null;

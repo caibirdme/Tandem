@@ -45,7 +45,7 @@ impl AppOptions {
     /// existing application paths cannot be inspected.
     pub fn native() -> Result<Self> {
         let directory = dirs::data_local_dir()
-            .context("无法确定应用数据目录")?
+            .context("Cannot determine the application data directory")?
             .join("app.tandem.desktop");
         Ok(Self::local(application_directory(&directory)?))
     }
@@ -129,11 +129,11 @@ impl App {
             available,
             version: (!custom_cli).then(|| copilot_runtime::CLI_VERSION.into()),
             message: if available {
-                "Copilot 运行时已就绪"
+                "Copilot runtime is ready"
             } else if custom_cli {
-                "已配置自定义 Copilot CLI，首次使用时自动初始化"
+                "Custom Copilot CLI configured; it will initialize on first use"
             } else {
-                "已内置 Copilot 运行时，首次使用时自动初始化"
+                "Bundled Copilot runtime will initialize on first use"
             }
             .into(),
         }
@@ -154,7 +154,7 @@ impl App {
         let running = Arc::new(
             Runtime::start(options)
                 .await
-                .context("Copilot 运行时启动失败")?,
+                .context("The Copilot runtime failed to start")?,
         );
         *runtime = Some(running.clone());
         Ok(running)
@@ -170,7 +170,7 @@ impl App {
             && !path.is_empty()
             && !std::path::Path::new(path).is_file()
         {
-            bail!("指定的 Copilot CLI 文件不存在");
+            bail!("The specified Copilot CLI file does not exist.");
         }
         let _guard = self.mutation_gate.lock().await;
         self.require_idle()?;
@@ -195,7 +195,7 @@ impl App {
             .iter()
             .any(|session| session.status == SessionStatus::Running)
         {
-            bail!("请先停止正在运行的对话");
+            bail!("Stop running conversations before continuing.");
         }
         Ok(())
     }

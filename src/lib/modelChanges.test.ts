@@ -158,7 +158,7 @@ describe('persisted conversation model changes', () => {
     test.read.mockResolvedValueOnce(selection);
     await test.changes.change(session.id, selection);
     expect(test.state.snapshot?.sessions[0]?.modelId).toBe(selection.modelId);
-    expect(test.state.error).toContain('已重新确认当前模型');
+    expect(test.state.error).toContain('The current model has been confirmed');
     expect(test.requests.has(session.id)).toBe(false);
   });
 
@@ -179,7 +179,9 @@ describe('persisted conversation model changes', () => {
     await test.changes.change(session.id, selection);
     expect(test.state.modelUpdates.size).toBe(0);
     expect(test.state.modelUncertain[session.id]).toContain('Service offline');
-    expect(() => test.changes.assertCanSend(session.id)).toThrow('当前模型尚未确认');
+    expect(() => test.changes.assertCanSend(session.id)).toThrow(
+      'The current model is unconfirmed',
+    );
     await expect(test.permissions.change(session.id, 'allow-all')).rejects.toThrow();
     expect(() => test.changes.assertCanSend('session-2')).not.toThrow();
     test.read.mockResolvedValueOnce(selection);
@@ -209,7 +211,9 @@ describe('persisted conversation model changes', () => {
       expect(test.state).toBe(deleted);
       expect(test.state.snapshot?.sessions.map((item) => item.id)).toEqual(['session-2']);
       expect(test.requests.size).toBe(0);
-      expect(() => test.changes.assertCanSend(session.id)).toThrow('此对话已删除');
+      expect(() => test.changes.assertCanSend(session.id)).toThrow(
+        'This conversation has been deleted',
+      );
     },
   );
 
@@ -223,8 +227,10 @@ describe('persisted conversation model changes', () => {
       await vi.advanceTimersByTimeAsync(15_000);
       await change;
       expect(test.state.modelUpdates.size).toBe(0);
-      expect(test.state.modelUncertain[session.id]).toContain('模型确认超时');
-      expect(() => test.changes.assertCanSend(session.id)).toThrow('当前模型尚未确认');
+      expect(test.state.modelUncertain[session.id]).toContain('Model confirmation timed out');
+      expect(() => test.changes.assertCanSend(session.id)).toThrow(
+        'The current model is unconfirmed',
+      );
     } finally {
       vi.useRealTimers();
     }

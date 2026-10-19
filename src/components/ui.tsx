@@ -4,6 +4,8 @@ import { LoaderCircle, X } from 'lucide-react';
 import { useId } from 'react';
 import type { ReactNode, RefObject } from 'react';
 
+import { useI18n } from '../i18n';
+
 export function Modal({
   open,
   onOpenChange,
@@ -23,6 +25,7 @@ export function Modal({
   initialFocusRef?: RefObject<HTMLElement | null>;
   returnFocusRef?: RefObject<HTMLElement | null>;
 }) {
+  const { t } = useI18n();
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
@@ -47,7 +50,7 @@ export function Modal({
               <Dialog.Title>{title}</Dialog.Title>
               <Dialog.Description>{description}</Dialog.Description>
             </div>
-            <Dialog.Close className="icon-button" aria-label="关闭">
+            <Dialog.Close className="icon-button" aria-label={t('common.close')}>
               <X size={18} />
             </Dialog.Close>
           </header>
@@ -90,7 +93,8 @@ export function Toggle({
 }
 
 export function Spinner({ size = 16 }: { size?: number }) {
-  return <LoaderCircle size={size} className="spin" aria-label="正在处理" />;
+  const { t } = useI18n();
+  return <LoaderCircle size={size} className="spin" aria-label={t('common.processing')} />;
 }
 
 export function Notice({

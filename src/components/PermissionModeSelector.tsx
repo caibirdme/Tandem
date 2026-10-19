@@ -1,17 +1,9 @@
 import * as Dropdown from '@radix-ui/react-dropdown-menu';
 import { Check, ChevronDown, ShieldAlert, ShieldCheck } from 'lucide-react';
 
+import { useI18n } from '../i18n';
 import type { PermissionMode } from '../lib/types';
 import { Spinner } from './ui';
-
-const modes = [
-  { value: 'ask', label: '逐次询问', description: '需要审批的工具操作逐次确认。' },
-  {
-    value: 'allow-all',
-    label: '完全授权',
-    description: '自动批准文件读写、命令等所有工具请求。',
-  },
-] as const;
 
 export function PermissionModeSelector({
   mode,
@@ -26,24 +18,37 @@ export function PermissionModeSelector({
   uncertain: boolean;
   onChange: (mode: PermissionMode) => void;
 }) {
+  const { t } = useI18n();
+  const modes = [
+    { value: 'ask', label: t('permissions.ask'), description: t('permissions.askDescription') },
+    {
+      value: 'allow-all',
+      label: t('permissions.allowAll'),
+      description: t('permissions.allowAllDescription'),
+    },
+  ] as const;
   const authorized = mode === 'allow-all';
-  const label = uncertain ? '待确认' : authorized ? '完全授权' : '逐次询问';
+  const label = uncertain
+    ? t('permissions.unconfirmed')
+    : authorized
+      ? t('permissions.allowAll')
+      : t('permissions.ask');
   return (
     <Dropdown.Root>
       <Dropdown.Trigger
         type="button"
         className={`permission-mode-selector ${authorized ? 'is-authorized' : ''}`}
         disabled={disabled || saving || uncertain}
-        aria-label={`工具权限：${label}`}
+        aria-label={t('permissions.label', { name: label })}
         aria-busy={saving}
         title={
           uncertain
-            ? '请先重新确认权限'
+            ? t('permissions.confirmFirst')
             : saving
-              ? '正在更新工具权限…'
+              ? t('permissions.saving')
               : disabled
-                ? '任务结束后可更改工具权限'
-                : '更改工具权限'
+                ? t('permissions.disabledHint')
+                : t('permissions.change')
         }
       >
         {saving ? (
@@ -63,7 +68,9 @@ export function PermissionModeSelector({
           align="end"
           sideOffset={12}
         >
-          <Dropdown.Label className="dropdown-label">此工作的工具权限</Dropdown.Label>
+          <Dropdown.Label className="dropdown-label">
+            {t('permissions.workPermissions')}
+          </Dropdown.Label>
           <Dropdown.RadioGroup
             value={mode}
             onValueChange={(value) => {

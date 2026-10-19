@@ -39,35 +39,37 @@ impl Provider {
     /// # Errors
     /// Returns an error for incomplete, duplicate, or unsupported configuration.
     pub fn validate(&self) -> Result<()> {
-        validate_name(&self.name, "供应商名称")?;
+        validate_name(&self.name, "Provider name")?;
         validate_endpoint(&self.base_url)?;
         if self.models.is_empty() {
-            bail!("请至少添加一个模型");
+            bail!("Add at least one model.");
         }
         let mut ids = std::collections::HashSet::new();
         for model in &self.models {
-            validate_name(&model.id, "模型 ID")?;
-            validate_name(&model.name, "模型名称")?;
+            validate_name(&model.id, "Model ID")?;
+            validate_name(&model.name, "Model name")?;
             if !ids.insert(&model.id) {
-                bail!("模型 ID 不能重复：{}", model.id);
+                bail!("Model IDs must be unique: {}", model.id);
             }
             if let Some(effort) = &model.reasoning_effort
                 && !["low", "medium", "high"].contains(&effort.as_str())
             {
-                bail!("推理强度只能是 low、medium 或 high");
+                bail!("Reasoning effort must be low, medium, or high.");
             }
             for count in [model.context_window, model.max_output_tokens]
                 .into_iter()
                 .flatten()
             {
                 if !(1..=10_000_000).contains(&count) {
-                    bail!("Token 数量必须在 1 到 10,000,000 之间");
+                    bail!("Token counts must be between 1 and 10,000,000.");
                 }
             }
             if let (Some(context), Some(output)) = (model.context_window, model.max_output_tokens)
                 && output >= context
             {
-                bail!("最大输出必须小于上下文窗口，为输入保留空间");
+                bail!(
+                    "Maximum output must be smaller than the context window to leave room for input."
+                );
             }
         }
         Ok(())
@@ -110,7 +112,7 @@ impl Telemetry {
         if self.enabled {
             validate_endpoint(&self.endpoint)?;
             if !["http/protobuf", "http/json"].contains(&self.protocol.as_str()) {
-                bail!("Copilot SDK 支持 http/protobuf 和 http/json 遥测导出");
+                bail!("Copilot SDK telemetry export supports http/protobuf and http/json.");
             }
         }
         Ok(())
@@ -271,22 +273,25 @@ pub struct Event {
 pub(crate) fn validate_name(value: &str, label: &str) -> Result<()> {
     if value.trim().is_empty() || value.chars().count() > 256 || value.chars().any(char::is_control)
     {
-        bail!("{label}不能为空、不能包含控制字符，且最多为 256 个字符");
+        bail!("{label} must not be empty, contain control characters, or exceed 256 characters.");
     }
     Ok(())
 }
 
 pub(crate) fn validate_endpoint(value: &str) -> Result<()> {
-    let url = Url::parse(value).map_err(|_| anyhow::anyhow!("请输入完整的 HTTP 或 HTTPS 地址"))?;
+    let url =
+        Url::parse(value).map_err(|_| anyhow::anyhow!("Enter a complete HTTP or HTTPS URL."))?;
     if !["http", "https"].contains(&url.scheme()) || url.host_str().is_none() {
-        bail!("地址必须使用 HTTP 或 HTTPS");
+        bail!("The URL must use HTTP or HTTPS.");
     }
     if !url.username().is_empty()
         || url.password().is_some()
         || url.query().is_some()
         || url.fragment().is_some()
     {
-        bail!("地址不能包含凭证、查询参数或片段；请将密钥填入 API Key");
+        bail!(
+            "The URL must not contain credentials, query parameters, or fragments. Enter credentials in API Key."
+        );
     }
     Ok(())
 }

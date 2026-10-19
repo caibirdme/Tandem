@@ -6,6 +6,7 @@ from model_switch_acceptance import require_wire_history
 
 
 class ModelSwitchHistoryTests(unittest.TestCase):
+    # Preserve mixed-language Unicode content across every supported wire format.
     transcript = [
         {"role": "user", "content": 'Keep "original" history.\n保留上下文'},
         {"role": "assistant", "content": "TANDEM_MODEL_SWITCH_OK old-model"},

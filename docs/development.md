@@ -1,144 +1,154 @@
-# 开发与交付
+# Development and delivery
 
-所有需求改动先从 `main` 创建独立 Git worktree，再在其中开发和验证。worktree 放在本仓库根目录的 `.worktrees/` 下，该目录已加入 `.gitignore`：
+Start every requested change in a separate Git worktree created from `main`, then develop and verify it there. Place worktrees under this repository's `.worktrees/` directory, which is excluded by `.gitignore`:
 
 ```sh
-git worktree add -b fix/example .worktrees/example main
+git worktree add -b codex/example .worktrees/example main
 cd .worktrees/example
 ```
 
-先用 `just dev` 启动桌面。如果只改界面，在两个终端分别运行 `just server` 和 `just web`，浏览器打开 `http://127.0.0.1:1420`。两种运行方式共享服务契约；浏览器模式没有原生目录选择器时，使用内置目录浏览。
+Use English for project documentation, code comments, commits, PRs, and other project information. Localized UI copy belongs in locale catalogs.
 
-`just server` 启动的是 `tandem-dev-server`，它通过 HTTP 调用与桌面相同的 `tandem-core`。该命令会先构建 `tandem-server`，以便在浏览器开发时也能测试 SSH 项目。`tandem-server` 自身只提供远端 Agent 的 stdio 入口，不再承载开发 HTTP 服务。
+Start the desktop with `just dev`. For UI-only changes, run `just server` and `just web` in separate terminals and open `http://127.0.0.1:1420`. Both modes share the service contract; browser mode uses the built-in directory browser when no native directory picker is available.
 
-workspace 的默认目标也是 `tandem-dev-server`，因此 `cargo run` 仍启动本机 HTTP 主机；构建远端 Agent 时需显式选择 `-p tandem-server`。
+`just server` starts `tandem-dev-server`, which calls the same `tandem-core` services as the desktop over HTTP. It builds `tandem-server` first so SSH projects can also be tested during browser development. `tandem-server` itself provides only the remote agent stdio entry point; it no longer hosts development HTTP.
 
-## 修改后运行什么
+The workspace default target is also `tandem-dev-server`, so `cargo run` starts the local HTTP host. Select `-p tandem-server` explicitly when building the remote agent.
 
-| 改动                     | 检查                                       |
-| ------------------------ | ------------------------------------------ |
-| React / TypeScript       | `just lint-web`、`pnpm test`、`pnpm build` |
-| Rust 服务或 SDK 适配     | `just lint-rust`、`cargo test --workspace` |
-| crate 依赖与服务入口     | `just check-workspace`                     |
-| 验收脚本与事件等待       | `just test-python`                         |
-| 格式                     | `just format`，再执行 `just check-format`  |
-| 会话、工具、供应商或遥测 | `just integration`                         |
-| SSH 传输、部署或远端协议 | `just integration-ssh`                     |
-| 窗口、资源和原生功能     | `just desktop-build`，打开生成的应用验证   |
+## Checks for each change
 
-提交前运行 `just check`。oxlint 开启 React、TypeScript、可访问性与严格规则；TypeScript 使用 strict；Rust 运行 clippy all + pedantic，警告视为失败。格式使用 oxfmt 和 nightly rustfmt，后者按 crate 合并 import，并按标准库、外部库、当前 crate 分组。
+| Change                                        | Checks                                                               |
+| --------------------------------------------- | -------------------------------------------------------------------- |
+| React / TypeScript                            | `just lint-web`, `pnpm test`, `pnpm build`                           |
+| Rust services or SDK integration              | `just lint-rust`, `cargo test --workspace`                           |
+| Crate dependencies and service entry points   | `just check-workspace`                                               |
+| Verification scripts and event waiting        | `just test-python`                                                   |
+| Formatting                                    | `just format`, then `just check-format`                              |
+| Sessions, tools, providers, or telemetry      | `just integration`                                                   |
+| SSH transport, deployment, or remote protocol | `just integration-ssh`                                               |
+| Windows, resources, or native features        | `just desktop-build`, then open and verify the generated application |
 
-单元测试针对状态合并、权限拒绝、配置边界、数据库关系、SSH 注入和通信失败。`just check` 也包含 Python 标准库测试，验证验收脚本自身的事件分流与进程清理，以及依赖边界检查器。集成测试使用真正的 SDK 与配套 CLI，只将外部推理服务与 OTLP 接收端替换为测试端点，因此不需要付费凭证。聊天网页工具用例读取 `https://example.com`，需要公网访问；运行前清除宿主的 `COPILOT_OFFLINE` 和 `COPILOT_PROVIDER_*` 等覆盖配置，避免影响隔离的测试会话。它不能证明某个真实供应商支持特定模型或参数。
+Run `just check` before committing. oxlint enables React, TypeScript, accessibility, and strict rules. TypeScript uses strict mode; Rust runs Clippy all + pedantic with warnings treated as failures. Formatting uses oxfmt and nightly rustfmt; rustfmt merges imports by crate and groups standard library, external crate, and current crate imports.
 
-## PR 检测
+Unit tests cover state merging, permission denial, configuration boundaries, database relationships, SSH injection, and communication failures. `just check` also runs Python standard-library tests for event routing, process cleanup, and the dependency boundary checker. Integration tests use the real SDK and matching CLI, replacing only external inference and OTLP receivers with test endpoints, so paid credentials are unnecessary. The chat web-tool case reads `https://example.com` and needs public network access. Clear inherited overrides such as `COPILOT_OFFLINE` and `COPILOT_PROVIDER_*` before running, since they can affect isolated test sessions. These tests cannot establish whether a real provider supports a particular model or parameter.
 
-向 `main` 提交 PR 后，CI 按改动的文件决定运行哪些检测，最后汇总为 `Required checks`。它通过后才能合入；某项失败时，在 PR 页面打开该检测即可看到出错命令的输出。
+## Adding a language
 
-| 检测                   | 运行环境                   | 跳过条件                              | 内容                                                    |
-| ---------------------- | -------------------------- | ------------------------------------- | ------------------------------------------------------- |
-| `Format`               | Linux                      | 不跳过；没有 Rust 改动时不跑 rustfmt  | oxfmt、nightly rustfmt                                  |
-| `Web`                  | Linux                      | 只改 Rust、Python 验收或文档          | oxlint、类型检查、vitest、生产构建                      |
-| `Rust`                 | macOS、Windows             | 只改前端或文档                        | Python 单测、依赖边界、Clippy、Rust 测试、本地 SDK 集成 |
-| `Remote Agent (Linux)` | Linux                      | 只改前端、文档或桌面外壳 `src-tauri/` | 在隔离的 sshd 中验证 SSH 部署和远端工作                 |
-| `Desktop bundle`       | Linux 容器、macOS、Windows | 打包配置、图标、依赖和工具链都未改动  | 与发布相同的打包流程，产物可在运行记录中下载            |
+The UI defaults to English. **Settings > General > Language** switches the active locale immediately and stores the choice locally under `tandem.locale`, so it survives application restarts. The language preference is independent of provider configuration and contains no credentials.
 
-被跳过的检测视为通过。跳过规则写在 `.github/workflows/ci.yml` 的 `changes` 任务中：前四项默认运行，只有改动全部命中排除项才跳过，因此新增目录会自动触发全部检测；打包只在列出的输入变化时运行。新增构建输入或检测命令时，同步更新这里的规则。
+Keep UI strings in the typed catalogs under `src/i18n/`. To add a language, create a catalog matching the English message keys and parameter signatures, then register its locale code and display name in the locale registry. Use the translation helper in components and the selected locale for dates and counts. Keep protocol identifiers, model IDs, paths, and user content unchanged. Run the frontend checks after adding or changing catalog entries.
 
-合入 `main` 后 CI 会再运行一次，并保存 Rust 编译缓存；PR 只读取该缓存。
+## PR checks
 
-「合入前必须通过」由仓库规则保证，需要管理员配置一次：在 GitHub 仓库的 Settings → Rules → Rulesets 新建分支规则，目标为默认分支，勾选 Require a pull request before merging 与 Require status checks to pass，并添加来自 GitHub Actions 的 `Required checks`。
+When a PR targets `main`, CI selects checks from the changed paths and combines their results into `Required checks`. That gate must pass before merging. If a check fails, open it on the PR page to inspect the failed command's output.
 
-## 真实供应商验收
+| Check                  | Environment                     | Skip condition                                                            | Coverage                                                                                |
+| ---------------------- | ------------------------------- | ------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| `Format`               | Linux                           | Always runs; skips rustfmt when Rust is unchanged                         | oxfmt and nightly rustfmt                                                               |
+| `Web`                  | macOS, Windows                  | Only Rust, Python verification, or documentation changed                  | Frontend tests and production build on both platforms; oxlint and type checks on macOS  |
+| `Rust`                 | macOS, Windows                  | Only frontend or documentation changed                                    | Python unit tests, dependency boundaries, Clippy, Rust tests, and local SDK integration |
+| `Remote Agent (Linux)` | Linux, on `main` pushes only    | All PRs; frontend-only, documentation-only, or desktop-shell-only changes | SSH deployment and remote work against an isolated sshd                                 |
+| `Desktop bundle`       | Linux container, macOS, Windows | No packaging configuration, icons, dependencies, or toolchain changes     | The release packaging procedure, with downloadable artifacts                            |
 
-`tests/live_provider_e2e.py` 用真实推理请求检查聊天、流式消息持久化，以及读取、创建、编辑文件和执行验证命令的工作流程。脚本固定连接 `https://camp-dev.woa.com/pingress`，需要能访问该网关并持有可用的供应商密钥。它会产生真实推理用量，不纳入日常质量门禁。
+PR tests run only on macOS and Windows. Linux still handles change detection, formatting, the aggregate gate, and Linux remote binary builds when packaging inputs change. Linux SSH integration runs after changes reach `main`.
 
-在仓库根目录运行：
+Skipped checks count as successful. The `changes` job in `.github/workflows/ci.yml` defines the path rules. Format, web, Rust, and remote checks default to relevant changes unless all modified paths match their exclusions; the remote check additionally requires a push to `main`. New directories therefore trigger the relevant checks automatically. Packaging runs only when listed inputs change. Update these rules when adding build inputs or check commands.
+
+CI runs again after merging into `main` and saves Rust build caches; PRs only read those caches.
+
+A repository rule enforces the merge gate and requires one-time administrator setup. In GitHub **Settings > Rules > Rulesets**, create a branch rule for the default branch, enable **Require a pull request before merging** and **Require status checks to pass**, and add **Required checks** from GitHub Actions.
+
+## Verification with real providers
+
+`tests/live_provider_e2e.py` uses real inference requests to check chat, streaming message persistence, and work that reads, creates, and edits files and executes a verification command. It connects to `https://camp-dev.woa.com/pingress`, so it requires access to that gateway and a valid provider key. It incurs real inference usage and is excluded from routine quality gates.
+
+Run from the repository root:
 
 ```sh
-# 先构建本机开发主机，脚本会自动启动并关闭它。
+# Build the local development host; the script starts and stops it automatically.
 cargo build -p tandem-dev-server
 
-# 出现 Provider API key 提示后输入密钥，终端不会回显。
+# Enter the key at the Provider API key prompt; terminal input is hidden.
 python3 tests/live_provider_e2e.py --output artifacts/live-provider-report.json
 ```
 
-默认依次测试四个模型，每个模型分别执行聊天和工作用例：`claude-haiku-5.5`、`glm-5.3-flashx` 使用 Anthropic 协议；`gpt-6.1-sol`、`deepseek-v4.1-flash` 使用 OpenAI Responses 协议。本地观测代理将请求体原样转发到 HTTPS 网关，不修改模型或 token 参数。
+By default, the script tests four models sequentially, running chat and work cases for each. `claude-haiku-5.5` and `glm-5.3-flashx` use Anthropic; `gpt-6.1-sol` and `deepseek-v4.1-flash` use OpenAI Responses. A local observation proxy forwards request bodies unchanged to the HTTPS gateway without modifying model or token parameters.
 
-密钥在交互终端中隐藏输入；非交互调用从标准输入读取一行，应由调用方通过受保护的输入通道提供，不要放进命令参数、环境变量或脚本文件。真实供应商验收显式使用临时数据目录和内存凭证库，不修改桌面应用的供应商配置，也不把真实密钥落盘；默认本地保存和重启恢复由使用测试密钥的 SDK 集成验证覆盖。工作审批仅允许临时项目内的文件访问、指定结果文件的写入和预先生成的验证命令。
+Interactive terminals hide key input. Noninteractive calls read one line from standard input; callers must supply it through a protected input channel, never command arguments, environment variables, or script files. Real-provider verification explicitly uses temporary application data and an in-memory credential store. It neither changes desktop provider configuration nor writes real keys to disk. SDK integration with test keys covers default local persistence and restart recovery. Work approvals allow only file access inside the temporary project, writes to designated result files, and a pre-generated verification command.
 
-重试单个或多个模型时，用 `--models` 列出模型 ID，并为本次运行保留独立报告：
+To retry one or more models, list their IDs with `--models` and keep a separate report for that run:
 
 ```sh
 python3 tests/live_provider_e2e.py --models deepseek-v4.1-flash --output artifacts/live-provider-deepseek-retry.json
 
-# 只检查验收脚本自身的策略，不需要密钥，也不发送推理请求。
+# Check only the verification script's policies; no key or inference request is needed.
 python3 tests/live_provider_e2e.py --self-test
 ```
 
-每次重试都会创建新的隔离会话，并重跑所选模型的聊天和工作用例。`--output` 在每个用例结束后更新脱敏 JSON 报告；最终报告包含用例结果、请求数量、HTTP 状态、耗时、实际输出 token 参数，以及临时应用数据和日志的密钥扫描结果。请求观测不记录正文或鉴权头，错误文本中的密钥会被替换。进程退出码为 `0` 才表示本次所选用例及检查全部通过；单模型重试报告只代表该模型。
+Each retry creates new isolated sessions and reruns chat and work for the selected models. `--output` updates the redacted JSON report after each case. The final report contains case outcomes, request counts, HTTP statuses, timing, actual output token parameters, and secret-scan results for temporary application data and logs. Request observation records neither bodies nor authorization headers, and keys are replaced in error text. Exit code `0` means all selected cases and checks passed; a single-model retry establishes results only for that model.
 
-这里的 `contextWindow: 1000000` 表示输入和输出合计的总窗口。显式设置 `maxOutputTokens` 时，输入预算为总窗口减去该输出额度；例如两个 Anthropic 模型设置输出 `128000`，输入预算为 `872000`，并核对实际请求中的 `max_tokens`。OpenAI Responses 模型未显式设置输出额度，保留 SDK 默认值。短任务验收不证明接近 1M 窗口时的压缩行为；实际执行结果见[验收记录](verification.md)。
+`contextWindow: 1000000` denotes the combined input/output window. When `maxOutputTokens` is explicit, the input budget is the total window minus that output allowance. For example, the two Anthropic models use output `128000`, leaving input `872000`; verification also checks the actual request's `max_tokens`. OpenAI Responses models retain the SDK's default output allowance. Short tasks do not demonstrate compaction behavior near the 1M window; see the [verification record](verification.md) for executed results.
 
-## 依赖和首次构建
+## Dependencies and the first build
 
-`rust-toolchain.toml` 固定编译器版本；Cargo 依赖采用兼容主版本范围，0.x 库采用当前次版本。SDK 例外，使用要求的 Git tag。提交 `Cargo.lock` 与 `pnpm-lock.yaml`，升级后重新执行质量门禁。
+`rust-toolchain.toml` pins the compiler. Cargo dependencies use compatible major version ranges, or the current minor range for 0.x libraries. The SDK is an exception and uses the required Git tag. Commit `Cargo.lock` and `pnpm-lock.yaml`, and rerun quality gates after upgrades.
 
-SDK 首次编译需下载对应平台 CLI，断网环境应先准备构建缓存。若 Cargo 报镜像 TLS 或 DNS 错误，先检查本机 Cargo 源配置；不要为此放松证书校验。
+The SDK's first build downloads the platform CLI; prepare a build cache before working offline. If Cargo reports mirror TLS or DNS failures, inspect local Cargo source configuration first. Do not weaken certificate verification.
 
-服务入口的构建目标如下。调试本机应用时使用开发主机，准备远端分发时只构建远端 Agent。
+Service build targets are listed below. Use the development host for local application debugging and build only the remote agent for remote distribution.
 
-| 命令                   | 构建目标与用途                                          |
-| ---------------------- | ------------------------------------------------------- |
-| `just build`           | 前端，以及 debug `tandem-dev-server`、`tandem-server`   |
-| `just build-server`    | 两个 debug 服务二进制，供本机与 SSH 联调                |
-| `just integration`     | 只构建 `tandem-dev-server`，运行本地 SDK 验收           |
-| `just integration-ssh` | 构建两个服务，启动本机开发主机并通过 SSH 部署远端 Agent |
-| `just remote-build`    | 只构建 release `tandem-server` 并复制到桌面资源目录     |
+| Command                | Build target and purpose                                                                          |
+| ---------------------- | ------------------------------------------------------------------------------------------------- |
+| `just build`           | Frontend plus debug `tandem-dev-server` and `tandem-server`                                       |
+| `just build-server`    | Both debug service binaries for local and SSH development                                         |
+| `just integration`     | Builds only `tandem-dev-server` and runs local SDK verification                                   |
+| `just integration-ssh` | Builds both services, starts the local development host, and deploys the remote agent through SSH |
+| `just remote-build`    | Builds only release `tandem-server` and copies it into desktop resources                          |
 
-共享 RPC 定义放在 `tandem-protocol`，避免远端为了读取请求而依赖整个 SSH 客户端或应用服务。修改依赖时同时检查[架构中的依赖边界](architecture.md#哪一层负责什么)，不要把开发 HTTP 主机、SQLite 或系统凭证库引入远端二进制。
+Shared RPC definitions live in `tandem-protocol`, so the remote agent does not need the entire SSH client or application service merely to read requests. When changing dependencies, check the [architecture boundaries](architecture.md#responsibilities-and-dependencies). Keep development HTTP, SQLite, and system credential stores out of the remote binary.
 
-`just check-workspace` 调用 `scripts/check_workspace.py`，读取 Cargo metadata 的普通依赖与构建依赖，验证七个 workspace crate 的单向关系，并检查 `tandem-server` 的依赖闭包。它会拒绝本机应用服务、SSH 客户端、开发主机、Axum、SQLite、系统凭证库和 Tauri 进入远端 Agent。该检查纳入 `just check` 与 CI；测试专用依赖不作为远端分发依赖计算。
+`just check-workspace` calls `scripts/check_workspace.py`. It reads Cargo metadata's normal and build dependencies, verifies one-way relationships among the seven workspace crates, and inspects `tandem-server`'s dependency closure. Local application services, the SSH client, the development host, Axum, SQLite, system credential stores, and Tauri are rejected from the remote agent. This check runs in `just check` and CI. Test-only dependencies are excluded from the distribution dependency calculation.
 
-## 打包与远端产物
+## Packaging and remote artifacts
 
-`just desktop-build` 先编译本机平台的远端 Agent `tandem-server`，复制进 Tauri 资源目录，再打包桌面程序。`tandem-dev-server` 不进入安装包。macOS 产物在 `target/release/bundle/`。默认使用 ad-hoc 本地签名；正式发布时覆盖 `bundle.macOS.signingIdentity` 并配置公证。发布签名和公证需要发布账户，仓库不包含凭证。
+`just desktop-build` first compiles `tandem-server` for the local platform, copies it into Tauri resources, and bundles the desktop application. `tandem-dev-server` is excluded from installers. macOS output is in `target/release/bundle/`. Local signing is ad hoc by default. For a formally signed release, override `bundle.macOS.signingIdentity` and configure notarization. Signing and notarization require a release account; no credentials are stored in this repository.
 
-在锁屏或自动化环境中使用 `CI=true just desktop-build`，跳过需要 Finder 交互的 DMG 窗口装饰。
+Use `CI=true just desktop-build` on a locked screen or in automation to skip DMG window decoration that requires Finder interaction.
 
-发布的安装包内置 Linux x64（`x86_64-unknown-linux-gnu`）和 Apple 芯片 macOS（`aarch64-apple-darwin`）的远端 Agent。应用也能识别 Linux arm64 和 Intel Mac 主机，但安装包不含它们的二进制，连接时会提示缺少产物；需要时自行构建对应 target，再用 `scripts/prepare-remote.mjs <target>` 放入资源目录。
+Released installers bundle remote agents for Linux x64 (`x86_64-unknown-linux-gnu`) and Apple Silicon macOS (`aarch64-apple-darwin`). The application also recognizes Linux arm64 and Intel Mac hosts, but installers do not contain those binaries and report a missing artifact when connecting. Build the required target yourself and use `scripts/prepare-remote.mjs <target>` to add it to resources.
 
-应用及命令名称统一使用 Tandem：Windows 无安装包的可执行文件为 `target/release/tandem-desktop.exe`，远端产物为 `tandem-server`。自定义远端产物目录使用 `TANDEM_REMOTE_ARTIFACTS`；未设置时仍接受旧 `RELAY_REMOTE_ARTIFACTS`，但其中必须准备新的 `tandem-server`，不会加载旧名程序。已有数据目录与 SDK 状态的兼容规则见[历史和密钥](architecture.md#历史和密钥)。
+Application and command names use Tandem. The Windows executable without an installer is `target/release/tandem-desktop.exe`; the remote artifact is `tandem-server`. Set `TANDEM_REMOTE_ARTIFACTS` for a custom artifact directory. When unset, the old `RELAY_REMOTE_ARTIFACTS` is still accepted, but the directory must contain the new `tandem-server`; old executable names are not loaded. See [History and API keys](architecture.md#history-and-api-keys) for existing data directory and SDK state compatibility.
 
-SSH 使用 BatchMode 和严格主机校验，适用于密钥与 ssh-agent。未知主机或需要交互登录时，先在终端完成登录。Windows 客户端需要系统 OpenSSH；Windows 作为远端执行主机暂不支持。
+SSH uses BatchMode and strict host verification, supporting keys and ssh-agent. For an unknown host or interactive login, log in from a terminal first. Windows clients require system OpenSSH; Windows remote execution hosts are not supported.
 
-## 发布
+## Releases
 
-1. 把 `package.json`、`src-tauri/tauri.conf.json` 和 `Cargo.toml` 中 `workspace.package` 的版本改为新版本，运行 `cargo update --workspace` 同步 `Cargo.lock`，通过 PR 合入 `main`。
-2. 在 `main` 上打 tag 并推送：
+1. Set the new version in `package.json`, `src-tauri/tauri.conf.json`, and `Cargo.toml`'s `workspace.package`. Run `cargo update --workspace` to synchronize `Cargo.lock`, then merge through a PR into `main`.
+2. Tag `main` and push the tag:
 
    ```sh
    git tag v0.1.5
    git push origin v0.1.5
    ```
 
-3. 等待 Actions 中的 Release 流水线完成，在 Releases 页面打开同名草稿，确认安装包后点击发布。
+3. Wait for the Release workflow in Actions, open the matching draft on the Releases page, review its installers, and publish it.
 
-tag 必须是 `v` 加上述版本号，否则 `Check version` 会列出不一致的文件并停止。流水线在 `ubuntu:22.04` 容器中构建 Linux x64 的 `tandem-server`，以兼容较旧的 glibc；在 macOS 上构建 Apple 芯片版本。桌面任务把这两个远端 Agent 放入资源目录，生成 Apple 芯片 macOS 的 DMG，以及 Windows x64 的 MSI 和 NSIS 安装程序；开发主机不进入安装包。
+The tag must be `v` followed by the version above. Otherwise, `Check version` lists inconsistent files and stops. The workflow builds Linux x64 `tandem-server` in an `ubuntu:22.04` container for compatibility with older glibc, and builds the Apple Silicon agent on macOS. Desktop jobs place both agents in resources and generate an Apple Silicon DMG plus Windows x64 MSI and NSIS installers. The development host is excluded.
 
-macOS 使用 ad-hoc 签名，不需要 Apple 账号；用户首次打开前需解除系统隔离，见 README 的「安装」。只想要安装包而不发版时，在 Actions 页面手动运行 Desktop bundles，从运行记录下载产物。重跑同一 tag 的流水线会覆盖 Release 中的同名文件。
+macOS uses ad hoc signing without an Apple account. Users must remove quarantine before first launch; see [Install](../README.md#install). To obtain installers without publishing a release, manually run **Desktop bundles** in Actions and download its artifacts. Rerunning a tag workflow replaces files with the same names in its Release.
 
-## 服务契约
+## Service contract
 
-桌面调用 `dispatch`，开发模式调用 `POST /api/dispatch`，请求为 `{ command, payload }`。类型定义集中在 `src/lib/types.ts` 和 Rust 的 `Request`；改动任一端都应更新另一端。流式事件通过 Tauri 的 `runtime-event` 或 `/api/events` 发送。
+The desktop calls `dispatch`; development mode calls `POST /api/dispatch`. Requests are `{ command, payload }`. Types are centralized in `src/lib/types.ts` and Rust's `Request`; update both sides together. Streaming events use Tauri's `runtime-event` or `/api/events`.
 
-标题设置使用独立命令 `save_title_model {titleModel: {providerId, modelId} | null}`，`null` 表示跟随当前会话模型。`save_preferences` 保留该设置。`regenerate_title {sessionId}` 仅提交后台任务，完成通过 `title {title}` 事件通知，失败通过 `title_error {message}` 通知；二者都不改变会话运行状态。快照中的 `titleGenerations` 用于恢复生成进度。
+Title settings use the separate command `save_title_model {titleModel: {providerId, modelId} | null}`. `null` follows the current session model, and `save_preferences` preserves the setting. `regenerate_title {sessionId}` only queues a background task. Completion sends a `title {title}` event; failure sends `title_error {message}`. Neither changes session execution state. Snapshot `titleGenerations` restores generation progress.
 
-供应商编辑页调用 `get_provider_api_key`（`id`）读取已保存密钥，返回字符串或 `null`；供应商不存在时返回错误。普通 `snapshot` 和 `save_provider` 响应仍只含 `hasApiKey`。保存请求省略 `apiKey` 保留原值，非空字符串替换，空字符串清除；密钥只写入本机 SQLite 的 `provider_secrets.secret`，不写入消息、日志或远端状态。开发主机 `--data-dir` 同时确定配置与密钥的存储目录；`--ephemeral-secrets` 可切换为进程内测试存储。
+The provider editor reads the saved key with `get_provider_api_key` (`id`), which returns a string or `null` and errors if the provider does not exist. Ordinary `snapshot` and `save_provider` responses contain only `hasApiKey`. Omitting `apiKey` from a save preserves the value; a nonempty string replaces it; an empty string clears it. Keys are stored only in local SQLite's `provider_secrets.secret`, never in messages, logs, or remote state. The development host's `--data-dir` selects storage for both configuration and keys; `--ephemeral-secrets` switches to an in-process test store.
 
-`send_message` 接受可选的 `messageId` UUID，保存后的用户消息沿用该 ID，便于界面在实时确认丢失后与历史准确合并。省略时由服务生成；相同 ID 的重复提交会被数据库拒绝，不会再次交给 Agent 执行。
+`send_message` accepts an optional `messageId` UUID. The saved user message retains that ID so the UI can merge it accurately with history after a lost live confirmation. The service generates an ID when omitted. The database rejects repeated submissions with the same ID rather than executing them again.
 
-工作会话的 `create_session` 可传 `permissionMode: "ask" | "allow-all"`，省略默认 `ask`。未运行的工作可通过 `set_permission_mode`（`sessionId`、`permissionMode`）切换，返回更新后的会话。聊天不能使用完全授权；运行中、初始化中和等待审批时拒绝切换。两套 SDK 集成验收都覆盖自动批准的真实文件和命令操作、切回询问后的拒绝，以及恢复会话后应用新模式；本地验收还覆盖应用服务重启后的模式持久化。
+For work, `create_session` accepts `permissionMode: "ask" | "allow-all"`, defaulting to `ask`. Inactive work can switch through `set_permission_mode` (`sessionId`, `permissionMode`), which returns the updated session. Chat cannot use this full-access setting. Switching is rejected during execution, initialization, or pending approval. Both SDK integration suites cover automatically approved real file/command operations, denial after switching back to ask mode, and recovery with a new mode. Local verification also checks persistence after restarting application services.
 
-已有聊天或工作通过 `set_session_model {sessionId, providerId, modelId}` 切换模型，返回更新后的会话。允许选择任意已配置供应商中的模型；会话 ID、消息历史、标题、项目和工具权限保持不变。运行中、初始化中和等待审批时拒绝切换。选择与供应商外键同时持久化，旧 Agent 连接失效并断开；下一条消息恢复原 SDK 会话并应用新供应商、模型及其参数。切换请求即使被取消，也会完成旧连接清理；界面在结果未确认时阻止发送，并允许重新读取实际模型选择。
+Existing chat or work switches models with `set_session_model {sessionId, providerId, modelId}`, returning the updated session. Any model from any configured provider can be selected; session ID, history, title, project, and tool permissions are preserved. Switching is rejected during execution, initialization, or pending approval. The selection and provider foreign key are persisted together; the old agent connection is invalidated and disconnected. The next message resumes the original SDK session with the new provider, model, and parameters. Old connection cleanup completes even if the switch request is canceled. While the result is unconfirmed, the UI blocks sending and lets users reread the actual model selection.
 
-远端使用 `tandem-protocol` 定义的逐行 JSON：请求 `{id,command,payload}`，响应 `{id,value}` 或 `{id,error:{code,message}}`，异步事件 `{event}`。这是 SSH 客户端与远端 Agent 的协议，与开发主机的 HTTP 命令入口分别维护。stdout 专用于协议，诊断输出写 stderr；请求内容和供应商凭证禁止写日志。
+Remote transport uses newline-delimited JSON defined by `tandem-protocol`: requests `{id,command,payload}`, responses `{id,value}` or `{id,error:{code,message}}`, and asynchronous events `{event}`. This SSH client/remote agent protocol is maintained separately from the development host's HTTP command entry point. stdout is reserved for the protocol; diagnostics go to stderr. Never log request contents or provider credentials.

@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { useState } from 'react';
 
+import { useI18n } from '../i18n';
 import { dispatch, errorMessage, isDesktop } from '../lib/api';
 import type { Connection, DirectoryListing, Project } from '../lib/types';
 import { Modal, Notice, Spinner } from './ui';
@@ -23,6 +24,7 @@ export function ProjectDialog({
   onClose: () => void;
   onCreated: (project: Project) => Promise<void>;
 }) {
+  const { t } = useI18n();
   const [kind, setKind] = useState<'local' | 'ssh'>('local');
   const [name, setName] = useState('');
   const [path, setPath] = useState('');
@@ -68,11 +70,11 @@ export function ProjectDialog({
         const selected = await openDirectory({
           directory: true,
           multiple: false,
-          title: '选择项目目录',
+          title: t('project.selectDirectory'),
         });
         if (typeof selected === 'string') {
           setPath(selected);
-          if (!name) setName(selected.split(/[\\/]/u).findLast(Boolean) ?? '新项目');
+          if (!name) setName(selected.split(/[\\/]/u).findLast(Boolean) ?? t('project.new'));
         }
       } else {
         const result = await dispatch('browse_directory', {
@@ -110,8 +112,8 @@ export function ProjectDialog({
       onOpenChange={(value) => {
         if (!value && !busy) onClose();
       }}
-      title="添加项目"
-      description="选择一个工作目录，让 Agent 和你一起完成任务。"
+      title={t('common.addProject')}
+      description={t('project.description')}
     >
       <form
         className="project-form"
@@ -120,7 +122,7 @@ export function ProjectDialog({
           void save();
         }}
       >
-        <fieldset className="connection-choice" aria-label="项目位置">
+        <fieldset className="connection-choice" aria-label={t('project.location')}>
           <button
             type="button"
             className={kind === 'local' ? 'active' : ''}
@@ -131,8 +133,8 @@ export function ProjectDialog({
             }}
           >
             <Laptop size={20} />
-            <strong>本地项目</strong>
-            <span>在这台电脑上工作</span>
+            <strong>{t('project.local')}</strong>
+            <span>{t('project.localHint')}</span>
             {kind === 'local' && <Check size={13} className="choice-check" />}
           </button>
           <button
@@ -145,8 +147,8 @@ export function ProjectDialog({
             }}
           >
             <Server size={20} />
-            <strong>远程项目</strong>
-            <span>通过 SSH 连接服务器</span>
+            <strong>{t('project.remote')}</strong>
+            <span>{t('project.remoteHint')}</span>
             {kind === 'ssh' && <Check size={13} className="choice-check" />}
           </button>
         </fieldset>
@@ -154,17 +156,17 @@ export function ProjectDialog({
           <div className="ssh-fields">
             <div className="form-grid host-port">
               <label>
-                主机
+                {t('project.host')}
                 <input
                   required
                   value={host}
                   onChange={(event) => setHost(event.target.value)}
-                  placeholder="dev.example.com 或 SSH 别名"
+                  placeholder={t('project.hostExample')}
                   autoComplete="off"
                 />
               </label>
               <label>
-                端口
+                {t('project.port')}
                 <input
                   type="number"
                   required
@@ -176,25 +178,25 @@ export function ProjectDialog({
               </label>
             </div>
             <label>
-              用户名
+              {t('project.user')}
               <input
                 required
                 value={user}
                 onChange={(event) => setUser(event.target.value)}
-                placeholder="例如：ubuntu"
+                placeholder={t('project.userExample')}
                 autoComplete="username"
               />
             </label>
             <details>
-              <summary>SSH 密钥（可选）</summary>
+              <summary>{t('project.sshKey')}</summary>
               <label>
-                私钥路径
+                {t('project.keyPath')}
                 <input
                   value={identityFile}
                   onChange={(event) => setIdentityFile(event.target.value)}
                   placeholder="~/.ssh/id_ed25519"
                 />
-                <small>默认使用 SSH Agent 和本机 SSH 配置。不会上传私钥。</small>
+                <small>{t('project.keyHint')}</small>
               </label>
             </details>
             <button
@@ -205,21 +207,22 @@ export function ProjectDialog({
                 void check();
               }}
             >
-              {busy === 'check' ? <Spinner /> : <Plug size={14} />}测试连接
+              {busy === 'check' ? <Spinner /> : <Plug size={14} />}
+              {t('project.testConnection')}
             </button>
           </div>
         )}
         <label>
-          项目名称
+          {t('project.name')}
           <input
             value={name}
             onChange={(event) => setName(event.target.value)}
             required
-            placeholder="给项目起个名字"
+            placeholder={t('project.nameExample')}
           />
         </label>
         <label>
-          工作目录
+          {t('project.directory')}
           <div className="input-with-button">
             <input
               required
@@ -236,16 +239,12 @@ export function ProjectDialog({
               onClick={() => {
                 void browse();
               }}
-              aria-label="浏览目录"
+              aria-label={t('project.browse')}
             >
               {busy === 'browse' ? <Spinner /> : <FolderOpen size={17} />}
             </button>
           </div>
-          <small>
-            {kind === 'ssh'
-              ? '首次创建时会自动准备远端运行环境。'
-              : 'Agent 可在这个目录中读取文件、编辑代码和执行命令。'}
-          </small>
+          <small>{kind === 'ssh' ? t('project.remoteSetup') : t('project.directoryHint')}</small>
         </label>
         {listing && (
           <div className="directory-browser">
@@ -257,7 +256,7 @@ export function ProjectDialog({
                 onClick={() => {
                   void browse(`${listing.path}/..`);
                 }}
-                aria-label="上级目录"
+                aria-label={t('project.parentDirectory')}
               >
                 <ArrowLeft size={15} />
               </button>
@@ -267,16 +266,16 @@ export function ProjectDialog({
                 className="text-button"
                 onClick={() => {
                   setPath(listing.path);
-                  if (!name) setName(listing.path.split('/').findLast(Boolean) ?? '新项目');
+                  if (!name) setName(listing.path.split('/').findLast(Boolean) ?? t('project.new'));
                   setListing(null);
                 }}
               >
-                选择此目录
+                {t('project.selectCurrent')}
               </button>
             </div>
             <div className="directory-entries">
               {listing.entries.length === 0 ? (
-                <p>没有子目录，可直接选择当前目录。</p>
+                <p>{t('project.noDirectories')}</p>
               ) : (
                 listing.entries.map((entry) => (
                   <button
@@ -299,7 +298,7 @@ export function ProjectDialog({
         {notice && <Notice tone={notice.error ? 'error' : 'success'}>{notice.text}</Notice>}
         <div className="form-footer">
           <button className="button" type="button" onClick={onClose} disabled={busy !== null}>
-            取消
+            {t('common.cancel')}
           </button>
           <button
             className="button primary"
@@ -307,7 +306,7 @@ export function ProjectDialog({
             disabled={!connectionValid || busy !== null}
           >
             {busy === 'save' ? <Spinner /> : <Folder size={15} />}
-            {busy === 'save' ? '正在准备项目…' : '创建项目'}
+            {busy === 'save' ? t('project.preparing') : t('common.createProject')}
           </button>
         </div>
       </form>

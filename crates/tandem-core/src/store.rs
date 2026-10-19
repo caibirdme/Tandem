@@ -15,7 +15,8 @@ pub(crate) struct Store {
 
 impl Store {
     pub fn open(path: &Path) -> Result<Self> {
-        let connection = Connection::open(database_path(path)?).context("无法打开本地数据文件")?;
+        let connection =
+            Connection::open(database_path(path)?).context("Cannot open the local data file")?;
         connection.busy_timeout(std::time::Duration::from_secs(5))?;
         connection.execute_batch(
             "PRAGMA journal_mode=WAL;
@@ -55,7 +56,7 @@ impl Store {
         let connection = self
             .connection
             .lock()
-            .map_err(|_| anyhow::anyhow!("数据锁已损坏，请重启应用"))?;
+            .map_err(|_| anyhow::anyhow!("Data lock is unavailable. Restart the application."))?;
         operation(&connection)
     }
 
@@ -110,7 +111,7 @@ impl Store {
 
     pub fn provider(&self, id: &str) -> Result<Provider> {
         self.optional_provider(id)?
-            .context("供应商不存在，请在设置中重新选择")
+            .context("Provider does not exist. Select a provider again in Settings.")
     }
 
     pub fn optional_provider(&self, id: &str) -> Result<Option<Provider>> {
@@ -119,12 +120,12 @@ impl Store {
 
     pub fn project(&self, id: &str) -> Result<Project> {
         self.lookup("SELECT data FROM projects WHERE id=?1", id)?
-            .context("项目不存在")
+            .context("Project does not exist")
     }
 
     pub fn session(&self, id: &str) -> Result<Session> {
         self.lookup("SELECT data FROM sessions WHERE id=?1", id)?
-            .context("对话不存在")
+            .context("Conversation does not exist")
     }
 
     fn lookup<T: DeserializeOwned>(&self, sql: &str, id: &str) -> Result<Option<T>> {
@@ -164,7 +165,7 @@ impl Store {
                 |row| row.get(0),
             )?;
             if referenced {
-                bail!("该供应商仍有关联对话，请先删除这些对话");
+                bail!("Delete this provider's conversations before deleting the provider.");
             }
             db.execute("DELETE FROM providers WHERE id=?1", [id])?;
             Ok(())
@@ -213,7 +214,7 @@ impl Store {
                     row.get(0)
                 })
                 .optional()?
-                .context("对话不存在")?;
+                .context("Conversation does not exist")?;
             let mut session: Session = serde_json::from_str(&data)?;
             update(&mut session);
             db.execute(
