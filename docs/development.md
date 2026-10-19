@@ -127,13 +127,17 @@ SSH uses BatchMode and strict host verification, supporting keys and ssh-agent. 
 2. Tag `main` and push the tag:
 
    ```sh
-   git tag v0.1.5
-   git push origin v0.1.5
+   git tag v0.0.2
+   git push origin v0.0.2
    ```
 
 3. Wait for the Release workflow in Actions, open the matching draft on the Releases page, review its installers, and publish it.
 
-The tag must be `v` followed by the version above. Otherwise, `Check version` lists inconsistent files and stops. The workflow builds Linux x64 `tandem-server` in an `ubuntu:22.04` container for compatibility with older glibc, and builds the Apple Silicon agent on macOS. Desktop jobs place both agents in resources and generate an Apple Silicon DMG plus Windows x64 MSI and NSIS installers. The development host is excluded.
+The commands above use `0.0.2` as an example; use the version merged in step 1. The tag must be `v` followed by that version. Otherwise, `Check version` lists inconsistent files and stops before packaging. Publish the Release only after the workflow has attached the installers.
+
+If version validation fails, correct all three manifests and synchronize `Cargo.lock` before merging. Rerunning the failed workflow uses its original commit, so a fix on `main` alone does not repair an existing tag. Use a new matching version and tag, or deliberately correct the existing tag and Release after reviewing their published state.
+
+The workflow builds Linux x64 `tandem-server` in an `ubuntu:22.04` container for compatibility with older glibc, and builds the Apple Silicon agent on macOS. Desktop jobs place both agents in resources and generate an Apple Silicon DMG plus Windows x64 MSI and NSIS installers. The development host is excluded.
 
 macOS uses ad hoc signing without an Apple account. Users must remove quarantine before first launch; see [Install](../README.md#install). To obtain installers without publishing a release, manually run **Desktop bundles** in Actions and download its artifacts. Rerunning a tag workflow replaces files with the same names in its Release.
 
