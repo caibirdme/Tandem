@@ -47,7 +47,7 @@ export function reconcileConversations(
   for (const session of snapshot.sessions) {
     if (protectedIds.has(session.id)) continue;
     const state = current[session.id] ?? emptyConversation;
-    const turn = snapshot.activeTurns?.[session.id];
+    const turn = snapshot.activeTurns[session.id];
     const reconciled = reduceEvent(state, {
       sessionId: session.id,
       kind: 'status',
@@ -55,11 +55,8 @@ export function reconcileConversations(
     });
     next[session.id] = {
       ...reconciled,
-      stream:
-        turn?.stream ?? (session.status === 'running' && !snapshot.activeTurns ? state.stream : ''),
-      permissions:
-        turn?.permissions ??
-        (session.status === 'running' && !snapshot.activeTurns ? state.permissions : []),
+      stream: turn?.stream ?? '',
+      permissions: turn?.permissions ?? [],
     };
   }
   return next;

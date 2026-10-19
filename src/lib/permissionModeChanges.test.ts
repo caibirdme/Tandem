@@ -6,6 +6,7 @@ import { initialTandemState, reduceTandem } from './tandemState';
 import type { PermissionMode, Session, Snapshot } from './types';
 
 const session: Session = {
+  titleState: 'preserved',
   id: 'session-1',
   title: 'Work',
   projectId: 'project-1',
@@ -17,6 +18,8 @@ const session: Session = {
   permissionMode: 'ask',
 };
 const snapshot: Snapshot = {
+  titleGenerations: [],
+  activeTurns: {},
   sessions: [session, { ...session, id: 'session-2' }],
   projects: [],
   settings: {

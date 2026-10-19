@@ -15,6 +15,7 @@ const project: Project = {
   createdAt: '2026-10-17T00:00:00Z',
 };
 const session: Session = {
+  titleState: 'preserved',
   id: 'session-1',
   title: 'Work',
   projectId: project.id,

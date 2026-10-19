@@ -120,7 +120,7 @@ export function useTandem() {
       new Set(titleDispatches.current.keys()),
     );
     for (const id of titleRequests.current.keys()) {
-      if (!titleProtectedIds.has(id) && !next.titleGenerations?.includes(id))
+      if (!titleProtectedIds.has(id) && !next.titleGenerations.includes(id))
         titleRequests.current.delete(id);
     }
     update({ type: 'snapshotReceived', snapshot: next, protectedIds, titleProtectedIds });
@@ -152,8 +152,6 @@ export function useTandem() {
         titleRequests.current.delete(event.sessionId);
       } else if (event.sessionId) {
         advance(event.sessionId);
-        if (event.kind === 'status' && event.data.title !== undefined)
-          advanceTitle(event.sessionId);
       }
       update({ type: 'eventReceived', event });
       if (

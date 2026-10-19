@@ -166,8 +166,9 @@ def session_options(session_id, endpoint):
     return {
         'sessionId': session_id,
         'mode': {'kind': 'chat'},
+        'permissionMode': 'ask',
         'provider': {'protocol': 'openai-completions', 'baseUrl': endpoint + '/v1', 'apiKey': FIXTURE_KEY},
-        'model': {'id': 'gpt-4.1', 'maxPromptTokens': 128000, 'maxOutputTokens': 4096},
+        'model': {'id': 'gpt-4.1', 'contextWindow': 128000, 'maxOutputTokens': 4096},
         'systemPrompt': 'Use the requested fixture response.',
     }
 
@@ -334,7 +335,8 @@ def expect_command_error(app, command, expected, **payload):
 
 def check_independent_stop(app, work, second, ssh, fixture):
     fixture.release_slow_response.clear()
-    app.command('send_message', sessionId=work['id'], content='fixture:slow Stream until stopped.')
+    app.command('send_message', sessionId=work['id'], content='fixture:slow Stream until stopped.',
+                messageId=str(uuid.uuid4()))
     app.wait_event(work['id'], lambda event: event['kind'] == 'delta')
     live = app.command('snapshot')['activeTurns'][work['id']]
     require(bool(live['stream']), 'Snapshot did not preserve current streamed output')
@@ -345,7 +347,8 @@ def check_independent_stop(app, work, second, ssh, fixture):
 
     def start_second():
         try:
-            app.command('send_message', sessionId=second['id'], content='fixture:chat A second SSH session.')
+            app.command('send_message', sessionId=second['id'], content='fixture:chat A second SSH session.',
+                        messageId=str(uuid.uuid4()))
             results.put(None)
         except Exception as error:
             results.put(error)
@@ -392,7 +395,8 @@ def check_independent_stop(app, work, second, ssh, fixture):
 
 def check_remote_runtime_restart(app, work, ssh, fixture):
     fixture.release_slow_response.clear()
-    app.command('send_message', sessionId=work['id'], content='fixture:slow Wait while the remote runtime exits.')
+    app.command('send_message', sessionId=work['id'], content='fixture:slow Wait while the remote runtime exits.',
+                messageId=str(uuid.uuid4()))
     app.wait_event(work['id'], lambda event: event['kind'] == 'delta')
     runtimes = []
     for process in child_processes(ssh.daemon.pid):
@@ -419,7 +423,6 @@ def check_ssh(remote_server, dev_server, root, endpoint, fixture):
         environment = ssh.environment.copy()
         # Use the staged sibling tandem-server, not an ambient artifact override.
         environment.pop('TANDEM_REMOTE_ARTIFACTS', None)
-        environment.pop('RELAY_REMOTE_ARTIFACTS', None)
         app = Application(dev_server, app_directory, env=environment)
         expect_command_error(app, 'check_connection', 'host key', connection=ssh.connection)
         require(ssh.known_hosts.read_text() == '', 'Unknown SSH host was silently trusted')
@@ -463,7 +466,8 @@ def check_ssh(remote_server, dev_server, root, endpoint, fixture):
         require((workspace / 'verified.txt').read_text() == 'first version\n', 'Failed create changed the existing file')
         second = app.command('create_session', projectId=project['id'], providerId=provider['id'], modelId='gpt-4.1')
         check_independent_stop(app, work, second, ssh, fixture)
-        app.command('send_message', sessionId=work['id'], content='fixture:permission Create the sibling file after approval.')
+        app.command('send_message', sessionId=work['id'], content='fixture:permission Create the sibling file after approval.',
+                    messageId=str(uuid.uuid4()))
         permission = app.wait_event(work['id'], lambda event: event['kind'] == 'permission')
         pending = app.command('snapshot')['activeTurns'][work['id']]['permissions']
         require(any(item['requestId'] == permission['data']['requestId'] for item in pending),
@@ -471,7 +475,7 @@ def check_ssh(remote_server, dev_server, root, endpoint, fixture):
         app.command('respond_permission', sessionId=work['id'], requestId=permission['data']['requestId'], approved=True)
         app.wait_event(work['id'], lambda event: event['kind'] == 'status' and event['data']['status'] == 'idle')
         require((workspace.parent / 'approved.txt').is_file(), 'Restored permission did not authorize the actual tool')
-        require(not app.command('snapshot').get('activeTurns', {}).get(work['id'], {}).get('permissions'),
+        require(not app.command('snapshot')['activeTurns'].get(work['id'], {}).get('permissions'),
                 'Resolved approval remained in the reconnect snapshot')
         check_remote_runtime_restart(app, work, ssh, fixture)
         children = child_processes(app.process.pid)

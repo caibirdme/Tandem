@@ -1,5 +1,7 @@
 """Exercise permission policy changes through the real local or SSH runtime."""
 
+import uuid
+
 from inference_fixture import require
 
 
@@ -36,7 +38,7 @@ def check_chat_permissions(app, fixture, session):
         "Chat web tool did not read the expected public example page",
     )
     require(
-        not app.command("snapshot").get("activeTurns", {}).get(session["id"], {}).get("permissions"),
+        not app.command("snapshot")["activeTurns"].get(session["id"], {}).get("permissions"),
         "Chat retained a pending approval",
     )
 
@@ -73,6 +75,7 @@ def check_permission_modes(app, project, provider, model, workspace):
         "send_message",
         sessionId=session["id"],
         content="fixture:work-mode-ask Request a write that will be denied.",
+        messageId=str(uuid.uuid4()),
     )
     permission = app.wait_event(session["id"], lambda event: event["kind"] == "permission")
     try:

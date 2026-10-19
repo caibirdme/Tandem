@@ -77,7 +77,7 @@ pub enum Request {
     SendMessage {
         session_id: String,
         content: String,
-        message_id: Option<Uuid>,
+        message_id: Uuid,
     },
     AbortSession {
         session_id: String,

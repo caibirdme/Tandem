@@ -129,7 +129,6 @@ pub struct TitleModel {
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Preferences {
-    #[serde(default)]
     pub title_model: Option<TitleModel>,
     pub telemetry: Telemetry,
     pub cli_path: Option<String>,
@@ -182,25 +181,22 @@ pub struct DirectoryListing {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Session {
-    #[serde(default)]
     pub title_state: TitleState,
     pub id: String,
     pub title: String,
     pub project_id: Option<String>,
     pub provider_id: String,
     pub model_id: String,
-    #[serde(default)]
     pub permission_mode: PermissionMode,
     pub created_at: String,
     pub updated_at: String,
     pub status: SessionStatus,
 }
 
-/// Automatic titles are opt-in for newly created sessions; existing names stay intact.
-#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+/// Persisted lifecycle of a session's automatic or user-selected title.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum TitleState {
-    #[default]
     Preserved,
     Pending,
     Attempted,
@@ -258,7 +254,6 @@ pub struct Snapshot {
     pub projects: Vec<Project>,
     pub sessions: Vec<Session>,
     pub runtime: RuntimeStatus,
-    #[serde(skip_serializing_if = "std::collections::HashMap::is_empty")]
     pub active_turns: std::collections::HashMap<String, ActiveTurnView>,
 }
 
@@ -298,25 +293,29 @@ pub(crate) fn validate_endpoint(value: &str) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+    use anyhow::Context;
     use serde_json::json;
 
     use super::*;
 
     #[test]
-    fn stored_sessions_default_to_ask_and_preserve_explicit_permission_modes() -> Result<()> {
-        for (field, expected) in [
-            (None, PermissionMode::Ask),
-            (Some("ask"), PermissionMode::Ask),
-            (Some("allow-all"), PermissionMode::AllowAll),
-        ] {
-            let mut data = json!({
-                "id":"session", "title":"Work", "projectId":"project",
-                "providerId":"provider", "modelId":"model", "status":"idle",
-                "createdAt":"2026-10-17", "updatedAt":"2026-10-17"
-            });
-            if let Some(mode) = field {
-                data["permissionMode"] = json!(mode);
-            }
+    fn stored_sessions_require_explicit_title_and_permission_state() -> Result<()> {
+        let data = json!({
+            "id":"session", "title":"Work", "titleState":"pending", "projectId":"project",
+            "providerId":"provider", "modelId":"model", "permissionMode":"ask", "status":"idle",
+            "createdAt":"2026-10-17", "updatedAt":"2026-10-17"
+        });
+        for field in ["titleState", "permissionMode"] {
+            let mut incomplete = data.clone();
+            incomplete
+                .as_object_mut()
+                .context("session object missing")?
+                .remove(field);
+            assert!(serde_json::from_value::<Session>(incomplete).is_err());
+        }
+        for expected in [PermissionMode::Ask, PermissionMode::AllowAll] {
+            let mut data = data.clone();
+            data["permissionMode"] = serde_json::to_value(expected)?;
             let session: Session = serde_json::from_value(data)?;
             assert_eq!(session.permission_mode, expected);
             assert_eq!(

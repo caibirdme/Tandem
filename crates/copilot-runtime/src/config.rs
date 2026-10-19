@@ -42,12 +42,11 @@ impl fmt::Debug for ProviderSettings {
 
 /// Per-model options supported by the pinned SDK.
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ModelSettings {
     pub id: String,
     pub reasoning_effort: Option<String>,
-    /// Total input and output capacity. Older Tandem peers called this `maxPromptTokens`.
-    #[serde(alias = "maxPromptTokens")]
+    /// Total input and output capacity.
     pub context_window: Option<i64>,
     pub max_output_tokens: Option<i64>,
 }
@@ -116,7 +115,6 @@ pub enum PermissionMode {
 pub struct SessionOptions {
     pub session_id: Option<String>,
     pub mode: SessionMode,
-    #[serde(default)]
     pub permission_mode: PermissionMode,
     pub provider: ProviderSettings,
     pub model: ModelSettings,
@@ -221,20 +219,21 @@ mod tests {
     use super::*;
 
     #[test]
-    fn remote_permission_mode_defaults_to_ask_and_round_trips_explicit_choices()
+    fn remote_permission_mode_is_required_and_round_trips_explicit_choices()
     -> std::result::Result<(), Box<dyn std::error::Error>> {
-        let legacy = serde_json::json!({
+        let mut payload = serde_json::json!({
             "mode": {"kind": "work", "directory": "/project"},
             "provider": {"protocol": "openai-responses", "baseUrl": "https://example.com"},
             "model": {"id": "example-model"}
         });
-        let mut options: SessionOptions = serde_json::from_value(legacy)?;
-        assert_eq!(options.permission_mode, PermissionMode::Ask);
+        assert!(serde_json::from_value::<SessionOptions>(payload.clone()).is_err());
         for (mode, wire) in [
             (PermissionMode::Ask, "ask"),
             (PermissionMode::AllowAll, "allow-all"),
         ] {
-            options.permission_mode = mode;
+            payload["permissionMode"] = serde_json::json!(wire);
+            let options: SessionOptions = serde_json::from_value(payload.clone())?;
+            assert_eq!(options.permission_mode, mode);
             let encoded = serde_json::to_value(&options)?;
             assert_eq!(encoded["permissionMode"], wire);
             let restored: SessionOptions = serde_json::from_value(encoded)?;
@@ -284,17 +283,21 @@ mod tests {
     }
 
     #[test]
-    fn legacy_remote_context_field_keeps_its_original_total_window_meaning()
+    fn model_settings_use_the_current_context_window_field()
     -> std::result::Result<(), Box<dyn std::error::Error>> {
-        for field in ["contextWindow", "maxPromptTokens"] {
-            let model: ModelSettings = serde_json::from_value(serde_json::json!({
-                "id":"custom-model",(field):1_000_000,"maxOutputTokens":128_000,
-            }))?;
-            assert_eq!(model.token_limits()?.max_prompt_tokens, Some(872_000));
-            let encoded = serde_json::to_value(model)?;
-            assert_eq!(encoded["contextWindow"], 1_000_000);
-            assert!(encoded.get("maxPromptTokens").is_none());
-        }
+        let model: ModelSettings = serde_json::from_value(serde_json::json!({
+            "id":"custom-model","contextWindow":1_000_000,"maxOutputTokens":128_000,
+        }))?;
+        assert_eq!(model.token_limits()?.max_prompt_tokens, Some(872_000));
+        let encoded = serde_json::to_value(model)?;
+        assert_eq!(encoded["contextWindow"], 1_000_000);
+        assert!(encoded.get("maxPromptTokens").is_none());
+        assert!(
+            serde_json::from_value::<ModelSettings>(serde_json::json!({
+                "id":"custom-model","maxPromptTokens":1_000_000,
+            }))
+            .is_err()
+        );
         Ok(())
     }
 

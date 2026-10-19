@@ -2,6 +2,7 @@
 
 import json
 import sqlite3
+import uuid
 from contextlib import closing
 
 from inference_fixture import require
@@ -162,6 +163,7 @@ def check_model_switching(app, fixture, providers, directory, automatic):
     app.command(
         "send_message", sessionId=chat["id"],
         content="fixture:slow Hold this original-model response while switching is rejected.",
+        messageId=str(uuid.uuid4()),
     )
     app.wait_event(chat["id"], lambda event: event["kind"] == "delta")
     try:
@@ -191,6 +193,7 @@ def check_model_switching(app, fixture, providers, directory, automatic):
     app.command(
         "send_message", sessionId=asking["id"],
         content="fixture:model-switch-permission Request the write and retain the pending approval.",
+        messageId=str(uuid.uuid4()),
     )
     permission = app.wait_event(asking["id"], lambda event: event["kind"] == "permission")
     reject_busy_switch(app, directory, asking, provider, ALTERNATE_MODEL)

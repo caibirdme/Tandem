@@ -276,30 +276,22 @@ impl AgentHost {
 }
 
 fn runtime_directory(home: &Path) -> Result<PathBuf> {
-    let current = home.join(".local/share/tandem/runtime");
-    if state_directory_exists(&current)? {
-        return Ok(current);
-    }
-    // Reuse the SDK's original state in place so renamed deployments can resume
-    // existing remote sessions. Only the executable is deployed under Tandem.
-    let legacy = home.join(".local/share/relay/runtime");
-    if state_directory_exists(&legacy)? {
-        return Ok(legacy);
-    }
-    Ok(current)
+    let directory = home.join(".local/share/tandem/runtime");
+    validate_state_directory(&directory)?;
+    Ok(directory)
 }
 
-fn state_directory_exists(path: &Path) -> Result<bool> {
+fn validate_state_directory(path: &Path) -> Result<()> {
     match std::fs::metadata(path) {
-        Ok(metadata) if metadata.is_dir() => Ok(true),
+        Ok(metadata) if metadata.is_dir() => Ok(()),
         Ok(_) => bail!("SDK state path is not a directory: {}", path.display()),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
             // Windows can report a missing child when its parent is a regular
-            // file. Preserve that failure instead of choosing another history.
+            // file. Report the invalid parent before starting the SDK.
             if let Some(parent) = path.parent() {
-                state_directory_exists(parent)?;
+                validate_state_directory(parent)?;
             }
-            Ok(false)
+            Ok(())
         }
         Err(error) => Err(error)
             .with_context(|| format!("Cannot inspect SDK state directory: {}", path.display())),
@@ -342,29 +334,21 @@ mod tests {
     }
 
     #[test]
-    fn remote_runtime_preserves_legacy_sessions_and_prefers_existing_tandem_state() -> Result<()> {
-        for (current_exists, legacy_exists, use_legacy) in [
-            (false, false, false),
-            (false, true, true),
-            (true, false, false),
-            (true, true, false),
-        ] {
+    fn remote_runtime_uses_tandem_state_without_mutating_history() -> Result<()> {
+        for exists in [false, true] {
             let home = TestDirectory::new()?;
-            let current = home.0.join(".local/share/tandem/runtime");
-            let legacy = home.0.join(".local/share/relay/runtime");
-            for (path, exists) in [(&current, current_exists), (&legacy, legacy_exists)] {
-                if exists {
-                    std::fs::create_dir_all(path)?;
-                    std::fs::write(path.join("session-history"), b"preserved")?;
-                }
+            let directory = home.0.join(".local/share/tandem/runtime");
+            if exists {
+                std::fs::create_dir_all(&directory)?;
+                std::fs::write(directory.join("session-history"), b"preserved")?;
             }
-            let expected = if use_legacy { &legacy } else { &current };
-            assert_eq!(runtime_directory(&home.0)?, *expected);
-            for (path, exists) in [(&current, current_exists), (&legacy, legacy_exists)] {
-                assert_eq!(path.exists(), exists);
-                if exists {
-                    assert_eq!(std::fs::read(path.join("session-history"))?, b"preserved");
-                }
+            assert_eq!(runtime_directory(&home.0)?, directory);
+            assert_eq!(directory.exists(), exists);
+            if exists {
+                assert_eq!(
+                    std::fs::read(directory.join("session-history"))?,
+                    b"preserved"
+                );
             }
         }
         Ok(())
@@ -372,17 +356,15 @@ mod tests {
 
     #[test]
     fn remote_runtime_does_not_hide_invalid_or_inaccessible_state_paths() -> Result<()> {
-        for relative in [".local/share/tandem/runtime", ".local/share/relay/runtime"] {
-            let home = TestDirectory::new()?;
-            let path = home.0.join(relative);
-            std::fs::create_dir_all(path.parent().context("state parent")?)?;
-            std::fs::write(&path, b"not a directory")?;
-            let error = runtime_directory(&home.0)
-                .err()
-                .context("invalid state must be reported")?;
-            assert!(error.to_string().contains(&path.display().to_string()));
-            assert_eq!(std::fs::read(&path)?, b"not a directory");
-        }
+        let home = TestDirectory::new()?;
+        let path = home.0.join(".local/share/tandem/runtime");
+        std::fs::create_dir_all(path.parent().context("state parent")?)?;
+        std::fs::write(&path, b"not a directory")?;
+        let error = runtime_directory(&home.0)
+            .err()
+            .context("invalid state must be reported")?;
+        assert!(error.to_string().contains(&path.display().to_string()));
+        assert_eq!(std::fs::read(&path)?, b"not a directory");
         let home = TestDirectory::new()?;
         std::fs::create_dir_all(home.0.join(".local/share"))?;
         std::fs::write(home.0.join(".local/share/tandem"), b"blocked parent")?;

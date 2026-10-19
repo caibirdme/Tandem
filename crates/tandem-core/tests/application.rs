@@ -26,10 +26,10 @@ fn provider() -> Value {
 }
 
 #[test]
-fn send_message_accepts_optional_client_identity_and_rejects_invalid_ids() -> Result<()> {
+fn send_message_requires_valid_client_identity() -> Result<()> {
     let id = uuid::Uuid::new_v4();
     for (message_id, valid) in [
-        (Value::Null, true),
+        (Value::Null, false),
         (json!(id), true),
         (json!("invalid"), false),
     ] {
@@ -45,19 +45,13 @@ fn send_message_accepts_optional_client_identity_and_rejects_invalid_ids() -> Re
             else {
                 anyhow::bail!("expected a send request");
             };
-            assert_eq!(parsed, message_id.as_str().map(|_| id));
+            assert_eq!(parsed, id);
         }
     }
-    let request = serde_json::from_value::<Request>(json!({
+    let missing_id = serde_json::from_value::<Request>(json!({
         "command":"send_message", "payload":{"sessionId":"session", "content":"hello"}
-    }))?;
-    assert!(matches!(
-        request,
-        Request::SendMessage {
-            message_id: None,
-            ..
-        }
-    ));
+    }));
+    assert!(missing_id.is_err());
     Ok(())
 }
 
@@ -289,7 +283,7 @@ async fn failed_session_preparation_releases_running_state_for_recovery() -> Res
         call(
             &app,
             "send_message",
-            json!({"sessionId":session["id"],"content":"cannot start"})
+            json!({"sessionId":session["id"],"content":"cannot start","messageId":uuid::Uuid::new_v4()})
         )
         .await
         .is_err()

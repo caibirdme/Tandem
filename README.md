@@ -27,10 +27,6 @@ The first Rust build downloads the SDK's matching Copilot CLI and verifies its c
 
 The **Copilot CLI path** field in General settings is an optional debugging override. Leave it empty for normal use.
 
-## Upgrade from Relay
-
-Open Tandem to continue using existing projects, providers, and sessions. New installations use Tandem's application data directory and `tandem.sqlite3`. When existing Relay data is present, Tandem reads the old directory and database in place, including SDK session state. If both directories already contain databases, Tandem takes precedence; data is not merged automatically.
-
 On Windows, you can build without an installer using `pnpm tauri build --no-bundle`, then open `target/release/tandem-desktop.exe`.
 
 ## First use
@@ -48,9 +44,7 @@ Permission mode is saved with each work session and restored when you reopen it.
 
 Enter an API base URL such as `https://api.example.com/v1`, without a specific `chat/completions` or `responses` endpoint. API keys are stored directly in local configuration and remain available after restarting. In the provider editor, keys are hidden by default; the eye button reveals or hides them. Save after changing a key. An empty field keeps the existing key; use **Clear saved key** to remove it.
 
-The application does not use the system keychain. When upgrading from an early version that used a keychain, enter each API key again. The rename to Tandem preserves keys already saved in the local database.
-
-Chat and work titles are generated after the first completed reply. In **Settings > Conversation titles**, choose a configured provider model for title generation or follow the conversation's current model. Generation runs in the background without blocking tasks; manually edited titles are preserved. For existing sessions, choose **Regenerate title** from the options menu.
+Chat and work titles are generated after the first completed reply. In **Settings > Conversation titles**, choose a configured provider model for title generation or follow the conversation's current model. Generation runs in the background without blocking tasks; manually edited titles are preserved. To generate another title, choose **Regenerate title** from the options menu.
 
 ## SSH projects
 
@@ -58,7 +52,7 @@ First log in once from a system terminal to confirm the host fingerprint and con
 
 In **New project**, select SSH, enter the host, port, user, and optional private key path, then test the connection and choose a remote directory. Tandem detects the remote platform, uploads the matching `tandem-server` to `~/.local/share/tandem/bin/`, and opens a bidirectional channel over SSH standard input/output. No additional remote network port is opened.
 
-Hosts used before the rename also receive the new `tandem-server`. SDK state defaults to `~/.local/share/tandem/runtime`. If that directory does not exist but `~/.local/share/relay/runtime` does, Tandem uses the old state in place to continue existing sessions. It does not reuse the old `relay-server` executable.
+Remote SDK state is stored in `~/.local/share/tandem/runtime`.
 
 The desktop supports macOS and Windows; remote hosts support Linux and macOS. Development builds use `just remote-build` to prepare a server for the local platform. To connect to another platform, place its binary at `src-tauri/remote/<Rust target>/tandem-server` before bundling, or set `TANDEM_REMOTE_ARTIFACTS` to an artifact directory. Release workflows build Linux/macOS servers and include them in desktop bundles. If a matching artifact is missing, the connection test reports the target platform.
 

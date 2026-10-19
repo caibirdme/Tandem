@@ -5,6 +5,7 @@ import { initialTandemState, reduceTandem } from './tandemState';
 import type { Message, Session, Snapshot } from './types';
 
 const session: Session = {
+  titleState: 'preserved',
   id: 'session-1',
   title: 'A task',
   projectId: null,
@@ -16,6 +17,7 @@ const session: Session = {
   permissionMode: 'ask',
 };
 const snapshot: Snapshot = {
+  titleGenerations: [],
   sessions: [session],
   projects: [],
   settings: {
@@ -305,8 +307,12 @@ describe('workspace state transitions', () => {
           event: {
             sessionId: work.id,
             kind: 'status',
-            data: { status: 'running', title: 'Late title' },
+            data: { status: 'running' },
           },
+        },
+        {
+          type: 'eventReceived',
+          event: { sessionId: work.id, kind: 'title', data: { title: 'Late title' } },
         },
         { type: 'permissionModeUnconfirmed', sessionId: work.id, error: 'Late failure' },
         { type: 'permissionModeChanged', sessionId: work.id, permissionMode: 'allow-all' },
@@ -364,10 +370,14 @@ describe('workspace state transitions', () => {
       event: {
         sessionId: other.id,
         kind: 'status',
-        data: { status: 'running', title: 'A newer task title' },
+        data: { status: 'running' },
       },
     });
-    const saved = reduceTandem(running, {
+    const titled = reduceTandem(running, {
+      type: 'eventReceived',
+      event: { sessionId: other.id, kind: 'title', data: { title: 'A newer task title' } },
+    });
+    const saved = reduceTandem(titled, {
       type: 'permissionModeChanged',
       sessionId: other.id,
       permissionMode: 'allow-all',
@@ -403,8 +413,8 @@ describe('workspace state transitions', () => {
       type: 'eventReceived',
       event: {
         sessionId: session.id,
-        kind: 'status',
-        data: { status: 'running', title: 'Read the project and verify the result' },
+        kind: 'title',
+        data: { title: 'Read the project and verify the result' },
       },
     });
     expect(titled.snapshot?.sessions[0]).toMatchObject({
@@ -438,13 +448,17 @@ describe('workspace state transitions', () => {
   it('updates another session title without requiring its history to be loaded', () => {
     const other = { ...session, id: 'session-2', title: 'New work' };
     const withOther = reduceTandem(loaded, { type: 'sessionAdded', session: other });
-    const titled = reduceTandem(withOther, {
+    const running = reduceTandem(withOther, {
       type: 'eventReceived',
       event: {
         sessionId: other.id,
         kind: 'status',
-        data: { status: 'running', title: 'Check another project' },
+        data: { status: 'running' },
       },
+    });
+    const titled = reduceTandem(running, {
+      type: 'eventReceived',
+      event: { sessionId: other.id, kind: 'title', data: { title: 'Check another project' } },
     });
     expect(titled.snapshot?.sessions.find((item) => item.id === other.id)).toMatchObject({
       title: 'Check another project',

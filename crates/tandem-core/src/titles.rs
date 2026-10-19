@@ -717,17 +717,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn old_names_remain_preserved_and_shutdown_cancels_pending_work() -> Result<()> {
-        let (_directory, app, session) = application().await?;
+    async fn preserved_titles_require_manual_generation_and_shutdown_cancels_pending_work()
+    -> Result<()> {
+        let (_directory, app, mut session) = application().await?;
         let _slots = app.titles.slots.acquire_many(2).await?;
         exchange(&app, &session)?;
-        let mut old = serde_json::to_value(&session)?;
-        old.as_object_mut()
-            .context("session object missing")?
-            .remove("titleState");
-        let old: Session = serde_json::from_value(old)?;
-        assert_eq!(old.title_state, TitleState::Preserved);
-        app.store.save_session(&old)?;
+        session.title_state = TitleState::Preserved;
+        app.store.save_session(&session)?;
         app.schedule_title(&session.id, false)?;
         assert_eq!(app.titles.pending()?, Vec::<String>::new());
         app.schedule_title(&session.id, true)?;

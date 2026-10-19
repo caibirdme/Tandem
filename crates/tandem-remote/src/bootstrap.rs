@@ -37,9 +37,7 @@ impl ArtifactLocator {
     /// Returns an error when no artifact exists or the selected file is invalid.
     pub async fn locate(&self, platform: &RemotePlatform) -> Result<PathBuf, RemoteError> {
         let mut candidates = Vec::new();
-        let environment_directory = std::env::var_os("TANDEM_REMOTE_ARTIFACTS")
-            .or_else(|| std::env::var_os("RELAY_REMOTE_ARTIFACTS"))
-            .map(PathBuf::from);
+        let environment_directory = std::env::var_os("TANDEM_REMOTE_ARTIFACTS").map(PathBuf::from);
         for directory in [
             self.directory.as_ref(),
             environment_directory.as_ref(),
@@ -410,7 +408,6 @@ mod tests {
             ("Linux\0x86_64\0tandem-server 0.1.0\n", Some("0.1.0")),
             ("Linux\0x86_64\0", None),
             ("Linux\0x86_64\0other-server 0.1.0\n", None),
-            ("Linux\0x86_64\0relay-server 0.1.4\n", None),
         ] {
             let (_, version) = parse_probe(output.as_bytes())
                 .unwrap_or_else(|error| panic!("probe failed: {error}"));

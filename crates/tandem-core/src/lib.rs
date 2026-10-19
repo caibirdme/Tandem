@@ -9,7 +9,6 @@ mod projects;
 mod providers;
 mod session_models;
 mod sessions;
-mod storage_paths;
 mod store;
 mod titles;
 mod turns;

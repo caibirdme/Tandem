@@ -30,12 +30,10 @@ describe('session display titles', () => {
     },
   );
 
-  it.each(['preserved', 'attempted', undefined] as const)(
+  it.each(['preserved', 'attempted'] as const)(
     'preserves existing content for title state %s even when it matches the default',
     (titleState) => {
-      const item = { ...session };
-      if (titleState === undefined) delete item.titleState;
-      else item.titleState = titleState;
+      const item = { ...session, titleState };
       expect(displaySessionTitle(item, 'zh-CN')).toBe('New chat');
     },
   );

@@ -6,6 +6,7 @@ import { protectedSessionIds, reconcileConversations, reconcileSessions } from '
 import type { Session } from './types';
 
 const session: Session = {
+  titleState: 'preserved',
   id: 'session-1',
   title: 'A task',
   projectId: null,
@@ -19,28 +20,31 @@ const session: Session = {
 const permission = { requestId: 'request-1', kind: 'write', description: 'Write file' };
 
 describe('reconnecting to a running or completed session', () => {
-  it('clears stale busy state and approvals after missing the completion event', () => {
-    const current: Record<string, Conversation> = {
-      [session.id]: {
-        ...emptyConversation,
-        status: 'running',
-        stream: 'partial',
-        permissions: [permission],
-        tools: [{ name: 'create', status: 'running', content: '' }],
-      },
-    };
-    const restored = reconcileConversations(
-      current,
-      { sessions: [session], activeTurns: {} },
-      new Set(),
-    );
-    expect(restored[session.id]).toMatchObject({
-      status: 'idle',
-      stream: '',
-      permissions: [],
-      tools: [{ status: 'completed' }],
-    });
-  });
+  it.each(['idle', 'running'] as const)(
+    'clears stale output and approvals when the %s snapshot has no active turn',
+    (status) => {
+      const current: Record<string, Conversation> = {
+        [session.id]: {
+          ...emptyConversation,
+          status: 'running',
+          stream: 'partial',
+          permissions: [permission],
+          tools: [{ name: 'create', status: 'running', content: '' }],
+        },
+      };
+      const restored = reconcileConversations(
+        current,
+        { sessions: [{ ...session, status }], activeTurns: {} },
+        new Set(),
+      );
+      expect(restored[session.id]).toMatchObject({
+        status,
+        stream: '',
+        permissions: [],
+        tools: [{ status: status === 'running' ? 'running' : 'completed' }],
+      });
+    },
+  );
 
   it('restores live output and pending approval on a fresh page', () => {
     const restored = reconcileConversations(
@@ -97,7 +101,7 @@ describe('reconnecting to a running or completed session', () => {
     };
     const restored = reconcileConversations(
       { [session.id]: running },
-      { sessions: [session] },
+      { sessions: [session], activeTurns: {} },
       protectedIds,
     );
     expect(restored[session.id]).toBe(running);

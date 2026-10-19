@@ -69,16 +69,10 @@ function withoutDeletedItems(snapshot: Snapshot, state: TandemState): Snapshot {
     ...snapshot,
     projects: snapshot.projects.filter((project) => !state.deletedProjectIds.has(project.id)),
     sessions,
-    titleGenerations: (snapshot.titleGenerations ?? []).filter((id) => retainedIds.has(id)),
-    ...(snapshot.activeTurns
-      ? {
-          activeTurns: Object.fromEntries(
-            Object.entries(snapshot.activeTurns).filter(([sessionId]) =>
-              retainedIds.has(sessionId),
-            ),
-          ),
-        }
-      : {}),
+    titleGenerations: snapshot.titleGenerations.filter((id) => retainedIds.has(id)),
+    activeTurns: Object.fromEntries(
+      Object.entries(snapshot.activeTurns).filter(([sessionId]) => retainedIds.has(sessionId)),
+    ),
   };
 }
 
@@ -143,7 +137,7 @@ export function reduceTandem(state: TandemState, action: TandemAction): TandemSt
         snapshot,
         action.protectedIds,
       );
-      const titleGenerations = new Set(snapshot.titleGenerations ?? []);
+      const titleGenerations = new Set(snapshot.titleGenerations);
       for (const sessionId of titleProtectedIds) {
         if (state.titleGenerations.has(sessionId)) titleGenerations.add(sessionId);
         else titleGenerations.delete(sessionId);
@@ -178,21 +172,9 @@ export function reduceTandem(state: TandemState, action: TandemAction): TandemSt
         return finishTitle(state, event.sessionId, { title: event.data.title });
       if (event.kind === 'title_error')
         return finishTitle(state, event.sessionId, { error: event.data.message });
-      const next = updateConversation(state, event.sessionId, (conversation) =>
+      return updateConversation(state, event.sessionId, (conversation) =>
         reduceEvent(conversation, event),
       );
-      if (event.kind !== 'status' || !next.snapshot) return next;
-      const { title } = event.data;
-      if (title === undefined) return next;
-      return {
-        ...next,
-        snapshot: {
-          ...next.snapshot,
-          sessions: next.snapshot.sessions.map((session) =>
-            session.id === event.sessionId ? { ...session, title } : session,
-          ),
-        },
-      };
     }
     case 'historyReceived':
       return updateConversation(state, action.sessionId, (conversation) =>

@@ -136,7 +136,7 @@ impl App {
         self: &Arc<Self>,
         session_id: &str,
         content: String,
-        message_id: Option<Uuid>,
+        message_id: Uuid,
     ) -> Result<()> {
         if content.trim().is_empty() || content.len() > 500_000 {
             bail!("Messages must not be empty or exceed 500 KB.");
@@ -179,13 +179,7 @@ impl App {
             completion: None,
         };
         let result = self
-            .submit_turn(
-                &session,
-                first_turn,
-                content,
-                message_id.unwrap_or_else(Uuid::new_v4),
-                &mut submission,
-            )
+            .submit_turn(&session, first_turn, content, message_id, &mut submission)
             .await;
         if let Err(error) = result {
             if let Some(completion) = &submission.completion {

@@ -1,5 +1,17 @@
 # Verification record
 
+## Current interfaces and storage (2026-10-19)
+
+The cleanup was developed from `main` in `.worktrees/remove-legacy-compat`. Application storage, remote runtime state, and artifact configuration now use Tandem names directly. Stored sessions require explicit `titleState` and `permissionMode`. Remote session options use `contextWindow` for the model limit and require `permissionMode`; `send_message` requires a caller-supplied `messageId` UUID. Snapshots always include `titleGenerations` and `activeTurns`, including empty collections. The frontend receives title updates through dedicated title events. `AGENTS.md` records the early-stage policy of using current schemas and interfaces directly.
+
+`just check`, `just check-workspace`, and `just build` passed on macOS / Apple Silicon, including 165 frontend, 98 Rust, and 29 Python tests. Formatting, strict lint / Clippy, type checks, workspace dependency boundaries, and production builds passed. Regressions reject missing persisted title/permission state, missing or invalid message IDs, and unknown model fields. Frontend coverage verifies current snapshot reconciliation and dedicated title events.
+
+Full local integration passed with the production Copilot SDK/CLI, local inference and OTLP test services, and bundled Python 3.12.14. It produced 67 inference requests, including 8 title requests, and 8 telemetry export batches. Coverage included explicit message identity and duplicate rejection, permissions, model switching, cancellation, restart recovery, persistence, and credential privacy. The chat web-tool case fetched a public example page; inference used no real provider or key.
+
+Full remote stdio and OpenSSH integration passed with 28 inference requests and 21 telemetry export batches, using isolated temporary directories, test credentials, and an ephemeral local SSH daemon. The first remote run rejected an outdated test fixture; the fixture now sends `contextWindow` and `permissionMode` explicitly. The successful run covered deployment, streaming, cold recovery with a different provider/model and original history, current snapshots, permissions, malformed frames, and runtime shutdown.
+
+`CI=true just desktop-build` passed and produced an ad hoc signed `Tandem.app` and Apple Silicon DMG with the current frontend and local-platform remote agent. The installer was not installed, and native UI, Windows installers, and Linux remote artifacts were not verified in this run. Historical records below retain the actual names and artifacts from their original runs.
+
 ## English documentation, interface languages, and PR platforms (2026-10-19)
 
 The change was developed from `main` in `.worktrees/english-i18n-ci`. Existing Markdown documentation and built-in project messages were translated into English. `AGENTS.md` now requires English documentation, comments, commits, PRs, release notes, logs, and diagnostics, with localized UI copy in message catalogs. The interface starts in English, supports an immediate switch to Simplified Chinese in **Settings > General > Language**, and restores the saved `tandem.locale` preference before rendering. Pending session-title placeholders follow the interface language while generated and manually saved titles remain unchanged.
@@ -38,9 +50,9 @@ Tag release and draft Release uploads had not yet been executed and remained for
 
 ## Rename to Tandem (2026-10-19)
 
-The project, desktop application, Rust crates, frontend identifiers, service binaries, build scripts, and current documentation were renamed to Tandem. New installations use `app.tandem.desktop`, `tandem.sqlite3`, and `tandem-server`. Existing databases, SDK session state, and the old remote-artifact environment variable remain readable for compatibility. Remote hosts receive the new `tandem-server`; the old `relay-server` is not reused as the new version. If both old and new data exist, new data takes precedence without automatic merging.
+The project, desktop application, Rust crates, frontend identifiers, service binaries, build scripts, and current documentation were renamed to Tandem. The current names are `app.tandem.desktop`, `tandem.sqlite3`, and `tandem-server`.
 
-149 frontend, 98 Rust, and 29 Python tests passed, totaling 276. Formatting, types, strict lint / Clippy, production frontend build, workspace all-target debug build, and dependency boundaries passed. Lockfile review confirmed only workspace package names changed; external dependencies were not upgraded. New real SQLite regressions covered preserving old configuration, projects, sessions, messages, keys, and SDK state in place, with new databases taking precedence when both existed. Remote regressions covered old state reuse, new-directory precedence, and invalid-path errors.
+149 frontend, 98 Rust, and 29 Python tests passed, totaling 276. Formatting, types, strict lint / Clippy, production frontend build, workspace all-target debug build, and dependency boundaries passed. Lockfile review confirmed only workspace package names changed; external dependencies were not upgraded.
 
 Full local regression with the real SDK/CLI passed with 59 inference requests (including 8 title requests) and 10 OTLP batches. The new `tandem-server` stdio regression passed with 2 requests and 4 export batches, including cross-provider cold recovery and preserved history. Tests used isolated temporary directories and local inference services without real providers or SSH deployment. The actual React UI was checked for the page title, sidebar, chat author, settings, and consistent T icon. Sending returned `TANDEM_CHAT_OK`. Screenshots were `test-results/tandem-branding-chat.png` and `test-results/tandem-branding-settings.png`.
 
@@ -74,11 +86,11 @@ The actual React UI additionally verified four consecutive turns: model A, model
 
 Windows verification scripts also received path-display and file-lock fixes. Report paths now use forward slashes. After all functional assertions, the isolated application stops before scanning the complete directory for secrets, retaining the original single credential-column exemption. Pure Python tests and the full SDK scan passed. Earlier Windows path-assertion and live-scan failures refer to the state before these fixes.
 
-## Copilot SDK upgrade (v1.0.23-preview.5)
+## Copilot SDK pin verification (v1.0.23-preview.5)
 
-The SDK was upgraded from `v1.0.23-preview.3` to official tag `v1.0.23-preview.5`, locked to commit `b96cd2b54f7eb87458fd50f485a751c712e88f62`. The matching CLI/runtime became `1.0.100-1`, still embedded by the SDK at build time without a separate user installation. The CLI path in General settings remains empty by default.
+The SDK uses official tag `v1.0.23-preview.5`, locked to commit `b96cd2b54f7eb87458fd50f485a751c712e88f62`. The matching CLI/runtime is `1.0.100-1`, still embedded by the SDK at build time without a separate user installation. The CLI path in General settings remains empty by default.
 
-Existing provider, model parameter, permission, telemetry, and session creation/recovery interfaces remained compatible, requiring no application service or transport contract changes. The UI SDK version, runtime version constant, README, and development constraints were updated together. The lockfile changed only the SDK tag and commit, preserving other dependency versions and relationships.
+The UI SDK version, runtime version constant, README, and development constraints were updated together. The lockfile changed only the SDK tag and commit, preserving other dependency versions and relationships.
 
 Local integration for the new SDK used the real CLI with local inference and telemetry test services. All 12 check groups passed with 45 inference requests, including 6 title requests, and 7 OTLP batches. Coverage included three-protocol chat, titles, cancellation, file and PowerShell tools, ask/full-access modes, cold recovery, application restart, and key persistence/leak checks. No real provider keys or paid services were used. The Windows verification wrapper stopped the isolated test application only before the final secret scan to avoid reading the SDK's locked `inuse` file; the verification script was unchanged. Forced SDK termination recovery remained skipped on Windows by the original script.
 
@@ -88,7 +100,7 @@ The separate `relay-server` also passed real stdio regression with 2 inference r
 
 ## First send after a cold start (0.1.4 fix)
 
-This cold-start fix was verified before the SDK upgrade, using SDK `v1.0.23-preview.3` and CLI `1.0.99-3`. After configuring a provider and model, users can send their first message directly and let the backend prepare the bundled runtime. Before the fix, the UI required the runtime to have already started, preventing the first send from triggering automatic initialization. Clicking **Prepare runtime** was an earlier workaround. That prerequisite was removed, and SSH work no longer shows irrelevant local initialization guidance.
+This cold-start fix was verified using SDK `v1.0.23-preview.3` and CLI `1.0.99-3`. After configuring a provider and model, users can send their first message directly and let the backend prepare the bundled runtime. Before the fix, the UI required the runtime to have already started, preventing the first send from triggering automatic initialization. Clicking **Prepare runtime** was an earlier workaround. That prerequisite was removed, and SSH work no longer shows irrelevant local initialization guidance.
 
 Using isolated temporary data, test credentials, and a local inference service, the actual React UI verified two cold starts: sending first with Enter, then with the send button after a service restart. Before each send, `runtime.available=false` was confirmed, input enabled the send button, and the real SDK/CLI started and returned `RELAY_CHAT_OK`. Two user messages and two replies were persisted, with two conversation inference requests. No real provider key or paid service was used. This browser UI/application service verification did not replace Windows native window or installer verification.
 
@@ -102,9 +114,9 @@ After the first completed reply turn, chat and work generate titles through a ba
 
 `just check` passed with 106 frontend, 89 Rust, and 27 Python tests, totaling 222, plus formatting, types, strict lint, and workspace boundaries. New regressions covered title-model persistence, automatic/manual generation, late-result races with renaming/deletion/configuration updates, stop/shutdown, title content boundaries, and temporary session cleanup after SDK success, failure, or cancellation. A related fix stopped unconfirmed permission operations from blocking title/generation recovery on reconnect; title updates and permission state are validated independently.
 
-Frontend and Rust builds passed. Local regression with the real SDK and inference test service passed with 47 requests, including 6 title requests, and 7 telemetry batches. The additional in-memory credential mode produced the same counts. Three-protocol streaming conversations and nonstreaming title replies, a title model from another provider, regeneration of existing sessions, preservation of manual names, history isolation, and restart recovery passed. SSH regression passed with 28 requests and 21 export batches, including local title generation after remote work and upgrading the old remote agent to 0.1.4.
+Frontend and Rust builds passed. Local regression with the real SDK and inference test service passed with 47 requests, including 6 title requests, and 7 telemetry batches. The additional in-memory credential mode produced the same counts. Three-protocol streaming conversations and nonstreaming title replies, a title model from another provider, regeneration of existing sessions, preservation of manual names, history isolation, and restart recovery passed. SSH regression passed with 28 requests and 21 export batches, including local title generation after remote work and deployment of remote agent 0.1.4.
 
-Two CAMP providers were saved again in actual application data using user-provided keys. All four models used context 1,000,000; the two Anthropic models used maximum output 128,000. The title model was `CAMP Anthropic / glm-5.3-flashx`. Keys remained directly in the local database, without reintroducing keychain or migration logic.
+Two CAMP providers were saved again in actual application data using user-provided keys. All four models used context 1,000,000; the two Anthropic models used maximum output 128,000. The title model was `CAMP Anthropic / glm-5.3-flashx`. Keys remained directly in the local database.
 
 All four models completed both real chat and work, passing all 8 cases. Each case also verified that a real model generated and persisted its title. There were 39 real gateway requests, all HTTP 200, including 8 title requests with 0 tools each. All 19 Anthropic requests, including titles, actually sent `max_tokens` equal to 128000. Chat returned temporary random markers exactly; work read, created, and edited files and executed an approved verification command, with actual files and command output matching expectations.
 
@@ -121,7 +133,7 @@ Real-provider verification used a local observation proxy that forwarded request
 
 ## Local API keys and visibility toggle (0.1.3)
 
-Provider API keys moved to direct storage in local `relay.sqlite3`, column `provider_secrets.secret`. The provider editor reads saved keys on demand, hides them by default, and offers an eye button to reveal or hide them. Changes require saving. As requested during development, system credential-store dependencies and migration logic were removed; old keychain keys are neither read nor transferred. Existing providers require entering their keys again once.
+Provider API keys moved to direct storage in local `relay.sqlite3`, column `provider_secrets.secret`. The provider editor reads saved keys on demand, hides them by default, and offers an eye button to reveal or hide them. Changes require saving. System credential-store dependencies were removed.
 
 `just check` passed with 96 frontend, 76 Rust, and 22 Python tests, totaling 194, plus formatting, types, strict lint, and workspace boundaries. New regressions covered local-store restart, replacement/clearing, on-demand reads, snapshots excluding keys, cancellation not interrupting key/configuration persistence, and races between key loading and user edits. Late save results no longer close a subsequently opened editor, with regressions for switching providers and reopening the same provider.
 
@@ -135,17 +147,17 @@ The actual React UI and development service were verified with isolated temporar
 
 ## Work permission modes (0.1.2)
 
-An ask-each-time / full-access selector was added beside the work composer. New work and older sessions default to asking each time; each existing work session saves its selection. Local and SSH work use the same policy. Chat still has no file or command tools.
+An ask-each-time / full-access selector was added beside the work composer. New work defaults to asking each time; each work session saves its selection. Local and SSH work use the same policy. Chat still has no file or command tools.
 
 Real SDK local and SSH integration regressions passed with inference test services. Full access created, read, and edited files and ran commands without pending-approval events. Switching back to ask mode and denying a write left the file uncreated. Mode changes were rejected while approval was pending. Switching back to full access and resuming the same session allowed writing while preserving history. Local verification also confirmed saved full access after a complete service restart. The runs produced 40 / 26 test inference requests and 6 / 16 valid telemetry batches respectively.
 
 Work prompts were also updated to include the actual project path, preventing file tools from interpreting relative paths as the application's private state directory. Other fixes made active session titles update promptly and removed the hardcoded Settings version.
 
-Permission-change checks covered defaults, old data compatibility, chat boundaries, revoking full access after failure, and rejection while running. Frontend checks additionally covered lost save responses, blocking and retrying after failed confirmation, independent operations in separate sessions, and late responses/old snapshots not restoring deleted work or projects.
+Permission-change checks covered defaults, chat boundaries, revoking full access after failure, and rejection while running. Frontend checks additionally covered lost save responses, blocking and retrying after failed confirmation, independent operations in separate sessions, and late responses/old snapshots not restoring deleted work or projects.
 
 `just check` passed with 78 frontend, 73 Rust, and 15 Python tests, totaling 166, plus formatting, types, strict lint, and workspace boundaries. `just build` and macOS desktop packaging passed, generating 0.1.2 `Relay.app` and an Apple Silicon DMG. Application signature integrity and DMG verification passed. The bundled remote agent's SHA-256 matched the release artifact, its version was 0.1.2, and the development HTTP host was excluded.
 
-After the user unlocked the machine, native window reverification of packaged 0.1.2 completed. Settings showed the correct version; chat had no permission selector; work showed both modes and explanations. An unsent draft could switch to full access, and another new work session returned to ask mode. Old work defaulted to ask mode with history preserved. A real GLM work session used the correct absolute project path on its first read. After two separate approvals, it read the seed and created `path-check-012.txt` with exactly the expected content, replying `PATH-FIXED-012`. The selector was disabled during execution and pending approval and reenabled afterward. Sidebar titles updated while running without reopening the conversation. This run used saved provider and keychain credentials without requiring keys again.
+After the user unlocked the machine, native window reverification of packaged 0.1.2 completed. Settings showed the correct version; chat had no permission selector; work showed both modes and explanations. An unsent draft could switch to full access, and another new work session returned to ask mode. A real GLM work session used the correct absolute project path on its first read. After two separate approvals, it read the seed and created `path-check-012.txt` with exactly the expected content, replying `PATH-FIXED-012`. The selector was disabled during execution and pending approval and reenabled afterward. Sidebar titles updated while running without reopening the conversation. This run used saved provider and keychain credentials without requiring keys again.
 
 Evidence for automatic full-access execution, persistence, and recovery after switching came from the real SDK with inference test services described above. Native verification covered menu selection and draft reset and used real GLM to recheck individual approvals and work paths. Four-model native chat/work verification from 0.1.1 appears next.
 
@@ -166,7 +178,7 @@ Chat required exact replies with temporary random markers and checked streaming 
 
 A local observation proxy forwarded request bodies unchanged to the real HTTPS gateway and recorded only model, path, token parameters, streaming flag, and status code. All 22 Anthropic requests actually used `max_tokens` equal to 128000. Test credentials entered memory only through hidden input; temporary application state and log scans found no keys. Redacted per-request results were saved locally in `test-results/live-providers.json`, outside version control.
 
-Verification found and fixed context mapping: the total window had previously been treated as the input budget. The SDK now receives the total context limit explicitly and reserves input space for explicit output. Anthropic uses total 1,000,000, input 872,000, and output 128,000. Creation and recovery use the same configuration. The version was also raised to 0.1.1. SSH verification confirmed replacement of an old 0.1.0 server and reuse at the same version, preventing an old runtime from missing the parameter fix.
+Verification found and fixed context mapping: the total window had previously been treated as the input budget. The SDK now receives the total context limit explicitly and reserves input space for explicit output. Anthropic uses total 1,000,000, input 872,000, and output 128,000. Creation and recovery use the same configuration. The version was also raised to 0.1.1. SSH verification confirmed deployment of the 0.1.1 server and reuse at the same version.
 
 After the fixes, `just check` passed with 53 frontend, 63 Rust, and 15 Python tests, totaling 131. Builds, local SDK regression, real SSH regression, and 0.1.1 macOS packaging passed. Signature integrity and DMG verification passed, and the bundled remote agent digest matched the release artifact.
 
@@ -176,7 +188,7 @@ Native verification used saved configuration connected directly to the real gate
 
 ## Earlier service entry point split
 
-The earlier split moved the local HTTP development host to `relay-dev-server` and shared RPC to `relay-protocol`, leaving `relay-server` responsible only for the remote agent. HTTP behavior and remote protocol remained compatible. Development commands, verification scripts, and CI were updated for two separate binaries.
+The earlier split moved the local HTTP development host to `relay-dev-server` and shared RPC to `relay-protocol`, leaving `relay-server` responsible only for the remote agent. Development commands, verification scripts, and CI were updated for two separate binaries.
 
 Verification after the split:
 
@@ -239,7 +251,7 @@ just desktop-build
 
 Use `CI=true just desktop-build` without desktop interaction. It skips DMG window decoration without affecting application features.
 
-`tests/runtime_e2e.py` verifies local key persistence and restart recovery in temporary directories by default. `--ephemeral-secrets` additionally tests process-only storage. Local persistence verification has replaced the old `--native-vault` flow. SSH tests require local `ssh`, `sshd`, and `ssh-keygen`. They generate their own keys and host records without modifying the user's SSH configuration.
+`tests/runtime_e2e.py` verifies local key persistence and restart recovery in temporary directories by default. `--ephemeral-secrets` additionally tests process-only storage. SSH tests require local `ssh`, `sshd`, and `ssh-keygen`. They generate their own keys and host records without modifying the user's SSH configuration.
 
 The final verification run cleaned up test credentials. Failed early debugging runs may have left Relay Keychain entries containing only placeholder values. Their random IDs could not be recovered, and a locked screen prevented further confirmation, so no bulk system-credential deletion was attempted.
 
