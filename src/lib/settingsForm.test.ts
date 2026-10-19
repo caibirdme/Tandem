@@ -85,7 +85,7 @@ describe('provider form serialization', () => {
     'rejects a blank replacement %j without clearing the saved credential',
     (value) => {
       expect(() => providerPayload(provider, { kind: 'replace', value })).toThrow(
-        '替换密钥不能为空。',
+        'The replacement key cannot be empty.',
       );
     },
   );
@@ -117,12 +117,12 @@ describe('provider form serialization', () => {
   });
 
   it.each([
-    { name: 'an empty model list', ids: [], message: '请至少添加一个模型。' },
-    { name: 'a blank model ID', ids: [' '], message: '请填写每个模型的 ID。' },
+    { name: 'an empty model list', ids: [], message: 'Add at least one model.' },
+    { name: 'a blank model ID', ids: [' '], message: 'Enter an ID for every model.' },
     {
       name: 'duplicate IDs after trimming',
       ids: ['same', ' same '],
-      message: '同一供应商下的模型 ID 不能重复。',
+      message: 'Model IDs must be unique within a provider.',
     },
   ])('rejects $name', ({ ids, message }) => {
     const models = ids.map((id) => ({
@@ -158,7 +158,7 @@ describe('preferences form ownership', () => {
     expect(titleModelPayload('', [configured])).toEqual({ titleModel: null });
     expect(() =>
       titleModelPayload(titleModelValue({ ...selection, modelId: 'removed' }), [configured]),
-    ).toThrow('所选标题模型已不可用');
+    ).toThrow('The selected title model is unavailable');
   });
 
   it('preserves the latest CLI path while editing telemetry', () => {

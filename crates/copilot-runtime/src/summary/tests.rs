@@ -216,7 +216,7 @@ async fn sends_no_tools_preserves_token_limits_and_returns_complete_text_after_d
             .event("assistant.message_delta", json!({"deltaContent":"partial"}))
             .await;
         server
-            .event("assistant.message", json!({"content":"完整标题"}))
+            .event("assistant.message", json!({"content":"Complete title"}))
             .await;
         server.event("session.idle", json!({})).await;
         server.acknowledge("session.detach").await;
@@ -229,7 +229,7 @@ async fn sends_no_tools_preserves_token_limits_and_returns_complete_text_after_d
         server.respond(&delete, json!({})).await;
         assert_eq!(
             outcome(result).await.expect("valid SDK fixture"),
-            "完整标题"
+            "Complete title"
         );
     }
 }

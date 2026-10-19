@@ -136,7 +136,7 @@ async fn forward_events(
                 RuntimeEvent {
                     session_id: session_id.clone(),
                     kind: EventKind::Error,
-                    data: json!({"message":"远端事件流溢出，请重新发送消息恢复会话"}),
+                    data: json!({"message":"The remote event stream overflowed. Send the message again to resume the session."}),
                 },
                 true,
             ),
@@ -325,6 +325,7 @@ mod tests {
             let timestamp = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)?
                 .as_nanos();
+            // Exercise SDK state paths containing spaces and non-ASCII characters.
             let directory = std::env::temp_dir().join(format!(
                 "tandem-remote-state-{}-{timestamp} 空间",
                 std::process::id()

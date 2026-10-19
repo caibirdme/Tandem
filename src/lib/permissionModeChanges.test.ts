@@ -110,7 +110,9 @@ describe('permission changes with uncertain transport outcomes', () => {
     test.read.mockRejectedValue(new Error('Confirmation unavailable'));
     await expect(test.changes.change(session.id, 'allow-all')).resolves.toBeUndefined();
     await expect(test.changes.confirm(session.id)).resolves.toBeUndefined();
-    expect(() => test.changes.assertCanSend(session.id)).toThrow('工具权限尚未确认');
+    expect(() => test.changes.assertCanSend(session.id)).toThrow(
+      'Tool permissions are unconfirmed',
+    );
     expect(test.state.snapshot?.sessions[0]?.permissionMode).toBe('ask');
   });
 
@@ -143,7 +145,9 @@ describe('permission changes with uncertain transport outcomes', () => {
     test.deleteSession(session.id);
     expect(test.requests.has(session.id)).toBe(false);
     expect(test.state.permissionModeUncertain[session.id]).toBeUndefined();
-    expect(() => test.changes.assertCanSend(session.id)).toThrow('此对话已删除');
+    expect(() => test.changes.assertCanSend(session.id)).toThrow(
+      'This conversation has been deleted',
+    );
     expect(() => test.changes.assertCanSend('session-2')).not.toThrow();
     await test.changes.confirm(session.id);
     expect(test.read).toHaveBeenCalledTimes(1);
@@ -204,7 +208,7 @@ describe('permission changes with uncertain transport outcomes', () => {
     confirmed.resolve('allow-all');
     await expect(change).resolves.toBe('allow-all');
     expect(test.state.snapshot?.sessions[0]?.permissionMode).toBe('allow-all');
-    expect(test.state.error).toContain('已重新确认当前权限为「完全授权」');
+    expect(test.state.error).toContain('Current permissions have been confirmed as “Full access”');
     expect(test.state.permissionModeUpdates.size).toBe(0);
     expect(() => test.changes.assertCanSend(session.id)).not.toThrow();
     const refreshed = reduceTandem(test.state, {
@@ -228,9 +232,13 @@ describe('permission changes with uncertain transport outcomes', () => {
     expect(test.state.permissionModeUpdates.size).toBe(0);
     expect(test.state.permissionModeUncertain[session.id]).toContain('Confirmation unavailable');
     expect(test.state.snapshot?.sessions[0]?.permissionMode).toBe('ask');
-    expect(() => test.changes.assertCanSend(session.id)).toThrow('工具权限尚未确认');
+    expect(() => test.changes.assertCanSend(session.id)).toThrow(
+      'Tool permissions are unconfirmed',
+    );
     expect(() => test.changes.assertCanSend('session-2')).not.toThrow();
-    await expect(test.changes.change(session.id, 'ask')).rejects.toThrow('工具权限尚未确认');
+    await expect(test.changes.change(session.id, 'ask')).rejects.toThrow(
+      'Tool permissions are unconfirmed',
+    );
     await test.changes.change('session-2', 'allow-all');
     expect(test.state.snapshot?.sessions[1]?.permissionMode).toBe('allow-all');
     expect(test.requests.has(session.id)).toBe(true);
@@ -270,8 +278,12 @@ describe('permission changes with uncertain transport outcomes', () => {
       await vi.advanceTimersByTimeAsync(15_000);
       await expect(change).resolves.toBeUndefined();
       expect(test.state.permissionModeUpdates.size).toBe(0);
-      expect(test.state.permissionModeUncertain[session.id]).toContain('权限确认超时');
-      expect(() => test.changes.assertCanSend(session.id)).toThrow('工具权限尚未确认');
+      expect(test.state.permissionModeUncertain[session.id]).toContain(
+        'Permission confirmation timed out',
+      );
+      expect(() => test.changes.assertCanSend(session.id)).toThrow(
+        'Tool permissions are unconfirmed',
+      );
     } finally {
       vi.useRealTimers();
     }

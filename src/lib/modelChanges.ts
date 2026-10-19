@@ -1,3 +1,4 @@
+import { translate as t } from '../i18n';
 import { errorMessage } from './api';
 import { createSessionSettingChanges } from './sessionSettingChanges';
 import type { ModelSelection } from './types';
@@ -28,11 +29,19 @@ export function createModelChanges(dependencies: Dependencies) {
         ...(notice ? { notice } : {}),
       }),
     unconfirmed: (sessionId, error) => update({ type: 'modelUnconfirmed', sessionId, error }),
-    uncertainMessage: '当前模型尚未确认，请先重新确认模型。',
-    timeoutMessage: '模型确认超时，请重试。',
-    saveFailure: (reason) => `模型切换未获确认：${errorMessage(reason)}。`,
+    get uncertainMessage() {
+      return t('error.modelUnconfirmed');
+    },
+    get timeoutMessage() {
+      return t('error.modelTimeout');
+    },
+    saveFailure: (reason) => t('error.modelSaveFailed', { error: errorMessage(reason) }),
     readFailure: (reason, failure) =>
-      `${failure ? `${failure} ` : ''}无法确认当前模型：${errorMessage(reason)}。确认前暂不能发送或切换模型。`,
-    recovered: (selection, failure) => `${failure} 已重新确认当前模型为「${selection.modelId}」。`,
+      t('error.modelConfirmationFailed', {
+        failure: failure ? `${failure} ` : '',
+        error: errorMessage(reason),
+      }),
+    recovered: (selection, failure) =>
+      t('error.modelRecovered', { failure, model: selection.modelId }),
   });
 }

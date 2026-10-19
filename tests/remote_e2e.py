@@ -455,7 +455,7 @@ def check_ssh(remote_server, dev_server, root, endpoint, fixture):
         project = app.command('create_project', name='SSH work', path=str(workspace), connection=ssh.connection)
         work = app.command('create_session', projectId=project['id'], providerId=provider['id'], modelId='gpt-4.1')
         first_work_events = app.turn(work, 'fixture:work-create Create verified.txt on the SSH host.')
-        require(app.wait_title(work['id'], first_work_events) == '验收文件操作', 'SSH work title was not summarized')
+        require(app.wait_title(work['id'], first_work_events) == 'Acceptance file operations', 'SSH work title was not summarized')
         require((workspace / 'verified.txt').read_text() == 'first version\n', 'Remote SDK tool did not create the file')
         failed_tool = app.turn(work, 'fixture:work-create Attempt to create the already existing file.')
         require(any(event['kind'] == 'tool' and event['data']['status'] == 'error' for event in failed_tool),

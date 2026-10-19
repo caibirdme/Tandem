@@ -26,9 +26,9 @@ describe('provider credential input', () => {
       const rendered = markup(state);
       expect(rendered).toContain(`type="${visible ? 'text' : 'password'}"`);
       expect(rendered).toContain('value="fixture-ui-key"');
-      const eye = rendered.match(/<button[^>]*aria-label="(?:显示|隐藏)密钥"[^>]*>/)?.[0];
+      const eye = rendered.match(/<button[^>]*aria-label="(?:Show|Hide) key"[^>]*>/)?.[0];
       expect(eye).toContain('type="button"');
-      expect(eye).toContain(`aria-label="${visible ? '隐藏密钥' : '显示密钥'}"`);
+      expect(eye).toContain(`aria-label="${visible ? 'Hide key' : 'Show key'}"`);
       expect(eye).toContain(`aria-pressed="${String(visible)}"`);
     },
   );
@@ -40,8 +40,8 @@ describe('provider credential input', () => {
       error: 'Fixture unavailable',
     });
     const rendered = markup(failed);
-    expect(rendered).toContain('重新读取密钥');
-    expect(rendered).toContain('留空保存不会更改现有密钥');
+    expect(rendered).toContain('Reload key');
+    expect(rendered).toContain('saving a blank value keeps the existing key');
     expect(rendered).not.toContain('disabled');
     for (const button of rendered.match(/<button[^>]*>/g) ?? [])
       expect(button).toContain('type="button"');
@@ -55,7 +55,7 @@ describe('provider credential input', () => {
     const rendered = markup(removed);
     expect(rendered).toContain('type="password"');
     expect(rendered).toContain('value=""');
-    expect(rendered).toContain('保存后将清除现有密钥');
-    expect(rendered).toContain('取消清除密钥');
+    expect(rendered).toContain('Saving will clear the existing key');
+    expect(rendered).toContain('Cancel key removal');
   });
 });

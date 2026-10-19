@@ -33,11 +33,11 @@ describe('title model settings', () => {
     const markup = renderToStaticMarkup(
       <TitlePreferences settings={settings} onSaved={async () => undefined} />,
     );
-    expect(markup).toContain('<option value="" selected="">跟随对话模型</option>');
+    expect(markup).toContain('<option value="" selected="">Use conversation model</option>');
     expect(markup).toContain('<optgroup label="Fixture provider">');
     expect(markup).toContain('Fixture model');
-    expect(markup).toContain('保存标题设置');
-    expect(markup).not.toContain('Copilot CLI 路径');
+    expect(markup).toContain('Save title settings');
+    expect(markup).not.toContain('Copilot CLI path');
   });
 
   it('shows an unavailable saved model explicitly instead of silently selecting another', () => {
@@ -47,7 +47,7 @@ describe('title model settings', () => {
         onSaved={async () => undefined}
       />,
     );
-    expect(markup).toContain('已保存的模型不可用，请重新选择');
+    expect(markup).toContain('Saved model unavailable. Choose another model.');
     expect(markup).toMatch(/<button[^>]*type="submit"[^>]*disabled=""/);
   });
 });

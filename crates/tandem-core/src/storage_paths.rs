@@ -42,8 +42,12 @@ pub(crate) fn database_path(preferred: &Path) -> Result<PathBuf> {
 }
 
 fn exists(path: &Path) -> Result<bool> {
-    path.try_exists()
-        .with_context(|| format!("无法检查应用数据路径：{}", path.display()))
+    path.try_exists().with_context(|| {
+        format!(
+            "Cannot inspect the application data path: {}",
+            path.display()
+        )
+    })
 }
 
 #[cfg(test)]

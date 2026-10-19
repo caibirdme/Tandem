@@ -1,55 +1,56 @@
 # Tandem
 
-## 项目全貌
+## Project overview
 
-Tandem 是一个连接本地目录和 SSH 项目的 Agent 桌面应用。聊天只提供网页工具，所有工具调用自动授权，不询问用户；工作在选定目录中执行，默认逐次询问权限，也可由用户为该会话选择完全授权。Agent 循环由固定版本的 GitHub Copilot SDK 提供。
+Tandem is an agent desktop application for local directories and SSH projects. Chat exposes only web tools and automatically approves every tool permission request without prompting the user. Work runs in a selected directory and asks for each permission by default; users can also grant full access for that session. A pinned GitHub Copilot SDK provides the agent loop.
 
-技术栈：Tauri 2、Rust 1.99.1 / edition 2024、React、TypeScript 7、Vite 8、pnpm。后端业务逻辑全部使用 Rust。
+Stack: Tauri 2, Rust 1.99.1 / edition 2024, React, TypeScript 7, Vite 8, and pnpm. All backend business logic is written in Rust.
 
-## 目录
+## Directory guide
 
-| 路径                        | 职责                                        |
-| --------------------------- | ------------------------------------------- |
-| `src/`                      | 桌面界面、交互状态和类型化传输              |
-| `src-tauri/`                | 桌面窗口、系统目录选择、命令和事件桥接      |
-| `crates/tandem-core/`       | 项目与会话服务、SQLite 持久化、本地密钥配置 |
-| `crates/copilot-runtime/`   | Copilot SDK 会话、权限边界和遥测配置        |
-| `crates/tandem-remote/`     | OpenSSH 建联、远端安装和 JSON RPC 通道      |
-| `crates/tandem-protocol/`   | SSH 两端共享的 JSON RPC 帧、大小限制与错误  |
-| `crates/tandem-server/`     | 远端 Agent 的 stdio 入口，随桌面资源分发    |
-| `crates/tandem-dev-server/` | 本机 HTTP 开发主机，调用应用服务            |
-| `tests/`                    | 真实协议集成验证及测试服务                  |
-| `.github/workflows/`        | PR 检测、桌面打包与 tag 发布                |
-| `docs/`                     | 架构、开发和验收记录                        |
+| Path                        | Responsibility                                                                    |
+| --------------------------- | --------------------------------------------------------------------------------- |
+| `src/`                      | Desktop UI, interaction state, and typed transport                                |
+| `src/i18n/`                 | Typed UI message catalogs and language selection                                  |
+| `src-tauri/`                | Desktop windows, native directory selection, and command/event bridging           |
+| `crates/tandem-core/`       | Project and session services, SQLite persistence, and local API key configuration |
+| `crates/copilot-runtime/`   | Copilot SDK sessions, permission boundaries, and telemetry configuration          |
+| `crates/tandem-remote/`     | OpenSSH connections, remote installation, and JSON RPC transport                  |
+| `crates/tandem-protocol/`   | Shared SSH RPC frames, size limits, and errors                                    |
+| `crates/tandem-server/`     | Remote agent stdio entry point, distributed with desktop resources                |
+| `crates/tandem-dev-server/` | Local HTTP development host that calls application services                       |
+| `tests/`                    | Integration verification against real protocols and test services                 |
+| `.github/workflows/`        | PR checks, desktop bundles, and tag releases                                      |
+| `docs/`                     | Architecture, development, and verification records                               |
 
-## 文档入口
+## Documentation
 
-- [README](README.md)：安装、启动和首次使用。
-- [架构](docs/architecture.md)：运行方式、权限和数据流。
-- [开发](docs/development.md)：质量门禁、PR 检测与发布。
-- [验收](docs/verification.md)：已执行验证及其边界。
-- [原始需求](what-to-do.md)：产品范围与技术约束。
+- [README](README.md): installation, startup, and first use.
+- [Architecture](docs/architecture.md): execution modes, permissions, and data flow.
+- [Development](docs/development.md): quality gates, PR checks, and releases.
+- [Verification](docs/verification.md): completed checks and their limits.
+- [Original requirements](what-to-do.md): product scope and technical constraints.
 
-## 开发约束
+## Development constraints
 
-- 所有需求改动必须从 `main` 创建独立 Git worktree，在该 worktree 中开发和验证，不得仅在当前工作区直接新建或切换分支。worktree 统一放在本仓库根目录的 `.worktrees/` 下，例如 `git worktree add -b fix/example .worktrees/example main`；该目录由 `.gitignore` 忽略。
-- PR 的标题和描述、Git commit message 的标题和正文必须使用英语。
-- 新依赖先查官方文档；库和工具接口按用户约定使用 Context7 的 `library`、`docs` 两步查证。
-- Copilot SDK 固定为 `v1.0.23-preview.5`。其他 Rust 依赖使用主版本兼容范围；0.x 依赖使用当前兼容次版本，不锁补丁号。`Cargo.lock` 必须提交。
-- 核心服务不依赖窗口框架。API key 按用户要求明文保存在本机 SQLite 的独立配置表；编辑页按需读取，默认隐藏并允许手动显示。普通快照不含密钥，禁止写入日志、浏览器存储和命令行参数。不使用系统凭证库，不实现旧版密钥迁移。
-- `tandem-protocol` 只负责共享协议，不依赖应用服务、SSH 或 SDK。`tandem-server` 的 workspace 依赖只允许 `copilot-runtime` 与 `tandem-protocol`，不能引入 `tandem-core`、`tandem-remote`、HTTP 服务、SQLite 或系统凭证库。
-- `tandem-dev-server` 只用于本机开发，通过 `tandem-core` 调用应用服务。远端构建、SSH 上传与桌面资源只使用 `tandem-server`，不打包开发主机。
-- 业务规则集中在所属模块；传输层只做解析、调用和事件转发。错误必须带可操作的信息。
-- 禁止用 lint 抑制掩盖生产代码问题。TypeScript 开启 strict，Rust 运行 clippy all + pedantic。
-- 测试优先覆盖权限、持久化、边界输入和协议失败；多组相同结构用表格驱动，不以覆盖率数字制造测试。
-- 文档先讲用户如何完成一个动作，再解释必要设计。接口或安装方式变化时同时更新相关文档。
+- Start every requested change in a separate Git worktree created from `main`, and develop and verify it there. Creating or switching branches in the current checkout alone is insufficient. Place worktrees under this repository's `.worktrees/` directory, for example `git worktree add -b codex/example .worktrees/example main`; `.gitignore` excludes this directory.
+- Use English for all project documentation and project information, including code comments, commit message titles and bodies, PR titles and descriptions, issue text, release notes, logs, diagnostics, and default application messages. UI translations may use their target language inside locale catalogs. English is the default UI language; users can select another supported language in Settings. Keep UI text in typed catalogs so additional languages can be added consistently.
+- Check official documentation before adding dependencies. Verify library and tool interfaces using the agreed Context7 `library` and `docs` steps.
+- Pin the Copilot SDK to `v1.0.23-preview.5`. Use compatible major version ranges for other Rust dependencies; for 0.x dependencies, use the current compatible minor version without pinning the patch. Commit `Cargo.lock`.
+- Core services must not depend on a window framework. Store API keys as requested in a separate configuration table in local SQLite, in plaintext. Read them on demand in the provider editor, hide them by default, and allow manual reveal. Ordinary snapshots must not contain keys. Never write keys to logs, browser storage, or command-line arguments. Do not use system credential stores or implement legacy key migration.
+- `tandem-protocol` contains only the shared protocol and must not depend on application services, SSH, or the SDK. The only permitted workspace dependencies of `tandem-server` are `copilot-runtime` and `tandem-protocol`; it must not include `tandem-core`, `tandem-remote`, HTTP services, SQLite, or system credential stores.
+- `tandem-dev-server` is for local development and calls application services through `tandem-core`. Remote builds, SSH uploads, and desktop resources use only `tandem-server`; do not bundle the development host.
+- Keep business rules in their owning modules. Transport layers only parse, call services, and forward events. Errors must provide actionable information.
+- Do not hide production code problems with lint suppressions. Enable TypeScript strict mode and run Rust Clippy with all + pedantic rules.
+- Prioritize permissions, persistence, boundary inputs, and protocol failures in tests. Use table-driven cases for repeated structures; do not create tests merely to increase coverage numbers.
+- Explain how users complete an action before describing the necessary design. Update relevant documentation whenever interfaces or installation procedures change.
 
-## 交付检查
+## Delivery checks
 
-- `just check`：格式、静态检查、类型和测试全部通过。
-- `just check-workspace`：验证 workspace 单向依赖，以及远端二进制不携带本机服务、数据库、凭证库或桌面框架。
-- `just build`：前端、`tandem-dev-server` 和 `tandem-server` 编译通过。
-- `just desktop-build`：当前平台桌面打包通过。
-- PR 须通过 CI 的 `Required checks` 才能合入 `main`。新增目录、构建输入或检测命令时，同步更新 `.github/workflows/ci.yml` 的路径规则与步骤。
-- 会话、供应商或权限变更，执行对应集成验证；在验收记录中写清使用真实服务还是测试服务。
-- 不提交密钥、缓存、构建产物和本地会话数据。
+- `just check`: formatting, static analysis, type checks, and tests all pass.
+- `just check-workspace`: verify one-way workspace dependencies and ensure the remote binary excludes local services, databases, credential stores, and desktop frameworks.
+- `just build`: compile the frontend, `tandem-dev-server`, and `tandem-server`.
+- `just desktop-build`: successfully bundle the desktop application for the current platform.
+- PRs must pass CI's `Required checks` before merging into `main`. When adding directories, build inputs, or check commands, update the path rules and steps in `.github/workflows/ci.yml`.
+- Run the relevant integration verification for session, provider, or permission changes. State in the verification record whether it used real services or test services.
+- Do not commit secrets, caches, build outputs, or local session data.

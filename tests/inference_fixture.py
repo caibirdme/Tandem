@@ -38,7 +38,7 @@ class Fixture:
 
     def response(self, body):
         if is_title_request(body):
-            return "验收文件操作" if "fixture:work" in json.dumps(body) else "验收对话总结"
+            return "Acceptance file operations" if "fixture:work" in json.dumps(body) else "Acceptance conversation summary"
         messages = body.get("messages", body.get("input", []))
         if isinstance(messages, str):
             messages = [{"role": "user", "content": messages}]

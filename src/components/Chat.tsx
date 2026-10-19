@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 
+import { useI18n } from '../i18n';
 import { errorMessage } from '../lib/api';
 import type { Conversation } from '../lib/conversation';
 import { needsWorkPermissionConfirmation } from '../lib/sessionOptions';
@@ -67,6 +68,7 @@ interface ChatProps {
 }
 
 export function Chat(props: ChatProps) {
+  const { t } = useI18n();
   const [draft, setDraft] = useState('');
   const [draftPermissionMode, setDraftPermissionMode] = useState<PermissionMode>('ask');
   const [jumpVisible, setJumpVisible] = useState(false);
@@ -113,17 +115,17 @@ export function Chat(props: ChatProps) {
   );
   const modelDisabled = permissionModeDisabled;
   const modelLabel = props.modelError
-    ? '待确认'
-    : currentModel?.name || currentModel?.id || props.selection?.modelId || '选择模型';
+    ? t('permissions.unconfirmed')
+    : currentModel?.name || currentModel?.id || props.selection?.modelId || t('chat.selectModel');
   const modelHint = running
-    ? '请先停止当前回复或等待结束，再切换模型'
+    ? t('chat.modelRunningHint')
     : props.historyLoading
-      ? '正在载入对话，请稍后切换模型'
+      ? t('chat.modelHistoryHint')
       : props.modelSaving
-        ? '正在保存模型选择…'
+        ? t('chat.modelSaving')
         : props.modelError
-          ? '请先重新确认当前模型'
-          : '选择模型，下一条消息将使用新模型';
+          ? t('chat.modelUnconfirmedHint')
+          : t('chat.modelSelectionHint');
   // Sending initializes the local or remote runtime on demand.
   const canSend = Boolean(
     draft.trim() &&
@@ -227,16 +229,14 @@ export function Chat(props: ChatProps) {
         onOpenChange={(open) => {
           if (!open) cancelWorkPrompt();
         }}
-        title="确认工作权限"
-        description="当前权限为「逐次询问」，工作过程中可能频繁打断你。"
+        title={t('chat.confirmWorkPermissions')}
+        description={t('chat.workPermissionDescription')}
         initialFocusRef={cancelWorkPermission}
         returnFocusRef={textarea}
       >
         <div className="work-permission-confirmation">
-          <p>
-            文件读写、命令执行等工具操作可能反复请求确认。你可以保持逐次询问，也可以切换到完全授权。
-          </p>
-          <p>完全授权会自动批准此工作中的所有工具请求。</p>
+          <p>{t('chat.workPermissionExplanation')}</p>
+          <p>{t('chat.fullAccessExplanation')}</p>
           <div className="work-permission-actions">
             <button
               className="button"
@@ -244,7 +244,7 @@ export function Chat(props: ChatProps) {
               ref={cancelWorkPermission}
               onClick={cancelWorkPrompt}
             >
-              取消
+              {t('chat.cancel')}
             </button>
             <button
               className="button"
@@ -254,7 +254,7 @@ export function Chat(props: ChatProps) {
                 void confirmWorkPermission('ask');
               }}
             >
-              确认并继续
+              {t('chat.confirmAndContinue')}
             </button>
             <button
               className="button primary"
@@ -264,7 +264,7 @@ export function Chat(props: ChatProps) {
                 void confirmWorkPermission('allow-all');
               }}
             >
-              切换到完全授权并继续
+              {t('chat.allowAllAndContinue')}
             </button>
           </div>
         </div>
@@ -287,17 +287,13 @@ export function Chat(props: ChatProps) {
               <span className="welcome-emblem">
                 <Sparkles size={20} strokeWidth={1.5} />
               </span>
-              {props.project ? '把想法，带进项目。' : '给想法一点空间。'}
+              {props.project ? t('chat.workEyebrow') : t('chat.chatEyebrow')}
             </div>
-            <h1>{props.project ? '今天，一起构建什么？' : '从一个想法，\n到下一步。'}</h1>
+            <h1>{props.project ? t('chat.workHeading') : t('chat.chatHeading')}</h1>
             <p>
-              {props.project ? (
-                <>
-                  Agent 已准备好在 <strong>{props.project.name}</strong> 中和你一起工作。
-                </>
-              ) : (
-                '理清思路，探索问题，找到新的可能。'
-              )}
+              {props.project
+                ? t('chat.workWelcome', { name: props.project.name })
+                : t('chat.chatWelcome')}
             </p>
             {props.project && (
               <div className="project-location">
@@ -319,43 +315,41 @@ export function Chat(props: ChatProps) {
                 ? [
                     {
                       icon: Compass,
-                      title: '认识这个项目',
-                      description: '梳理结构与关键模块',
-                      prompt:
-                        '请先查看这个项目，概述它的结构、技术栈和关键模块，然后告诉我适合从哪里开始。',
+                      title: t('chat.exploreProjectTitle'),
+                      description: t('chat.exploreProjectDescription'),
+                      prompt: t('chat.exploreProjectPrompt'),
                     },
                     {
                       icon: Code2,
-                      title: '一起实现功能',
-                      description: '把一个想法变成代码',
-                      prompt: '我想在这个项目中实现一个新功能：',
+                      title: t('chat.buildFeatureTitle'),
+                      description: t('chat.buildFeatureDescription'),
+                      prompt: t('chat.buildFeaturePrompt'),
                     },
                     {
                       icon: Wrench,
-                      title: '检查与改进',
-                      description: '找到值得解决的问题',
-                      prompt:
-                        '请检查这个项目，找出影响正确性或可维护性的具体问题，说明原因和改进建议。',
+                      title: t('chat.reviewProjectTitle'),
+                      description: t('chat.reviewProjectDescription'),
+                      prompt: t('chat.reviewProjectPrompt'),
                     },
                   ]
                 : [
                     {
                       icon: Lightbulb,
-                      title: '整理一个想法',
-                      description: '从模糊到清晰',
-                      prompt: '帮我一起梳理一个想法：',
+                      title: t('chat.organizeIdeaTitle'),
+                      description: t('chat.organizeIdeaDescription'),
+                      prompt: t('chat.organizeIdeaPrompt'),
                     },
                     {
                       icon: Compass,
-                      title: '探索一个问题',
-                      description: '换个角度看世界',
-                      prompt: '我想深入了解一个问题：',
+                      title: t('chat.exploreQuestionTitle'),
+                      description: t('chat.exploreQuestionDescription'),
+                      prompt: t('chat.exploreQuestionPrompt'),
                     },
                     {
                       icon: FileText,
-                      title: '写点有用的东西',
-                      description: '让表达恰到好处',
-                      prompt: '帮我写一份简洁、自然的',
+                      title: t('chat.writeTitle'),
+                      description: t('chat.writeDescription'),
+                      prompt: t('chat.writePrompt'),
                     },
                   ]
               ).map(({ icon: Icon, title, description, prompt }) => (
@@ -369,11 +363,16 @@ export function Chat(props: ChatProps) {
             </div>
           </div>
         ) : (
-          <div className="transcript" role="log" aria-label="对话消息" aria-live="polite">
+          <div
+            className="transcript"
+            role="log"
+            aria-label={t('chat.messagesLabel')}
+            aria-live="polite"
+          >
             {props.historyLoading && (
               <div className="history-loading">
                 <Spinner />
-                正在载入对话…
+                {t('chat.historyLoading')}
               </div>
             )}
             {props.conversation.messages.map((message) =>
@@ -388,14 +387,16 @@ export function Chat(props: ChatProps) {
                     Tandem
                   </div>
                   <Markdown content={message.content} />
-                  {message.interrupted && <span className="interrupted-label">输出已停止</span>}
+                  {message.interrupted && (
+                    <span className="interrupted-label">{t('chat.interrupted')}</span>
+                  )}
                   <CopyButton text={message.content} />
                 </article>
               ) : (
                 <details className="tool-message" key={message.id}>
                   <summary>
                     <Terminal size={14} />
-                    {message.role === 'tool' ? '工具输出' : '会话信息'}
+                    {message.role === 'tool' ? t('chat.toolOutput') : t('chat.sessionInfo')}
                   </summary>
                   <pre>{message.content}</pre>
                 </details>
@@ -422,10 +423,10 @@ export function Chat(props: ChatProps) {
                       <span>{tool.name}</span>
                       <small>
                         {tool.status === 'running'
-                          ? '运行中'
+                          ? t('chat.toolRunning')
                           : tool.status === 'error'
-                            ? '失败'
-                            : '已完成'}
+                            ? t('chat.toolFailed')
+                            : t('chat.toolCompleted')}
                       </small>
                       <ChevronDown size={13} />
                     </summary>
@@ -439,7 +440,11 @@ export function Chat(props: ChatProps) {
                 <span />
                 <span />
                 <span />
-                <small>{props.conversation.permissions.length ? '等待你的确认' : '正在思考'}</small>
+                <small>
+                  {props.conversation.permissions.length
+                    ? t('chat.awaitingApproval')
+                    : t('chat.thinking')}
+                </small>
               </div>
             )}
             {props.conversation.permissions.map((request) => (
@@ -447,7 +452,7 @@ export function Chat(props: ChatProps) {
                 <div className="permission-heading">
                   <ShieldCheck size={19} />
                   <div>
-                    <strong>需要你的确认</strong>
+                    <strong>{t('chat.approvalRequired')}</strong>
                     <span>{request.kind}</span>
                   </div>
                 </div>
@@ -460,7 +465,7 @@ export function Chat(props: ChatProps) {
                       void permission(request.requestId, false);
                     }}
                   >
-                    拒绝
+                    {t('chat.deny')}
                   </button>
                   <button
                     className="button primary compact"
@@ -470,7 +475,7 @@ export function Chat(props: ChatProps) {
                     }}
                   >
                     {pendingPermission === request.requestId ? <Spinner /> : <Check size={14} />}
-                    允许这一次
+                    {t('chat.allowOnce')}
                   </button>
                 </div>
               </div>
@@ -482,13 +487,13 @@ export function Chat(props: ChatProps) {
                   <button
                     className="text-button"
                     disabled={Boolean(draft)}
-                    title={draft ? '输入框已有内容，请先保留或清空它。' : undefined}
+                    title={draft ? t('chat.restoreDraftHint') : undefined}
                     onClick={() => {
                       if (props.conversation.failedSend)
                         suggestion(props.conversation.failedSend.content);
                     }}
                   >
-                    恢复未发送消息
+                    {t('chat.restoreDraft')}
                   </button>
                 )}
               </Notice>
@@ -500,7 +505,7 @@ export function Chat(props: ChatProps) {
         {jumpVisible && (
           <button
             className="jump-bottom icon-button"
-            aria-label="跳到最新消息"
+            aria-label={t('chat.jumpToLatest')}
             onClick={() => {
               transcript.current?.scrollTo({
                 top: transcript.current.scrollHeight,
@@ -515,13 +520,13 @@ export function Chat(props: ChatProps) {
         {localError && <Notice>{localError}</Notice>}
         {workHistoryUncertain && !props.historyLoading && (
           <Notice>
-            <span>尚未读取此工作的历史，请重新载入后确认首条消息的工具权限。</span>
+            <span>{t('chat.workHistoryUncertain')}</span>
             <button
               className="text-button"
               onClick={props.onReloadHistory}
               disabled={!props.connected}
             >
-              重新载入对话
+              {t('chat.reloadHistory')}
             </button>
           </Notice>
         )}
@@ -537,10 +542,10 @@ export function Chat(props: ChatProps) {
               {props.modelSaving ? (
                 <>
                   <Spinner size={13} />
-                  正在确认模型…
+                  {t('chat.modelConfirming')}
                 </>
               ) : (
-                '重新确认模型'
+                t('chat.confirmModelAgain')
               )}
             </button>
           </Notice>
@@ -557,10 +562,10 @@ export function Chat(props: ChatProps) {
               {props.permissionModeSaving ? (
                 <>
                   <Spinner size={13} />
-                  正在确认权限…
+                  {t('chat.permissionsConfirming')}
                 </>
               ) : (
-                '重新确认权限'
+                t('chat.confirmPermissionsAgain')
               )}
             </button>
           </Notice>
@@ -569,7 +574,7 @@ export function Chat(props: ChatProps) {
           <div className="setup-banner">
             <span>
               <Spinner size={13} />
-              正在重新连接本地服务…
+              {t('chat.reconnecting')}
             </span>
           </div>
         )}
@@ -577,10 +582,10 @@ export function Chat(props: ChatProps) {
           <div className="setup-banner">
             <span>
               <Sparkles size={16} />
-              连接模型，开始你的第一个对话。
+              {t('chat.connectModel')}
             </span>
             <button className="text-button" onClick={props.onSettings}>
-              设置供应商
+              {t('chat.setupProvider')}
               <ArrowRight size={13} />
             </button>
           </div>
@@ -590,17 +595,17 @@ export function Chat(props: ChatProps) {
             <div className="setup-banner">
               <span>
                 <Terminal size={16} />
-                {props.runtime?.message || '准备 Agent 运行环境。'}
+                {props.runtime?.message || t('chat.prepareRuntimeDescription')}
               </span>
               <button className="text-button" disabled={props.installing} onClick={props.onInstall}>
                 {props.installing ? (
                   <>
                     <Spinner />
-                    正在准备…
+                    {t('chat.preparingRuntime')}
                   </>
                 ) : (
                   <>
-                    准备运行环境
+                    {t('chat.prepareRuntime')}
                     <ArrowRight size={13} />
                   </>
                 )}
@@ -617,8 +622,8 @@ export function Chat(props: ChatProps) {
         >
           <textarea
             ref={textarea}
-            aria-label={props.project ? '描述任务' : '输入消息'}
-            placeholder={props.project ? '描述你想完成的任务…' : '说说你的想法，或问任何问题…'}
+            aria-label={props.project ? t('chat.taskInput') : t('chat.messageInput')}
+            placeholder={props.project ? t('chat.taskPlaceholder') : t('chat.messagePlaceholder')}
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
             rows={2}
@@ -633,17 +638,17 @@ export function Chat(props: ChatProps) {
             <div className="composer-options">
               <span
                 className="scope-pill"
-                title={props.project ? 'Agent 可操作项目文件和终端' : '聊天模式不会访问本机目录'}
+                title={props.project ? t('chat.workScopeHint') : t('chat.chatScopeHint')}
               >
                 {props.project ? <Folder size={13} /> : <MessageSquare size={13} />}
-                {props.project ? '工作' : '聊天'}
+                {props.project ? t('chat.workMode') : t('chat.chatMode')}
               </span>
               <span className="toolbar-divider" />
               <Dropdown.Root>
                 <Dropdown.Trigger
                   className="model-selector"
                   disabled={modelDisabled}
-                  aria-label={`模型：${modelLabel}`}
+                  aria-label={t('chat.modelLabel', { name: modelLabel })}
                   aria-busy={props.modelSaving}
                   title={modelHint}
                 >
@@ -660,7 +665,7 @@ export function Chat(props: ChatProps) {
                     {props.providers.length === 0 ? (
                       <Dropdown.Item className="dropdown-item" onSelect={props.onSettings}>
                         <Plus size={14} />
-                        配置供应商
+                        {t('chat.configureProvider')}
                       </Dropdown.Item>
                     ) : (
                       props.providers.map((provider) => (
@@ -704,14 +709,19 @@ export function Chat(props: ChatProps) {
               )}
             </div>
             {running && !props.session ? (
-              <button className="send-button" type="button" disabled aria-label="正在创建会话">
+              <button
+                className="send-button"
+                type="button"
+                disabled
+                aria-label={t('chat.creatingSession')}
+              >
                 <Spinner />
               </button>
             ) : running ? (
               <button
                 className="send-button stop-button"
                 type="button"
-                aria-label="停止生成"
+                aria-label={t('chat.stopResponse')}
                 onClick={props.onAbort}
               >
                 <Square size={14} fill="currentColor" />
@@ -721,7 +731,7 @@ export function Chat(props: ChatProps) {
                 className="send-button"
                 type="submit"
                 disabled={!canSend}
-                aria-label="发送消息"
+                aria-label={t('chat.sendMessage')}
               >
                 <ArrowUp size={19} strokeWidth={2.4} />
               </button>
@@ -734,19 +744,19 @@ export function Chat(props: ChatProps) {
               <>
                 <ShieldCheck size={11} />
                 {props.permissionModeError
-                  ? '权限状态尚未确认，暂不能发送任务'
+                  ? t('chat.permissionsUnconfirmed')
                   : permissionMode === 'allow-all'
-                    ? '已完全授权：自动批准文件读写、命令等所有工具请求'
-                    : '敏感操作会先征求你的确认'}
+                    ? t('chat.fullAccessFootnote')
+                    : t('chat.askPermissionFootnote')}
               </>
             ) : (
               <>
                 <LockKeyhole size={11} />
-                聊天不访问本机文件或终端
+                {t('chat.chatPrivacyFootnote')}
               </>
             )}
           </span>
-          <span>Enter 发送 · Shift Enter 换行</span>
+          <span>{t('chat.keyboardHint')}</span>
         </div>
       </div>
     </div>
@@ -764,13 +774,14 @@ function Markdown({ content }: { content: string }) {
 }
 
 function CopyButton({ text }: { text: string }) {
+  const { t } = useI18n();
   const [copied, setCopied] = useState(false);
   const timeout = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(() => () => clearTimeout(timeout.current), []);
   return (
     <button
       className="icon-button copy-button"
-      aria-label={copied ? '已复制' : '复制回复'}
+      aria-label={copied ? t('chat.copied') : t('chat.copyResponse')}
       onClick={() => {
         void navigator.clipboard
           .writeText(text)

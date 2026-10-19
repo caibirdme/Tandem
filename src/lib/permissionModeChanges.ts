@@ -1,3 +1,4 @@
+import { translate as t } from '../i18n';
 import { errorMessage } from './api';
 import { createSessionSettingChanges } from './sessionSettingChanges';
 import type { PermissionMode } from './types';
@@ -35,14 +36,21 @@ export function createPermissionModeChanges(dependencies: Dependencies) {
       }),
     unconfirmed: (sessionId, error) =>
       update({ type: 'permissionModeUnconfirmed', sessionId, error }),
-    uncertainMessage: '工具权限尚未确认，请先重新确认权限。',
-    timeoutMessage: '权限确认超时，请重试。',
-    saveFailure: (reason) => `权限更新未获确认：${errorMessage(reason)}。`,
+    get uncertainMessage() {
+      return t('error.permissionsUnconfirmed');
+    },
+    get timeoutMessage() {
+      return t('error.permissionsTimeout');
+    },
+    saveFailure: (reason) => t('error.permissionSaveFailed', { error: errorMessage(reason) }),
     readFailure: (reason, failure) =>
-      `${failure ? `${failure} ` : ''}无法确认当前工具权限：${errorMessage(reason)}。确认前暂不能发送或切换权限。`,
+      t('error.permissionConfirmationFailed', {
+        failure: failure ? `${failure} ` : '',
+        error: errorMessage(reason),
+      }),
     recovered: (permissionMode, failure) => {
-      const label = permissionMode === 'allow-all' ? '完全授权' : '逐次询问';
-      return `${failure} 已重新确认当前权限为「${label}」。`;
+      const label = permissionMode === 'allow-all' ? t('permission.allowAll') : t('permission.ask');
+      return t('error.permissionRecovered', { failure, mode: label });
     },
   });
 }

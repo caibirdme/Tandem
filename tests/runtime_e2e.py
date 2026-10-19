@@ -144,7 +144,7 @@ def main():
                     session, "fixture:chat Reply with the acceptance marker."
                 )
                 title = app.wait_title(session["id"], events)
-                require(title == "验收对话总结", "Automatic chat title was not summarized")
+                require(title == "Acceptance conversation summary", "Automatic chat title was not summarized")
                 chats[protocol] = session
                 require(
                     any(event["kind"] == "delta" for event in events),
@@ -246,10 +246,10 @@ def main():
             require(title_request["model"] == title_model, "Title did not use the selected provider/model")
             require(app.command("messages", sessionId=title_chat["id"]) == before_title,
                     "Title generation polluted conversation history")
-            app.command("rename_session", sessionId=title_chat["id"], title="手动保留的标题")
+            app.command("rename_session", sessionId=title_chat["id"], title="Manually preserved title")
             app.turn(title_chat, "fixture:chat Continue without replacing the manual title.")
             manual = next(item for item in app.command("snapshot")["sessions"] if item["id"] == title_chat["id"])
-            require(manual["title"] == "手动保留的标题", "Automatic summary overwrote a manual title")
+            require(manual["title"] == "Manually preserved title", "Automatic summary overwrote a manual title")
             summary.append("titles: automatic chat summary, selected provider/model, explicit regeneration, manual name preservation, and isolated history")
             provider, model = providers["openai-completions"]
             project = app.command(
@@ -268,7 +268,7 @@ def main():
                 work,
                 "fixture:work-create Create verified.txt with the requested text using the create tool.",
             )
-            require(app.wait_title(work["id"], create_events) == "验收文件操作", "Work title was not summarized")
+            require(app.wait_title(work["id"], create_events) == "Acceptance file operations", "Work title was not summarized")
             require(
                 (workspace / "verified.txt").read_text() == "first version\n",
                 "Real SDK create tool did not write expected file",

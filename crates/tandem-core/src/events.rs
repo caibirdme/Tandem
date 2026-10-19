@@ -44,7 +44,10 @@ impl App {
             }
             Ok(None) => EventOutcome::Continue,
             Err(error) => {
-                self.fail_session(&event.session_id, &format!("无法保存对话：{error}"));
+                self.fail_session(
+                    &event.session_id,
+                    &format!("Cannot save the conversation: {error}"),
+                );
                 EventOutcome::SessionFailed
             }
         }
@@ -73,7 +76,7 @@ impl App {
             }
             EventKind::Status => {
                 let status: SessionStatus = serde_json::from_value(data["state"].clone())
-                    .context("运行时返回了无效的会话状态")?;
+                    .context("The runtime returned an invalid session state")?;
                 if status == SessionStatus::Idle {
                     self.persist_interrupted(&event.session_id)?;
                 }
@@ -85,7 +88,7 @@ impl App {
                 self.persist_interrupted(&event.session_id)?;
                 self.set_status(&event.session_id, SessionStatus::Error)?;
                 if data["message"].as_str().is_none() {
-                    data = json!({"message":"Copilot 会话发生错误，请重试或检查供应商配置"});
+                    data = json!({"message":"The Copilot session encountered an error. Try again or check the provider settings."});
                 }
                 "error"
             }

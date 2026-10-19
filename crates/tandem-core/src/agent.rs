@@ -115,10 +115,16 @@ pub(crate) enum AgentEvents {
 impl AgentEvents {
     pub async fn recv(&mut self) -> Result<RuntimeEvent> {
         match self {
-            Self::Local(incoming) => incoming.recv().await.context("运行时事件流已中断"),
+            Self::Local(incoming) => incoming
+                .recv()
+                .await
+                .context("The runtime event stream was interrupted"),
             Self::Remote(incoming) => {
-                let value = incoming.recv().await.context("SSH 会话已断开")?;
-                serde_json::from_value(value).context("远端事件格式无效")
+                let value = incoming
+                    .recv()
+                    .await
+                    .context("The SSH session was disconnected")?;
+                serde_json::from_value(value).context("The remote event format is invalid")
             }
         }
     }
@@ -169,7 +175,10 @@ impl TurnCompletion {
                 false
             }
         });
-        anyhow::ensure!(started, "会话连接已失效，请重试");
+        anyhow::ensure!(
+            started,
+            "The session connection is no longer valid. Try again."
+        );
         Ok(())
     }
 
@@ -209,12 +218,15 @@ impl TurnCompletion {
         tokio::time::timeout(Duration::from_secs(10), async {
             let mut completed = self.0.subscribe();
             while *completed.borrow_and_update() == CompletionState::Running {
-                completed.changed().await.context("对话事件转发已停止")?;
+                completed
+                    .changed()
+                    .await
+                    .context("Conversation event forwarding has stopped")?;
             }
             Ok(())
         })
         .await
-        .context("对话结束事件尚未处理完成，请稍后重试")?
+        .context("The conversation completion event is still being processed. Try again shortly.")?
     }
 }
 

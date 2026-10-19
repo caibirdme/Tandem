@@ -111,7 +111,7 @@ async fn events(
     let stream = BroadcastStream::new(state.app.subscribe()).map(|event| {
         let value = match event {
             Ok(event) => serde_json::to_value(event).unwrap_or(Value::Null),
-            Err(_) => json!({"sessionId":"","kind":"error","data":{"message":"事件订阅中断，请刷新页面恢复历史记录"}}),
+            Err(_) => json!({"sessionId":"","kind":"error","data":{"message":"Event subscription was interrupted. Refresh the page to restore conversation history."}}),
         };
         Ok(Event::default().data(value.to_string()))
     });

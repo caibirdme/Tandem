@@ -1,7 +1,8 @@
 import type { ComponentProps } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 
+import { setLocale } from '../i18n';
 import { emptyConversation } from '../lib/conversation';
 import type { Project, Provider, Session } from '../lib/types';
 import { Chat } from './Chat';
@@ -68,11 +69,15 @@ const props: ComponentProps<typeof Chat> = {
   connected: true,
 };
 function modeControl(markup: string) {
-  return markup.match(/<button[^>]*aria-label="工具权限：[^"]+"[^>]*>/)?.[0];
+  return markup.match(/<button[^>]*aria-label="Tool permissions: [^"]+"[^>]*>/)?.[0];
 }
 function modelControl(markup: string) {
-  return markup.match(/<button[^>]*aria-label="模型：[^"]+"[^>]*>/)?.[0];
+  return markup.match(/<button[^>]*aria-label="Model: [^"]+"[^>]*>/)?.[0];
 }
+
+afterEach(() => {
+  setLocale('en');
+});
 
 describe('conversation model controls', () => {
   const modelProps = {
@@ -84,9 +89,9 @@ describe('conversation model controls', () => {
 
   it('allows choosing a model in an existing idle conversation', () => {
     const markup = renderToStaticMarkup(<Chat {...modelProps} />);
-    expect(modelControl(markup)).toContain('模型：Model');
+    expect(modelControl(markup)).toContain('Model: Model');
     expect(modelControl(markup)).not.toContain('disabled=""');
-    expect(markup).toContain('下一条消息将使用新模型');
+    expect(markup).toContain('Choose a model for your next message.');
   });
 
   it.each([
@@ -94,9 +99,15 @@ describe('conversation model controls', () => {
     { name: 'running', override: { session: { ...session, status: 'running' as const } } },
     { name: 'loading history', override: { historyLoading: true } },
     { name: 'saving the model', override: { modelSaving: true } },
-    { name: 'model is unconfirmed', override: { modelError: '无法确认当前模型' } },
+    {
+      name: 'model is unconfirmed',
+      override: { modelError: 'Could not confirm the current model' },
+    },
     { name: 'saving permissions', override: { permissionModeSaving: true } },
-    { name: 'permissions are unconfirmed', override: { permissionModeError: '无法确认权限' } },
+    {
+      name: 'permissions are unconfirmed',
+      override: { permissionModeError: 'Could not confirm permissions' },
+    },
     { name: 'disconnected', override: { connected: false } },
     {
       name: 'awaiting approval',
@@ -115,12 +126,14 @@ describe('conversation model controls', () => {
 
   it('keeps the confirmed model visible while saving and offers confirmation after failure', () => {
     const pending = renderToStaticMarkup(<Chat {...modelProps} modelSaving />);
-    expect(modelControl(pending)).toContain('模型：Model');
+    expect(modelControl(pending)).toContain('Model: Model');
     expect(modelControl(pending)).toContain('aria-busy="true"');
-    const uncertain = renderToStaticMarkup(<Chat {...modelProps} modelError="无法确认当前模型" />);
-    expect(modelControl(uncertain)).toContain('模型：待确认');
+    const uncertain = renderToStaticMarkup(
+      <Chat {...modelProps} modelError="Could not confirm the current model" />,
+    );
+    expect(modelControl(uncertain)).toContain('Model: Unconfirmed');
     expect(modelControl(uncertain)).toContain('aria-busy="false"');
-    expect(uncertain).toContain('重新确认模型');
+    expect(uncertain).toContain('Confirm model again');
     expect(modeControl(uncertain)).toContain('disabled=""');
   });
 });
@@ -136,11 +149,15 @@ describe('runtime preparation notices', () => {
         project={view.project}
         providers={[provider]}
         selection={{ providerId: provider.id, modelId: session.modelId }}
-        runtime={{ available: false, version: null, message: '本机运行环境尚未初始化' }}
+        runtime={{
+          available: false,
+          version: null,
+          message: 'The local runtime is not initialized',
+        }}
       />,
     );
-    expect(markup).toContain('本机运行环境尚未初始化');
-    expect(markup).toContain('准备运行环境');
+    expect(markup).toContain('The local runtime is not initialized');
+    expect(markup).toContain('Prepare runtime');
   });
 
   it('does not offer local runtime preparation for SSH work', () => {
@@ -159,11 +176,15 @@ describe('runtime preparation notices', () => {
         }}
         providers={[provider]}
         selection={{ providerId: provider.id, modelId: session.modelId }}
-        runtime={{ available: false, version: null, message: '本机运行环境尚未初始化' }}
+        runtime={{
+          available: false,
+          version: null,
+          message: 'The local runtime is not initialized',
+        }}
       />,
     );
-    expect(markup).not.toContain('本机运行环境尚未初始化');
-    expect(markup).not.toContain('准备运行环境');
+    expect(markup).not.toContain('The local runtime is not initialized');
+    expect(markup).not.toContain('Prepare runtime');
     expect(markup).toContain('Model');
   });
 });
@@ -193,18 +214,22 @@ describe('work permission controls', () => {
     const markup = renderToStaticMarkup(
       <Chat {...props} session={currentSession} historyLoaded={historyLoaded} />,
     );
-    expect(markup.includes('重新载入对话')).toBe(expected);
+    expect(markup.includes('Reload conversation')).toBe(expected);
   });
 
   it('defaults each new work view to ask and shows no permission selector in chat', () => {
-    expect(modeControl(renderToStaticMarkup(<Chat {...props} />))).toContain('工具权限：逐次询问');
+    expect(modeControl(renderToStaticMarkup(<Chat {...props} />))).toContain(
+      'Tool permissions: Ask each time',
+    );
     expect(
       modeControl(renderToStaticMarkup(<Chat {...props} project={undefined} />)),
     ).toBeUndefined();
     expect(modeControl(renderToStaticMarkup(<Chat {...props} session={session} />))).toContain(
-      '工具权限：完全授权',
+      'Tool permissions: Full access',
     );
-    expect(modeControl(renderToStaticMarkup(<Chat {...props} />))).toContain('工具权限：逐次询问');
+    expect(modeControl(renderToStaticMarkup(<Chat {...props} />))).toContain(
+      'Tool permissions: Ask each time',
+    );
   });
 
   it.each([
@@ -228,9 +253,11 @@ describe('work permission controls', () => {
 
   it('keeps the approved mode visible with its scope explanation', () => {
     const markup = renderToStaticMarkup(<Chat {...props} session={session} permissionModeSaving />);
-    expect(modeControl(markup)).toContain('工具权限：完全授权');
+    expect(modeControl(markup)).toContain('Tool permissions: Full access');
     expect(modeControl(markup)).toContain('aria-busy="true"');
-    expect(markup).toContain('自动批准文件读写、命令等所有工具请求');
+    expect(markup).toContain(
+      'automatically approves file access, commands, and all other tool requests.',
+    );
   });
 
   it('allows revoking authorization after an error when no task or approval remains active', () => {
@@ -242,17 +269,40 @@ describe('work permission controls', () => {
       />,
     );
     expect(modeControl(markup)).not.toContain('disabled=""');
-    expect(modeControl(markup)).toContain('工具权限：完全授权');
+    expect(modeControl(markup)).toContain('Tool permissions: Full access');
   });
 
   it('shows an actionable uncertain state without an endless spinner', () => {
     const markup = renderToStaticMarkup(
-      <Chat {...props} session={session} permissionModeError="无法确认当前工具权限" />,
+      <Chat
+        {...props}
+        session={session}
+        permissionModeError="Could not confirm current tool permissions"
+      />,
     );
-    expect(modeControl(markup)).toContain('工具权限：待确认');
+    expect(modeControl(markup)).toContain('Tool permissions: Unconfirmed');
     expect(modeControl(markup)).toContain('disabled=""');
     expect(modeControl(markup)).toContain('aria-busy="false"');
-    expect(markup).toContain('重新确认权限');
-    expect(markup).toContain('权限状态尚未确认，暂不能发送任务');
+    expect(markup).toContain('Confirm permissions again');
+    expect(markup).toContain('Confirm permissions before sending a task.');
+  });
+});
+
+describe('conversation language', () => {
+  it('renders Chinese conversation and permission controls after changing locale', () => {
+    setLocale('zh-CN');
+    const markup = renderToStaticMarkup(
+      <Chat
+        {...props}
+        providers={[provider]}
+        selection={{ providerId: provider.id, modelId: session.modelId }}
+      />,
+    );
+    expect(markup).toContain('今天，一起构建什么？');
+    expect(markup).toContain('Agent 已准备好在 Project 中和你一起工作。');
+    expect(markup).toContain('aria-label="工具权限：逐次询问"');
+    expect(markup).toContain('aria-label="模型：Model"');
+    expect(markup).toContain('描述你想完成的任务…');
+    expect(markup).not.toContain('What will we build today?');
   });
 });

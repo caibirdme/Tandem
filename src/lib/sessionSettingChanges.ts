@@ -1,3 +1,4 @@
+import { translate as t } from '../i18n';
 interface Dependencies<Value> {
   getRequests: () => Set<string>;
   advance: (sessionId: string) => void;
@@ -20,9 +21,9 @@ export function createSessionSettingChanges<Value>(dependencies: Dependencies<Va
 
   function assertCanSend(sessionId: string) {
     const status = states.get(sessionId)?.status;
-    if (status === 'deleted') throw new Error('此对话已删除。');
+    if (status === 'deleted') throw new Error(t('error.sessionDeleted'));
     if (status === 'uncertain') throw new Error(dependencies.uncertainMessage);
-    if (getRequests().has(sessionId)) throw new Error('此对话正在保存设置或发送消息，请稍后再试。');
+    if (getRequests().has(sessionId)) throw new Error(t('error.sessionBusy'));
   }
 
   function start(sessionId: string) {

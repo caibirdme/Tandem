@@ -14,6 +14,8 @@ import {
   Trash2,
 } from 'lucide-react';
 
+import { useI18n } from '../i18n';
+import { displaySessionTitle } from '../lib/sessionTitles';
 import type { Project, Session } from '../lib/types';
 import { Spinner } from './ui';
 
@@ -36,32 +38,34 @@ interface SidebarProps {
 }
 
 export function Sidebar(props: SidebarProps) {
+  const { t } = useI18n();
   const chats = props.sessions.filter((session) => session.projectId === null);
   return (
-    <aside className="sidebar" aria-label="主导航">
+    <aside className="sidebar" aria-label={t('sidebar.navigation')}>
       <div className="sidebar-brand">
         <img className="brand-symbol" src="/tandem.svg" alt="" />
         <span>Tandem</span>
         <button
           className="icon-button sidebar-collapse"
           onClick={props.onClose}
-          aria-label="收起侧栏"
+          aria-label={t('sidebar.collapse')}
         >
           <PanelLeftClose size={17} />
         </button>
       </div>
       <button className="new-chat-button" onClick={props.onNewChat}>
         <SquarePen size={17} />
-        新建对话<span className="shortcut">⌘ N</span>
+        {t('common.createChat')}
+        <span className="shortcut">⌘ N</span>
       </button>
       <div className="sidebar-scroll">
         <section className="sidebar-section">
           <div className="section-label">
-            <span>聊天</span>
+            <span>{t('sidebar.chats')}</span>
             <MessageSquare size={13} />
           </div>
           {chats.length === 0 ? (
-            <p className="sidebar-empty">想法，从这里开始。</p>
+            <p className="sidebar-empty">{t('sidebar.empty')}</p>
           ) : (
             chats.map((session) => (
               <SessionItem
@@ -80,11 +84,11 @@ export function Sidebar(props: SidebarProps) {
         </section>
         <section className="sidebar-section">
           <div className="section-label">
-            <span>项目</span>
+            <span>{t('sidebar.projects')}</span>
             <button
               className="icon-button tiny"
               onClick={props.onCreateProject}
-              aria-label="创建项目"
+              aria-label={t('common.createProject')}
             >
               <Plus size={15} />
             </button>
@@ -120,7 +124,7 @@ export function Sidebar(props: SidebarProps) {
                     ))}
                     <button className="project-new" onClick={() => props.onProject(project)}>
                       <Plus size={13} />
-                      新建工作
+                      {t('common.createWork')}
                     </button>
                   </div>
                 )}
@@ -129,7 +133,7 @@ export function Sidebar(props: SidebarProps) {
           })}
           <button className="add-project-button" onClick={props.onCreateProject}>
             <Plus size={15} />
-            添加项目
+            {t('common.addProject')}
           </button>
         </section>
       </div>
@@ -139,16 +143,20 @@ export function Sidebar(props: SidebarProps) {
             <ArrowUpRight size={16} />
           </span>
           <div>
-            <strong>你的模型，你的工作空间</strong>
-            <small>在本地或远端，把想法变成现实。</small>
+            <strong>{t('sidebar.tagline')}</strong>
+            <small>{t('sidebar.hint')}</small>
           </div>
         </div>
-        <button className="settings-button" onClick={props.onSettings} aria-label="设置">
+        <button
+          className="settings-button"
+          onClick={props.onSettings}
+          aria-label={t('common.settings')}
+        >
           <Settings2 size={17} />
-          设置
+          {t('common.settings')}
           <span
             className={`connection-dot ${props.connected ? 'online' : ''}`}
-            title={props.connected ? '服务已连接' : '服务未连接'}
+            title={props.connected ? t('sidebar.connected') : t('sidebar.disconnected')}
           />
         </button>
       </div>
@@ -175,21 +183,26 @@ function SessionItem({
   titleGenerating: boolean;
   connected: boolean;
 }) {
+  const { t } = useI18n();
   return (
     <div className={`session-item ${active ? 'selected' : ''}`}>
-      <button className="session-select" onClick={() => onSelect(session)} title={session.title}>
+      <button
+        className="session-select"
+        onClick={() => onSelect(session)}
+        title={displaySessionTitle(session)}
+      >
         {session.status === 'running' && <span className="activity-dot" />}
         {titleGenerating && (
-          <span title="正在生成标题">
+          <span title={t('common.titleGenerating')}>
             <Spinner size={11} />
           </span>
         )}
-        <span>{session.title || '新对话'}</span>
+        <span>{displaySessionTitle(session)}</span>
       </button>
       <Dropdown.Root>
         <Dropdown.Trigger
           className="icon-button session-menu"
-          aria-label={`${session.title}的选项`}
+          aria-label={t('sidebar.sessionOptions', { title: displaySessionTitle(session) })}
         >
           <MoreHorizontal size={15} />
         </Dropdown.Trigger>
@@ -197,7 +210,7 @@ function SessionItem({
           <Dropdown.Content className="dropdown" side="right" align="start" sideOffset={6}>
             <Dropdown.Item className="dropdown-item" onSelect={() => onRename(session)}>
               <SquarePen size={14} />
-              重命名
+              {t('sidebar.rename')}
             </Dropdown.Item>
             <Dropdown.Item
               className="dropdown-item"
@@ -205,7 +218,7 @@ function SessionItem({
               onSelect={() => onRegenerateTitle(session)}
             >
               <Sparkles size={14} />
-              {titleGenerating ? '正在生成标题…' : '重新生成标题'}
+              {titleGenerating ? t('common.titleGeneratingBusy') : t('common.regenerateTitle')}
             </Dropdown.Item>
             <Dropdown.Item
               className="dropdown-item danger"
@@ -213,7 +226,7 @@ function SessionItem({
               onSelect={() => onDelete(session)}
             >
               <Trash2 size={14} />
-              删除对话
+              {t('common.deleteChat')}
             </Dropdown.Item>
           </Dropdown.Content>
         </Dropdown.Portal>

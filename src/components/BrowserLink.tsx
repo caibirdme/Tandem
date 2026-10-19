@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { ReactNode } from 'react';
 
+import { useI18n } from '../i18n';
 import { errorMessage, isDesktop } from '../lib/api';
 import { externalUrl, openExternalUrl } from '../lib/external';
 
@@ -13,6 +14,7 @@ export function BrowserLink({
   children: ReactNode;
   className?: string;
 }) {
+  const { t } = useI18n();
   const [error, setError] = useState<string | null>(null);
   const url = externalUrl(href);
   if (!url) return <span className={className}>{children}</span>;
@@ -34,7 +36,7 @@ export function BrowserLink({
       </a>
       {error && (
         <span className="link-error" role="alert">
-          链接未能打开：{error}
+          {t('link.openFailed', { error })}
         </span>
       )}
     </>

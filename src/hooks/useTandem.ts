@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 
+import { translate as t } from '../i18n';
 import { dispatch, errorMessage, subscribe } from '../lib/api';
 import { emptyConversation } from '../lib/conversation';
 import { createModelChanges } from '../lib/modelChanges';
@@ -71,14 +72,13 @@ export function useTandem() {
       read: async (sessionId) => {
         const fresh = await dispatch('snapshot', {});
         const mode = fresh.sessions.find((item) => item.id === sessionId)?.permissionMode;
-        if (mode !== 'ask' && mode !== 'allow-all')
-          throw new Error('服务未返回此工作的有效权限状态');
+        if (mode !== 'ask' && mode !== 'allow-all') throw new Error(t('error.invalidPermissions'));
         return mode;
       },
     });
     function selectionFrom(session: Session | undefined, sessionId: string): ModelSelection {
       if (session?.id !== sessionId || !session.providerId || !session.modelId)
-        throw new Error('服务未返回此对话的有效模型状态');
+        throw new Error(t('error.invalidModel'));
       return { providerId: session.providerId, modelId: session.modelId };
     }
     modelChanges.current ??= createModelChanges({
@@ -211,7 +211,7 @@ export function useTandem() {
         permissionChanges.current?.forget(session.id);
         modelChanges.current?.forget(session.id);
         update({ type: 'sessionsDeleted', sessionIds: [session.id] });
-        throw new Error('此工作所属的项目已移除。');
+        throw new Error(t('error.projectRemoved'));
       }
       sessionProjects.current.set(session.id, session.projectId);
       advance(session.id);
@@ -225,7 +225,7 @@ export function useTandem() {
     async (sessionId: string, content: string) => {
       const changes = permissionChanges.current;
       const models = modelChanges.current;
-      if (!changes || !models) throw new Error('工作空间正在初始化，请稍后再试。');
+      if (!changes || !models) throw new Error(t('error.initializing'));
       models.assertCanSend(sessionId);
       changes.assertCanSend(sessionId);
       advance(sessionId);
@@ -264,7 +264,7 @@ export function useTandem() {
     ): Promise<PermissionMode | undefined> => {
       const target = snapshot?.sessions.find((item) => item.id === sessionId);
       if (!target?.projectId) {
-        update({ type: 'errorReported', error: '只有工作会话可以更改工具权限。' });
+        update({ type: 'errorReported', error: t('error.workOnlyPermissions') });
         return;
       }
       if (
@@ -273,7 +273,7 @@ export function useTandem() {
         conversations[sessionId]?.status === 'running' ||
         Boolean(conversations[sessionId]?.permissions.length)
       ) {
-        update({ type: 'errorReported', error: '请等待当前任务结束，再更改工具权限。' });
+        update({ type: 'errorReported', error: t('error.waitForPermissions') });
         return;
       }
       if (target.permissionMode === permissionMode) return target.permissionMode;
@@ -288,16 +288,15 @@ export function useTandem() {
   const changeSessionModel = useCallback(
     async (sessionId: string, selection: ModelSelection) => {
       const target = snapshot?.sessions.find((item) => item.id === sessionId);
-      if (!target) throw new Error('此对话已不存在，请刷新后重试。');
-      if (!connected) throw new Error('请等待服务重新连接，再切换模型。');
-      if (activeSessionId === sessionId && historyLoading)
-        throw new Error('请等待对话历史载入完成，再切换模型。');
+      if (!target) throw new Error(t('error.sessionMissing'));
+      if (!connected) throw new Error(t('error.waitConnection'));
+      if (activeSessionId === sessionId && historyLoading) throw new Error(t('error.waitHistory'));
       if (
         target.status === 'running' ||
         conversations[sessionId]?.status === 'running' ||
         Boolean(conversations[sessionId]?.permissions.length)
       )
-        throw new Error('请先停止当前回复或等待结束，再切换模型。');
+        throw new Error(t('error.waitResponse'));
       permissionChanges.current?.assertCanSend(sessionId);
       modelChanges.current?.assertCanSend(sessionId);
       if (target.providerId === selection.providerId && target.modelId === selection.modelId)

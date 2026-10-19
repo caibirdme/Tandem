@@ -14,7 +14,7 @@ jobs:
   remote-linux:
     name: Remote Agent (x86_64-unknown-linux-gnu)
     runs-on: ubuntu-24.04
-    # 在较旧的 glibc 上编译，产物才能运行在更多 Linux 发行版上。
+    # Build against an older glibc to support more Linux distributions.
     container: ubuntu:22.04
     timeout-minutes: 60
     steps:
@@ -80,7 +80,7 @@ jobs:
             cp "$directory/tandem-server" "src-tauri/remote/$target/tandem-server"
             chmod 700 "src-tauri/remote/$target/tandem-server"
           done
-      # macOS 使用 tauri.conf.json 中的 ad-hoc 签名，不需要 Apple 证书。
+      # macOS uses the ad hoc signature configured in tauri.conf.json without an Apple certificate.
       - run: pnpm tauri build
       - uses: actions/upload-artifact@v7
         with:

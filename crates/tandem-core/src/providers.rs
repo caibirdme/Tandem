@@ -18,7 +18,7 @@ impl App {
         if provider.id.is_empty() {
             provider.id = Uuid::new_v4().to_string();
         } else {
-            Uuid::parse_str(&provider.id).context("供应商 ID 无效")?;
+            Uuid::parse_str(&provider.id).context("The provider ID is invalid")?;
         }
         let _guard = self.mutation_gate.lock().await;
         self.require_provider_idle(&provider.id)?;
@@ -58,7 +58,7 @@ impl App {
                 // Keep the provider visible and retryable when local credential storage fails.
                 self.store
                     .save_provider(&provider)
-                    .with_context(|| format!("删除密钥失败（{error}），且无法恢复供应商记录"))?;
+                    .with_context(|| format!("Deleting the API key failed ({error}), and the provider record could not be restored"))?;
                 return Err(error);
             }
             self.clear_invalid_title_model()
@@ -80,7 +80,7 @@ impl App {
             .iter()
             .any(|session| session.provider_id == id && session.status == SessionStatus::Running)
         {
-            bail!("请等待该供应商的对话结束后再修改配置");
+            bail!("Wait for this provider's conversations to finish before changing its settings.");
         }
         Ok(())
     }
