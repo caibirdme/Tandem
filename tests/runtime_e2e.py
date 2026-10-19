@@ -4,6 +4,7 @@
 Only inference and the OTLP collector are fixtures. The application server,
 SDK process, tool execution, permission flow, persistence, and telemetry
 exporter are the production code. No external API key is needed.
+Chat web-tool acceptance fetches the public page https://example.com.
 
 Run after building tandem-dev-server: python3 tests/runtime_e2e.py
 """
@@ -29,7 +30,7 @@ from inference_fixture import (
     protobuf_span_names,
     require,
 )
-from permission_acceptance import auto_turn, check_permission_modes
+from permission_acceptance import auto_turn, check_chat_permissions, check_permission_modes
 from model_switch_acceptance import (
     ALTERNATE_MODEL,
     check_model_switch_after_restart,
@@ -361,6 +362,16 @@ def main():
             summary.append(
                 "model switching: same provider and cross-protocol providers retain the same session, ordered inference history, persisted selection, and work authorization; generation and pending-approval changes are rejected"
             )
+            web_chat = app.command(
+                "create_session",
+                projectId=None,
+                providerId=provider["id"],
+                modelId=model,
+            )
+            check_chat_permissions(app, fixture, web_chat)
+            summary.append(
+                "chat permissions: real web_fetch succeeds without interactive approval"
+            )
             # Restart the runtime by changing telemetry; this exercises cold SDK resume.
             before_resume = len(app.command("messages", sessionId=work["id"]))
             app.command(
@@ -376,6 +387,7 @@ def main():
             app.turn(
                 work, "fixture:chat Continue after restarting the Copilot runtime."
             )
+            check_chat_permissions(app, fixture, web_chat)
             require(
                 len(app.command("messages", sessionId=work["id"])) == before_resume + 2,
                 "Cold resume duplicated or lost transcript messages",
@@ -462,6 +474,7 @@ def main():
                 work,
                 "fixture:chat Continue after restarting the entire application server.",
             )
+            check_chat_permissions(app, fixture, web_chat)
             require(
                 len(app.command("messages", sessionId=work["id"]))
                 == len(previous_messages) + 2,

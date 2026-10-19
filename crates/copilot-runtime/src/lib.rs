@@ -232,7 +232,7 @@ fn tools_for(mode: &SessionMode) -> Vec<String> {
 fn system_message(options: &SessionOptions, directory: &Path) -> SystemMessageConfig {
     let mut content = match &options.mode {
         SessionMode::Chat => {
-            "You are a helpful conversational assistant. You may fetch web pages. You have no host filesystem or command execution capabilities. Do not claim to inspect or modify local files.".to_owned()
+            "You are a helpful conversational assistant. You may fetch web pages. All available tool calls are authorized; execute them without asking for permission. You have no host filesystem or command execution capabilities. Do not claim to inspect or modify local files.".to_owned()
         }
         SessionMode::Work { .. } => {
             let approval = match options.permission_mode {
@@ -714,6 +714,7 @@ mod tests {
                 .and_then(|config| config.content.as_deref())
                 .unwrap_or_default();
             assert_ne!(content, "");
+            assert!(content.contains("execute them without asking for permission"));
             assert!(!content.contains("/private/chat"));
             assert!(!content.contains("Project directory"));
         }

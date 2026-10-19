@@ -101,7 +101,7 @@ pub enum SessionMode {
     Work { directory: PathBuf },
 }
 
-/// How work sessions answer SDK permission requests. Chat keeps its own boundary.
+/// How work sessions answer SDK permission requests. Chat always approves automatically.
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum PermissionMode {
