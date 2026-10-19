@@ -1,103 +1,186 @@
-name: Quality and desktop bundles
+name: CI
+
 on:
-  push:
   pull_request:
-  workflow_dispatch:
+    branches: [main]
+  push:
+    branches: [main]
+
 permissions:
   contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CARGO_TERM_COLOR: always
+
 jobs:
-  quality:
+  changes:
+    name: Detect changes
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      web: ${{ steps.filter.outputs.web }}
+      rust: ${{ steps.filter.outputs.rust }}
+      remote: ${{ steps.filter.outputs.remote }}
+      bundle: ${{ steps.filter.outputs.bundle }}
+    steps:
+      - uses: actions/checkout@v7
+        if: github.event_name == 'push'
+      # web、rust、remote 默认运行，只有改动全部命中排除项时才跳过；bundle 只在打包输入变化时运行。
+      - uses: dorny/paths-filter@v4
+        id: filter
+        with:
+          predicate-quantifier: some-with-excludes
+          filters: |
+            web:
+              - '**'
+              - '!crates/**'
+              - '!src-tauri/**'
+              - '!tests/**'
+              - '!docs/**'
+              - '!**/*.md'
+              - '!Cargo.toml'
+              - '!Cargo.lock'
+              - '!rust-toolchain.toml'
+              - '!rustfmt.toml'
+              - '!scripts/*.py'
+              - '!justfile'
+              - '!.oxfmtrc.json'
+              - '!.github/workflows/bundle.yml'
+              - '!.github/workflows/release.yml'
+            rust: &rust
+              - '**'
+              - '!src/**'
+              - '!public/**'
+              - '!index.html'
+              - '!docs/**'
+              - '!**/*.md'
+              - '!package.json'
+              - '!pnpm-lock.yaml'
+              - '!tsconfig.json'
+              - '!vite.config.ts'
+              - '!.oxfmtrc.json'
+              - '!.oxlintrc.json'
+              - '!scripts/*.mjs'
+              - '!justfile'
+              - '!.github/workflows/bundle.yml'
+              - '!.github/workflows/release.yml'
+            remote:
+              - *rust
+              - '!src-tauri/**'
+            bundle:
+              - '.github/workflows/bundle.yml'
+              - 'src-tauri/tauri.conf.json'
+              - 'src-tauri/icons/**'
+              - 'src-tauri/remote/**'
+              - 'src-tauri/build.rs'
+              - 'src-tauri/Cargo.toml'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'rust-toolchain.toml'
+              - 'package.json'
+              - 'pnpm-lock.yaml'
+
+  format:
+    name: Format
+    needs: changes
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm format:check
+      - if: needs.changes.outputs.rust == 'true'
+        run: rustup toolchain install nightly --profile minimal --component rustfmt
+      - if: needs.changes.outputs.rust == 'true'
+        run: cargo +nightly fmt --all -- --check
+
+  web:
+    name: Web
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm build
+
+  rust:
+    name: Rust (${{ matrix.os }})
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
     strategy:
+      fail-fast: false
       matrix:
         os: [macos-15, windows-2022]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
-          node-version: '24'
-      - run: corepack enable
-      - run: corepack prepare pnpm@12.9.1 --activate
-      - run: pnpm install --frozen-lockfile
-      - run: rustup toolchain install 1.99.1 --profile minimal --component clippy
-      - run: rustup toolchain install nightly --profile minimal --component rustfmt
-      - run: pnpm format:check
-      - run: pnpm lint && pnpm typecheck && pnpm test && pnpm build
-      - run: cargo +nightly fmt --all -- --check
-      - run: cargo clippy --workspace --all-targets -- -D warnings
-      - run: cargo test --workspace
-      - run: python scripts/check_workspace.py
+          python-version: '3.14'
       - run: python -m unittest discover -s tests -p 'test_*.py'
-      - run: cargo build -p tandem-dev-server -p tandem-server
+      - run: rustup toolchain install
+      # PR 只恢复 main 保存的缓存，避免每个 PR 各存一份。
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: python scripts/check_workspace.py
+      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - run: cargo test --workspace --locked
+      - run: cargo build -p tandem-dev-server --locked
       - run: python tests/runtime_e2e.py
-  remote-linux:
-    strategy:
-      matrix:
-        include:
-          - runner: ubuntu-24.04
-            target: x86_64-unknown-linux-gnu
-          - runner: ubuntu-24.04-arm
-            target: aarch64-unknown-linux-gnu
-    runs-on: ${{ matrix.runner }}
-    container: ubuntu:22.04
+
+  remote:
+    name: Remote Agent (Linux)
+    needs: changes
+    if: needs.changes.outputs.remote == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
     steps:
-      - run: apt-get update && apt-get install -y curl git build-essential pkg-config libssl-dev ca-certificates
-      - uses: actions/checkout@v4
-      - run: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.99.1 --profile minimal
-      - run: $HOME/.cargo/bin/cargo build --release -p tandem-server --locked
-      - uses: actions/upload-artifact@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
-          name: remote-${{ matrix.target }}
-          path: target/release/tandem-server
-  remote-macos:
-    strategy:
-      matrix:
-        include:
-          - runner: macos-15
-            target: aarch64-apple-darwin
-          - runner: macos-15-intel
-            target: x86_64-apple-darwin
-    runs-on: ${{ matrix.runner }}
+          python-version: '3.14'
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends openssh-server
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: cargo build -p tandem-dev-server -p tandem-server --locked
+      - run: python tests/remote_e2e.py
+
+  bundle:
+    name: Desktop bundle
+    needs: changes
+    if: needs.changes.outputs.bundle == 'true'
+    uses: ./.github/workflows/bundle.yml
+
+  # 分支保护只要求这一项；被跳过的检测视为通过，失败或取消则阻止合入。
+  required:
+    name: Required checks
+    if: always()
+    needs: [changes, format, web, rust, remote, bundle]
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - run: rustup toolchain install 1.99.1 --profile minimal
-      - run: cargo build --release -p tandem-server --locked
-      - uses: actions/upload-artifact@v4
-        with:
-          name: remote-${{ matrix.target }}
-          path: target/release/tandem-server
-  desktop:
-    needs: [quality, remote-linux, remote-macos]
-    strategy:
-      matrix:
-        os: [macos-15, macos-15-intel, windows-2022]
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24'
-      - run: corepack enable
-      - run: corepack prepare pnpm@12.9.1 --activate
-      - run: pnpm install --frozen-lockfile
-      - run: rustup toolchain install 1.99.1 --profile minimal
-      - uses: actions/download-artifact@v4
-        with:
-          pattern: remote-*
-          path: artifacts
-      - shell: bash
+      - env:
+          RESULTS: ${{ toJSON(needs) }}
         run: |
-          for directory in artifacts/remote-*; do
-            target="${directory#artifacts/remote-}"
-            mkdir -p "src-tauri/remote/$target"
-            cp "$directory/tandem-server" "src-tauri/remote/$target/tandem-server"
-            chmod 700 "src-tauri/remote/$target/tandem-server"
-          done
-      - run: pnpm tauri build
-      - uses: actions/upload-artifact@v4
-        with:
-          name: tandem-${{ matrix.os }}
-          path: |
-            target/release/bundle/**/*.dmg
-            target/release/bundle/**/*.msi
-            target/release/bundle/**/*.exe
+          jq -r 'to_entries[] | "\(.key): \(.value.result)"' <<< "$RESULTS"
+          jq -e 'all(.[]; .result == "success" or .result == "skipped")' <<< "$RESULTS" > /dev/null

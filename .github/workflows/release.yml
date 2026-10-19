@@ -1,0 +1,68 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  version:
+    name: Check version
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: Require the tag to match the app version
+        shell: python
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          import json, os, sys, tomllib
+          from pathlib import Path
+
+          tag = os.environ["TAG"]
+          versions = {
+              "package.json": json.loads(Path("package.json").read_text())["version"],
+              "src-tauri/tauri.conf.json": json.loads(Path("src-tauri/tauri.conf.json").read_text())["version"],
+              "Cargo.toml": tomllib.loads(Path("Cargo.toml").read_text())["workspace"]["package"]["version"],
+          }
+          mismatched = {path: version for path, version in versions.items() if f"v{version}" != tag}
+          for path, version in mismatched.items():
+              print(f"::error file={path}::{path} has version {version}, but tag {tag} expects {tag.removeprefix('v')}.")
+          if mismatched:
+              sys.exit(1)
+          print(f"{tag} matches {', '.join(versions)}.")
+
+  bundle:
+    name: Desktop bundle
+    needs: version
+    uses: ./.github/workflows/bundle.yml
+
+  publish:
+    name: Publish draft release
+    needs: bundle
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: tandem-*
+          path: packages
+          merge-multiple: true
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+          NOTES: |
+            - Mac 下载 `.dmg`（仅支持 Apple 芯片）；Windows 下载 `x64-setup.exe` 或 `.msi`。
+            - macOS 安装包未经 Apple 签名和公证。将 Tandem 拖入「应用程序」后，首次打开前在终端执行 `xattr -dr com.apple.quarantine /Applications/Tandem.app`。
+        run: |
+          gh release view "$TAG" > /dev/null 2>&1 ||
+            gh release create "$TAG" --draft --verify-tag --generate-notes --notes "$NOTES"
+          find packages -type f -print0 | xargs -0 gh release upload "$TAG" --clobber

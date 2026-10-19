@@ -23,6 +23,24 @@ workspace 的默认目标也是 `tandem-dev-server`，因此 `cargo run` 仍启�
 
 单元测试针对状态合并、权限拒绝、配置边界、数据库关系、SSH 注入和通信失败。`just check` 也包含 Python 标准库测试，验证验收脚本自身的事件分流与进程清理，以及依赖边界检查器。集成测试使用真正的 SDK 与配套 CLI，只将外部推理服务与 OTLP 接收端替换为测试端点，因此不需要付费凭证。它不能证明某个真实供应商支持特定模型或参数。
 
+## PR 检测
+
+向 `main` 提交 PR 后，CI 按改动的文件决定运行哪些检测，最后汇总为 `Required checks`。它通过后才能合入；某项失败时，在 PR 页面打开该检测即可看到出错命令的输出。
+
+| 检测                   | 运行环境                   | 跳过条件                              | 内容                                                    |
+| ---------------------- | -------------------------- | ------------------------------------- | ------------------------------------------------------- |
+| `Format`               | Linux                      | 不跳过；没有 Rust 改动时不跑 rustfmt  | oxfmt、nightly rustfmt                                  |
+| `Web`                  | Linux                      | 只改 Rust、Python 验收或文档          | oxlint、类型检查、vitest、生产构建                      |
+| `Rust`                 | macOS、Windows             | 只改前端或文档                        | Python 单测、依赖边界、Clippy、Rust 测试、本地 SDK 集成 |
+| `Remote Agent (Linux)` | Linux                      | 只改前端、文档或桌面外壳 `src-tauri/` | 在隔离的 sshd 中验证 SSH 部署和远端工作                 |
+| `Desktop bundle`       | Linux 容器、macOS、Windows | 打包配置、图标、依赖和工具链都未改动  | 与发布相同的打包流程，产物可在运行记录中下载            |
+
+被跳过的检测视为通过。跳过规则写在 `.github/workflows/ci.yml` 的 `changes` 任务中：前四项默认运行，只有改动全部命中排除项才跳过，因此新增目录会自动触发全部检测；打包只在列出的输入变化时运行。新增构建输入或检测命令时，同步更新这里的规则。
+
+合入 `main` 后 CI 会再运行一次，并保存 Rust 编译缓存；PR 只读取该缓存。
+
+「合入前必须通过」由仓库规则保证，需要管理员配置一次：在 GitHub 仓库的 Settings → Rules → Rulesets 新建分支规则，目标为默认分支，勾选 Require a pull request before merging 与 Require status checks to pass，并添加来自 GitHub Actions 的 `Required checks`。
+
 ## 真实供应商验收
 
 `tests/live_provider_e2e.py` 用真实推理请求检查聊天、流式消息持久化，以及读取、创建、编辑文件和执行验证命令的工作流程。脚本固定连接 `https://camp-dev.woa.com/pingress`，需要能访问该网关并持有可用的供应商密钥。它会产生真实推理用量，不纳入日常质量门禁。
@@ -80,13 +98,27 @@ SDK 首次编译需下载对应平台 CLI，断网环境应先准备构建缓存
 
 在锁屏或自动化环境中使用 `CI=true just desktop-build`，跳过需要 Finder 交互的 DMG 窗口装饰。
 
-Linux 远端产物使用 `x86_64-unknown-linux-gnu` 或 `aarch64-unknown-linux-gnu`，macOS 使用对应 `apple-darwin` target。正式分发应包含所需远端平台的二进制，而非把桌面平台二进制发到不同系统。`scripts/prepare-remote.mjs <target>` 将显式 target 的 release 产物放到正确目录。
-
-CI 的质量检查构建两个服务并运行本地 SDK 验收；Linux/macOS 远端任务只构建和上传 `tandem-server`。桌面任务下载这些远端产物后打包，不把开发主机作为资源收集。
+发布的安装包内置 Linux x64（`x86_64-unknown-linux-gnu`）和 Apple 芯片 macOS（`aarch64-apple-darwin`）的远端 Agent。应用也能识别 Linux arm64 和 Intel Mac 主机，但安装包不含它们的二进制，连接时会提示缺少产物；需要时自行构建对应 target，再用 `scripts/prepare-remote.mjs <target>` 放入资源目录。
 
 应用及命令名称统一使用 Tandem：Windows 无安装包的可执行文件为 `target/release/tandem-desktop.exe`，远端产物为 `tandem-server`。自定义远端产物目录使用 `TANDEM_REMOTE_ARTIFACTS`；未设置时仍接受旧 `RELAY_REMOTE_ARTIFACTS`，但其中必须准备新的 `tandem-server`，不会加载旧名程序。已有数据目录与 SDK 状态的兼容规则见[历史和密钥](architecture.md#历史和密钥)。
 
 SSH 使用 BatchMode 和严格主机校验，适用于密钥与 ssh-agent。未知主机或需要交互登录时，先在终端完成登录。Windows 客户端需要系统 OpenSSH；Windows 作为远端执行主机暂不支持。
+
+## 发布
+
+1. 把 `package.json`、`src-tauri/tauri.conf.json` 和 `Cargo.toml` 中 `workspace.package` 的版本改为新版本，运行 `cargo update --workspace` 同步 `Cargo.lock`，通过 PR 合入 `main`。
+2. 在 `main` 上打 tag 并推送：
+
+   ```sh
+   git tag v0.1.5
+   git push origin v0.1.5
+   ```
+
+3. 等待 Actions 中的 Release 流水线完成，在 Releases 页面打开同名草稿，确认安装包后点击发布。
+
+tag 必须是 `v` 加上述版本号，否则 `Check version` 会列出不一致的文件并停止。流水线在 `ubuntu:22.04` 容器中构建 Linux x64 的 `tandem-server`，以兼容较旧的 glibc；在 macOS 上构建 Apple 芯片版本。桌面任务把这两个远端 Agent 放入资源目录，生成 Apple 芯片 macOS 的 DMG，以及 Windows x64 的 MSI 和 NSIS 安装程序；开发主机不进入安装包。
+
+macOS 使用 ad-hoc 签名，不需要 Apple 账号；用户首次打开前需解除系统隔离，见 README 的「安装」。只想要安装包而不发版时，在 Actions 页面手动运行 Desktop bundles，从运行记录下载产物。重跑同一 tag 的流水线会覆盖 Release 中的同名文件。
 
 ## 服务契约
 
