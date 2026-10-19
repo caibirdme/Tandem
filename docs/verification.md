@@ -10,7 +10,7 @@
 
 [PR #1](https://github.com/caibirdme/Tandem/pull/1) 在 GitHub runner 上运行：格式与前端检测通过；macOS 的 Rust 检测通过，含 103 项 Rust 测试和本地 SDK 集成；Windows 的 Rust 检测通过，含 98 项 Rust 测试和本地 SDK 集成，共 59 次推理，强制结束 SDK 的场景按脚本在 Windows 跳过；Linux 的 SSH 集成通过。首轮 Windows 检测曾在依赖边界检查失败：脚本按系统默认的 cp1252 解码 `cargo metadata` 的 UTF-8 输出，遇到非 ASCII 字节即报错，此前在中文 Windows 上按 GBK 解码碰巧通过。现改为显式按 UTF-8 解码。该轮 `Required checks` 随之失败，合入门禁按预期生效。
 
-首轮打包构建了四个远端 Agent 和 Apple 芯片、Intel、Windows 三个安装包，均成功；每个安装包约 900 MiB，主要来自内置的远端 Agent，每个压缩后约 180 MiB。随后发布范围收窄为 Apple 芯片 macOS 与 Windows x64 安装包，远端 Agent 只保留 Linux x64 和 Apple 芯片 macOS。
+首轮打包构建了四个远端 Agent 和 Apple 芯片、Intel、Windows 三个安装包，均成功；每个安装包约 900 MiB，主要来自内置的远端 Agent，每个压缩后约 180 MiB。随后发布范围收窄为 Apple 芯片 macOS 与 Windows x64 安装包，远端 Agent 只保留 Linux x64 和 Apple 芯片 macOS。收窄后的运行中，两个远端 Agent 和两个安装包均构建成功：DMG 约 529 MiB，Windows 的 MSI 与 NSIS 安装包各约 524 MiB；全部检测通过，`Required checks` 随之通过。
 
 tag 发布和草稿 Release 上传尚未实际运行，留待首次发版验证。
 
