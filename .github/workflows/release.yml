@@ -60,7 +60,7 @@ jobs:
           GH_REPO: ${{ github.repository }}
           TAG: ${{ github.ref_name }}
           NOTES: |
-            - Apple 芯片的 Mac 下载 `aarch64.dmg`，Intel Mac 下载 `x64.dmg`；Windows 下载 `x64-setup.exe` 或 `.msi`。
+            - Mac 下载 `.dmg`（仅支持 Apple 芯片）；Windows 下载 `x64-setup.exe` 或 `.msi`。
             - macOS 安装包未经 Apple 签名和公证。将 Tandem 拖入「应用程序」后，首次打开前在终端执行 `xattr -dr com.apple.quarantine /Applications/Tandem.app`。
         run: |
           gh release view "$TAG" > /dev/null 2>&1 ||

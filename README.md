@@ -6,7 +6,7 @@
 
 ## 安装
 
-在 [Releases](https://github.com/caibirdme/Tandem/releases) 下载安装包：Apple 芯片的 Mac 选 `aarch64.dmg`，Intel Mac 选 `x64.dmg`，Windows 选 `x64-setup.exe` 或 `.msi`。
+在 [Releases](https://github.com/caibirdme/Tandem/releases) 下载安装包：Mac 选 `.dmg`（仅支持 Apple 芯片），Windows 选 `x64-setup.exe` 或 `.msi`。
 
 macOS 安装包没有 Apple 签名和公证。将 Tandem 拖入「应用程序」后，首次打开前在终端执行：
 

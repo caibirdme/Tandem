@@ -12,15 +12,8 @@ env:
 
 jobs:
   remote-linux:
-    name: Remote Agent (${{ matrix.target }})
-    strategy:
-      matrix:
-        include:
-          - runner: ubuntu-24.04
-            target: x86_64-unknown-linux-gnu
-          - runner: ubuntu-24.04-arm
-            target: aarch64-unknown-linux-gnu
-    runs-on: ${{ matrix.runner }}
+    name: Remote Agent (x86_64-unknown-linux-gnu)
+    runs-on: ubuntu-24.04
     # 在较旧的 glibc 上编译，产物才能运行在更多 Linux 发行版上。
     container: ubuntu:22.04
     timeout-minutes: 60
@@ -33,21 +26,14 @@ jobs:
       - run: cargo build --release -p tandem-server --locked
       - uses: actions/upload-artifact@v7
         with:
-          name: remote-${{ matrix.target }}
+          name: remote-x86_64-unknown-linux-gnu
           path: target/release/tandem-server
           if-no-files-found: error
           retention-days: 1
 
   remote-macos:
-    name: Remote Agent (${{ matrix.target }})
-    strategy:
-      matrix:
-        include:
-          - runner: macos-15
-            target: aarch64-apple-darwin
-          - runner: macos-15-intel
-            target: x86_64-apple-darwin
-    runs-on: ${{ matrix.runner }}
+    name: Remote Agent (aarch64-apple-darwin)
+    runs-on: macos-15
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
@@ -55,7 +41,7 @@ jobs:
       - run: cargo build --release -p tandem-server --locked
       - uses: actions/upload-artifact@v7
         with:
-          name: remote-${{ matrix.target }}
+          name: remote-aarch64-apple-darwin
           path: target/release/tandem-server
           if-no-files-found: error
           retention-days: 1
@@ -68,11 +54,9 @@ jobs:
       matrix:
         include:
           - runner: macos-15
-            platform: macos-aarch64
-          - runner: macos-15-intel
-            platform: macos-x86_64
+            platform: macos
           - runner: windows-2022
-            platform: windows-x86_64
+            platform: windows
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
     steps:

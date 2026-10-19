@@ -8,7 +8,9 @@
 
 本机 shell 设置 `COPILOT_OFFLINE=true` 时，本地集成会因聊天缺少 `web_fetch` 而失败，去掉该变量后通过；GitHub runner 不设置该变量。
 
-[PR #1](https://github.com/caibirdme/Tandem/pull/1) 在 GitHub runner 上的首轮运行：格式与前端检测通过；macOS 的 Rust 检测通过，含 103 项 Rust 测试和本地 SDK 集成；Linux 的 SSH 集成通过；容器内的两个 Linux 远端 Agent 和两个 macOS 远端 Agent 均构建成功；Apple 芯片 DMG、Intel DMG 和 Windows MSI / NSIS 安装包均打包成功。每个安装包约 900 MiB，主要来自内置的四个远端 Agent，每个压缩后约 180 MiB。Windows 的 Rust 检测在依赖边界检查失败：脚本按系统默认的 cp1252 解码 `cargo metadata` 的 UTF-8 输出，遇到非 ASCII 字节即报错，此前在中文 Windows 上按 GBK 解码碰巧通过。现改为显式按 UTF-8 解码。该轮 `Required checks` 随之失败，合入门禁按预期生效。
+[PR #1](https://github.com/caibirdme/Tandem/pull/1) 在 GitHub runner 上运行：格式与前端检测通过；macOS 的 Rust 检测通过，含 103 项 Rust 测试和本地 SDK 集成；Windows 的 Rust 检测通过，含 98 项 Rust 测试和本地 SDK 集成，共 59 次推理，强制结束 SDK 的场景按脚本在 Windows 跳过；Linux 的 SSH 集成通过。首轮 Windows 检测曾在依赖边界检查失败：脚本按系统默认的 cp1252 解码 `cargo metadata` 的 UTF-8 输出，遇到非 ASCII 字节即报错，此前在中文 Windows 上按 GBK 解码碰巧通过。现改为显式按 UTF-8 解码。该轮 `Required checks` 随之失败，合入门禁按预期生效。
+
+首轮打包构建了四个远端 Agent 和 Apple 芯片、Intel、Windows 三个安装包，均成功；每个安装包约 900 MiB，主要来自内置的远端 Agent，每个压缩后约 180 MiB。随后发布范围收窄为 Apple 芯片 macOS 与 Windows x64 安装包，远端 Agent 只保留 Linux x64 和 Apple 芯片 macOS。
 
 tag 发布和草稿 Release 上传尚未实际运行，留待首次发版验证。
 
@@ -223,5 +225,5 @@ just desktop-build
 
 - 指定的四模型已完成真实网关验收；该结果不代表其他模型、长期稳定性、额度上限或接近 1M 上下文时的压缩边界。测试服务回归另行验证固定的协议与异常路径。
 - macOS 应用已完成打包和上述原生窗口交互验收；这不代表全部系统权限提示、辅助功能组合或长时间运行情形均已覆盖。
-- CI 已构建 Windows、Apple 芯片和 Intel Mac 安装包，以及 Linux / macOS 的四个远端 Agent；这些安装包尚未在对应系统上安装运行。本地 `just desktop-build` 的产物只内置本机平台的远端 Agent。
+- CI 已构建 Apple 芯片 macOS 与 Windows x64 安装包，以及 Linux x64 与 Apple 芯片 macOS 的远端 Agent；这些安装包尚未在对应系统上安装运行。Linux arm64 与 Intel Mac 不在发布范围内。本地 `just desktop-build` 的产物只内置本机平台的远端 Agent。
 - 本地和 tag 发布的安装包都使用 ad-hoc 签名，未配置正式签名和 Apple 公证；macOS 用户首次打开前需解除系统隔离。

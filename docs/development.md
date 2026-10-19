@@ -98,7 +98,7 @@ SDK 首次编译需下载对应平台 CLI，断网环境应先准备构建缓存
 
 在锁屏或自动化环境中使用 `CI=true just desktop-build`，跳过需要 Finder 交互的 DMG 窗口装饰。
 
-Linux 远端产物使用 `x86_64-unknown-linux-gnu` 或 `aarch64-unknown-linux-gnu`，macOS 使用对应 `apple-darwin` target。正式分发应包含所需远端平台的二进制，而非把桌面平台二进制发到不同系统。`scripts/prepare-remote.mjs <target>` 将显式 target 的 release 产物放到正确目录。
+发布的安装包内置 Linux x64（`x86_64-unknown-linux-gnu`）和 Apple 芯片 macOS（`aarch64-apple-darwin`）的远端 Agent。应用也能识别 Linux arm64 和 Intel Mac 主机，但安装包不含它们的二进制，连接时会提示缺少产物；需要时自行构建对应 target，再用 `scripts/prepare-remote.mjs <target>` 放入资源目录。
 
 应用及命令名称统一使用 Tandem：Windows 无安装包的可执行文件为 `target/release/tandem-desktop.exe`，远端产物为 `tandem-server`。自定义远端产物目录使用 `TANDEM_REMOTE_ARTIFACTS`；未设置时仍接受旧 `RELAY_REMOTE_ARTIFACTS`，但其中必须准备新的 `tandem-server`，不会加载旧名程序。已有数据目录与 SDK 状态的兼容规则见[历史和密钥](architecture.md#历史和密钥)。
 
@@ -116,7 +116,7 @@ SSH 使用 BatchMode 和严格主机校验，适用于密钥与 ssh-agent。未�
 
 3. 等待 Actions 中的 Release 流水线完成，在 Releases 页面打开同名草稿，确认安装包后点击发布。
 
-tag 必须是 `v` 加上述版本号，否则 `Check version` 会列出不一致的文件并停止。流水线在 `ubuntu:22.04` 容器中构建 Linux x64 / arm64 的 `tandem-server`，以兼容较旧的 glibc；在 macOS 上构建 Apple 芯片和 Intel 版本。桌面任务把这四个远端 Agent 放入资源目录，生成 Apple 芯片和 Intel 的 DMG，以及 Windows x64 的 MSI 和 NSIS 安装程序；开发主机不进入安装包。
+tag 必须是 `v` 加上述版本号，否则 `Check version` 会列出不一致的文件并停止。流水线在 `ubuntu:22.04` 容器中构建 Linux x64 的 `tandem-server`，以兼容较旧的 glibc；在 macOS 上构建 Apple 芯片版本。桌面任务把这两个远端 Agent 放入资源目录，生成 Apple 芯片 macOS 的 DMG，以及 Windows x64 的 MSI 和 NSIS 安装程序；开发主机不进入安装包。
 
 macOS 使用 ad-hoc 签名，不需要 Apple 账号；用户首次打开前需解除系统隔离，见 README 的「安装」。只想要安装包而不发版时，在 Actions 页面手动运行 Desktop bundles，从运行记录下载产物。重跑同一 tag 的流水线会覆盖 Release 中的同名文件。
 
