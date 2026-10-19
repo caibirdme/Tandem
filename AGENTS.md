@@ -32,6 +32,7 @@ Tandem 是一个连接本地目录和 SSH 项目的 Agent 桌面应用。聊天�
 ## 开发约束
 
 - 所有需求改动必须从 `main` 创建独立 Git worktree，在该 worktree 中开发和验证，不得仅在当前工作区直接新建或切换分支。worktree 统一放在本仓库根目录的 `.worktrees/` 下，例如 `git worktree add -b fix/example .worktrees/example main`；该目录由 `.gitignore` 忽略。
+- PR 的标题和描述、Git commit message 的标题和正文必须使用英语。
 - 新依赖先查官方文档；库和工具接口按用户约定使用 Context7 的 `library`、`docs` 两步查证。
 - Copilot SDK 固定为 `v1.0.23-preview.5`。其他 Rust 依赖使用主版本兼容范围；0.x 依赖使用当前兼容次版本，不锁补丁号。`Cargo.lock` 必须提交。
 - 核心服务不依赖窗口框架。API key 按用户要求明文保存在本机 SQLite 的独立配置表；编辑页按需读取，默认隐藏并允许手动显示。普通快照不含密钥，禁止写入日志、浏览器存储和命令行参数。不使用系统凭证库，不实现旧版密钥迁移。
