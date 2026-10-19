@@ -58,6 +58,11 @@ class Fixture:
             )
             for item in following
         )
+        if not completed_tool and "fixture:chat-fetch" in prompt:
+            return {
+                "name": "web_fetch",
+                "arguments": {"url": "https://example.com"},
+            }
         if not completed_tool and "fixture:attack" in prompt:
             return [
                 {

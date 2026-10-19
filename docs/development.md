@@ -1,5 +1,12 @@
 # 开发与交付
 
+所有需求改动先从 `main` 创建独立 Git worktree，再在其中开发和验证。worktree 放在本仓库根目录的 `.worktrees/` 下，该目录已加入 `.gitignore`：
+
+```sh
+git worktree add -b fix/example .worktrees/example main
+cd .worktrees/example
+```
+
 先用 `just dev` 启动桌面。如果只改界面，在两个终端分别运行 `just server` 和 `just web`，浏览器打开 `http://127.0.0.1:1420`。两种运行方式共享服务契约；浏览器模式没有原生目录选择器时，使用内置目录浏览。
 
 `just server` 启动的是 `tandem-dev-server`，它通过 HTTP 调用与桌面相同的 `tandem-core`。该命令会先构建 `tandem-server`，以便在浏览器开发时也能测试 SSH 项目。`tandem-server` 自身只提供远端 Agent 的 stdio 入口，不再承载开发 HTTP 服务。
@@ -21,7 +28,7 @@ workspace 的默认目标也是 `tandem-dev-server`，因此 `cargo run` 仍启�
 
 提交前运行 `just check`。oxlint 开启 React、TypeScript、可访问性与严格规则；TypeScript 使用 strict；Rust 运行 clippy all + pedantic，警告视为失败。格式使用 oxfmt 和 nightly rustfmt，后者按 crate 合并 import，并按标准库、外部库、当前 crate 分组。
 
-单元测试针对状态合并、权限拒绝、配置边界、数据库关系、SSH 注入和通信失败。`just check` 也包含 Python 标准库测试，验证验收脚本自身的事件分流与进程清理，以及依赖边界检查器。集成测试使用真正的 SDK 与配套 CLI，只将外部推理服务与 OTLP 接收端替换为测试端点，因此不需要付费凭证。它不能证明某个真实供应商支持特定模型或参数。
+单元测试针对状态合并、权限拒绝、配置边界、数据库关系、SSH 注入和通信失败。`just check` 也包含 Python 标准库测试，验证验收脚本自身的事件分流与进程清理，以及依赖边界检查器。集成测试使用真正的 SDK 与配套 CLI，只将外部推理服务与 OTLP 接收端替换为测试端点，因此不需要付费凭证。聊天网页工具用例读取 `https://example.com`，需要公网访问；运行前清除宿主的 `COPILOT_OFFLINE` 和 `COPILOT_PROVIDER_*` 等覆盖配置，避免影响隔离的测试会话。它不能证明某个真实供应商支持特定模型或参数。
 
 ## 真实供应商验收
 

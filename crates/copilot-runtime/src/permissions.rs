@@ -1,4 +1,4 @@
-//! Permission mediation: work can be pre-authorized; chat keeps its capability boundary.
+//! Permission mediation: chat is automatic; work can require approval per request.
 
 use std::{
     collections::HashMap,
@@ -8,7 +8,7 @@ use std::{
 
 use async_trait::async_trait;
 use github_copilot_sdk::{
-    PermissionRequestData, PermissionRequestKind, RequestId, SessionId,
+    PermissionRequestData, RequestId, SessionId,
     handler::{PermissionHandler, PermissionResult},
 };
 use serde::{Deserialize, Serialize};
@@ -82,10 +82,6 @@ impl Drop for PendingApproval<'_> {
     }
 }
 
-fn denied_by_chat_policy(chat: bool, kind: Option<PermissionRequestKind>) -> bool {
-    chat && !matches!(kind, Some(PermissionRequestKind::Url))
-}
-
 fn describe_request(details: &Value) -> String {
     let intention = details
         .get("intention")
@@ -129,12 +125,7 @@ impl PermissionHandler for Permissions {
         request_id: RequestId,
         data: PermissionRequestData,
     ) -> PermissionResult {
-        if denied_by_chat_policy(self.chat, data.kind) {
-            return PermissionResult::reject(Some(
-                "Chat cannot access files, execute commands, load hooks, or invoke environment tools.".into(),
-            ));
-        }
-        if !self.chat && self.mode == PermissionMode::AllowAll {
+        if self.chat || self.mode == PermissionMode::AllowAll {
             return PermissionResult::approve_once();
         }
         let request_id = request_id.to_string();
@@ -174,7 +165,7 @@ impl PermissionHandler for Permissions {
 mod tests {
     #![allow(clippy::expect_used)]
 
-    use github_copilot_sdk::PermissionDecision;
+    use github_copilot_sdk::{PermissionDecision, PermissionRequestKind};
 
     use super::*;
 
@@ -209,43 +200,52 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn chat_rejects_host_capabilities_even_when_allow_all_is_supplied() {
+    async fn chat_approves_every_request_without_publishing_or_waiting_for_approval() {
         for mode in [PermissionMode::Ask, PermissionMode::AllowAll] {
-            let (events, mut receiver) = broadcast::channel(16);
-            let permissions = Permissions::new(&SessionMode::Chat, mode, events);
-            for kind in [
-                Some(PermissionRequestKind::Shell),
-                Some(PermissionRequestKind::Read),
-                Some(PermissionRequestKind::Write),
-                Some(PermissionRequestKind::Mcp),
-                Some(PermissionRequestKind::CustomTool),
-                Some(PermissionRequestKind::Memory),
-                Some(PermissionRequestKind::Hook),
-                Some(PermissionRequestKind::Unknown),
-                None,
-            ] {
-                let result = permissions
-                    .handle(
-                        "chat".into(),
-                        "denied".into(),
-                        PermissionRequestData {
-                            kind,
-                            ..Default::default()
-                        },
+            for subscribed in [false, true] {
+                let (events, receiver) = broadcast::channel(16);
+                let mut receiver = subscribed.then_some(receiver);
+                let permissions = Permissions::new(&SessionMode::Chat, mode, events);
+                for kind in [
+                    Some(PermissionRequestKind::Url),
+                    Some(PermissionRequestKind::Shell),
+                    Some(PermissionRequestKind::Read),
+                    Some(PermissionRequestKind::Write),
+                    Some(PermissionRequestKind::Mcp),
+                    Some(PermissionRequestKind::CustomTool),
+                    Some(PermissionRequestKind::Memory),
+                    Some(PermissionRequestKind::Hook),
+                    Some(PermissionRequestKind::Unknown),
+                    None,
+                ] {
+                    let result = tokio::time::timeout(
+                        Duration::from_secs(1),
+                        permissions.handle(
+                            "chat".into(),
+                            "automatic".into(),
+                            PermissionRequestData {
+                                kind,
+                                ..Default::default()
+                            },
+                        ),
                     )
-                    .await;
-                assert!(
-                    matches!(
-                        result,
-                        PermissionResult::Decision {
-                            decision: PermissionDecision::Reject(_),
-                            ..
-                        }
-                    ),
-                    "{mode:?} {kind:?}"
-                );
-                assert!(permissions.pending().is_empty());
-                assert!(receiver.try_recv().is_err());
+                    .await
+                    .expect("chat must not wait for a UI");
+                    assert!(
+                        matches!(
+                            result,
+                            PermissionResult::Decision {
+                                decision: PermissionDecision::ApproveOnce(_),
+                                ..
+                            }
+                        ),
+                        "{mode:?} {kind:?}"
+                    );
+                    assert!(permissions.pending().is_empty());
+                    if let Some(receiver) = &mut receiver {
+                        assert!(receiver.try_recv().is_err());
+                    }
+                }
             }
         }
     }
@@ -296,7 +296,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn ask_waits_for_each_decision_and_chat_urls_are_never_auto_approved() {
+    async fn work_ask_waits_for_each_decision() {
         let work = SessionMode::Work {
             directory: "/project".into(),
         };
@@ -304,11 +304,7 @@ mod tests {
             (&work, PermissionMode::Ask, PermissionRequestKind::Read),
             (&work, PermissionMode::Ask, PermissionRequestKind::Write),
             (&work, PermissionMode::Ask, PermissionRequestKind::Shell),
-            (
-                &SessionMode::Chat,
-                PermissionMode::AllowAll,
-                PermissionRequestKind::Url,
-            ),
+            (&work, PermissionMode::Ask, PermissionRequestKind::Url),
         ] {
             for decision in [ApprovalDecision::Approve, ApprovalDecision::Deny] {
                 let (events, mut receiver) = broadcast::channel(16);
@@ -379,7 +375,13 @@ mod tests {
     #[tokio::test]
     async fn dropping_an_sdk_approval_future_removes_the_pending_request() {
         let (events, mut receiver) = broadcast::channel(16);
-        let permissions = Permissions::new(&SessionMode::Chat, PermissionMode::Ask, events);
+        let permissions = Permissions::new(
+            &SessionMode::Work {
+                directory: "/project".into(),
+            },
+            PermissionMode::Ask,
+            events,
+        );
         let handler = permissions.clone();
         let pending = tokio::spawn(async move {
             let request = PermissionRequestData {
@@ -388,7 +390,7 @@ mod tests {
                 ..Default::default()
             };
             handler
-                .handle("chat".into(), "cancelled".into(), request)
+                .handle("work".into(), "cancelled".into(), request)
                 .await
         });
         let event = tokio::time::timeout(Duration::from_secs(1), receiver.recv())

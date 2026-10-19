@@ -8,16 +8,37 @@ def auto_turn(app, session, prompt):
     events = app.turn(session, prompt, approved=False)
     require(
         not any(event["kind"] == "permission" for event in events),
-        "Fully authorized work still requested an interactive approval",
+        "Automatically authorized session still requested an interactive approval",
     )
     require(
         not any(
             event["kind"] == "tool" and event["data"].get("status") == "error"
             for event in events
         ),
-        "Fully authorized tool execution failed",
+        "Automatically authorized tool execution failed",
     )
     return events
+
+
+def check_chat_permissions(app, fixture, session):
+    before = len(fixture.conversation_requests())
+    events = auto_turn(
+        app, session, "fixture:chat-fetch Read the web page using web_fetch."
+    )
+    require(
+        any(event["kind"] == "tool" for event in events),
+        "Chat did not execute its web tool",
+    )
+    requests = fixture.conversation_requests()[before:]
+    require(len(requests) >= 2, "Web tool result did not reach inference")
+    require(
+        "Contents of https://example.com:" in str(requests[-1][1]),
+        "Chat web tool did not read the expected public example page",
+    )
+    require(
+        not app.command("snapshot").get("activeTurns", {}).get(session["id"], {}).get("permissions"),
+        "Chat retained a pending approval",
+    )
 
 
 def check_permission_modes(app, project, provider, model, workspace):
