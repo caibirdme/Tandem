@@ -30,6 +30,11 @@ from inference_fixture import (
     require,
 )
 from permission_acceptance import auto_turn, check_permission_modes
+from model_switch_acceptance import (
+    ALTERNATE_MODEL,
+    check_model_switch_after_restart,
+    check_model_switching,
+)
 
 
 def main():
@@ -110,12 +115,16 @@ def main():
                         "baseUrl": fixture_url + "/v1",
                         "models": [
                             {
-                                "id": model,
-                                "name": model,
+                                "id": model_id,
+                                "name": model_id,
                                 "reasoningEffort": None,
                                 "contextWindow": 128000,
                                 "maxOutputTokens": 4096,
                             }
+                            for model_id in (
+                                [model, ALTERNATE_MODEL]
+                                if protocol == "openai-completions" else [model]
+                            )
                         ],
                     },
                     apiKey=FIXTURE_KEY,
@@ -346,6 +355,12 @@ def main():
             summary.append(
                 "work permission modes: automatic read/write/edit/shell, interactive denial, busy-change rejection, and policy changes on resume succeeded"
             )
+            switched_chat, automatic = check_model_switching(
+                app, fixture, providers, root, automatic
+            )
+            summary.append(
+                "model switching: same provider and cross-protocol providers retain the same session, ordered inference history, persisted selection, and work authorization; generation and pending-approval changes are rejected"
+            )
             # Restart the runtime by changing telemetry; this exercises cold SDK resume.
             before_resume = len(app.command("messages", sessionId=work["id"]))
             app.command(
@@ -434,6 +449,10 @@ def main():
                 restored["permissionMode"] == "allow-all",
                 "Server restart lost full authorization",
             )
+            require(
+                restored["modelId"] == ALTERNATE_MODEL,
+                "Server restart lost the switched work model",
+            )
             auto_turn(
                 app,
                 restored,
@@ -456,6 +475,10 @@ def main():
                     else " (ephemeral fixture key re-provisioned)"
                 )
             )
+            check_model_switch_after_restart(app, fixture, root, switched_chat)
+            summary.append(
+                "model switching after server restart: saved model receives the complete original conversation"
+            )
             if os.name != "nt":
                 app.crash_runtime_during_turn(work, fixture)
                 request_count = len(fixture.conversation_requests())
@@ -469,6 +492,9 @@ def main():
                 summary.append(
                     "unexpected SDK exit: error surfaced, next user send rebuilt runtime without replay"
                 )
+            # Stop only this isolated test app so Windows releases SDK database
+            # handles before every file is scanned. The scan exemptions stay narrow.
+            app.close()
             leaks = scan_for_key(root, FIXTURE_KEY, allow_local_vault=not arguments.ephemeral_secrets)
             title_requests = [body for _path, body in fixture.requests if is_title_request(body)]
             require(title_requests and all(not body.get("tools") for body in title_requests),

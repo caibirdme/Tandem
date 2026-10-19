@@ -42,6 +42,7 @@ from inference_fixture import (
     require,
 )
 from permission_acceptance import check_permission_modes
+from model_switch_acceptance import require_wire_history
 
 
 def private_environment(home):
@@ -179,6 +180,8 @@ def check_stdio(binary, home, endpoint, fixture):
     session_id = str(uuid.uuid4())
     options = session_options(session_id, endpoint)
     telemetry = {'enabled': True, 'endpoint': endpoint, 'protocol': 'http/json', 'captureContent': False}
+    first_prompt = 'fixture:model-switch Keep STDIO_ORIGINAL_HISTORY before a cold reconnect.'
+    first_response = 'RELAY_MODEL_SWITCH_OK ' + options['model']['id']
     server = StdioServer(binary, home)
     try:
         try:
@@ -187,18 +190,35 @@ def check_stdio(binary, home, endpoint, fixture):
         except RuntimeError as error:
             require('Unsupported remote command' in str(error), 'Wrong remote command error')
         server.command('start_agent', options=options, resume=False, telemetry=telemetry)
-        events = server.turn(session_id, 'fixture:chat First stdio turn, before a cold reconnect.')
+        events = server.turn(session_id, first_prompt)
         require(any(event['kind'] == 'delta' for event in events), 'stdio streaming delta missing')
-        require(any(event['kind'] == 'message' and 'RELAY_CHAT_OK' in event['data']['content']
+        require(any(event['kind'] == 'message' and event['data']['content'] == first_response
                     for event in events), 'stdio final response missing')
     finally:
         server.close()
     resumed = StdioServer(binary, home)
     try:
-        resumed.command('start_agent', options=options, resume=True, telemetry=telemetry)
-        resumed.turn(session_id, 'fixture:chat Continue the prior stdio conversation.')
-        require('before a cold reconnect' in json.dumps(fixture.requests[-1][1]),
-                'SDK cold resume did not recover previous remote conversation context')
+        options['provider']['protocol'] = 'anthropic'
+        options['model']['id'] = 'claude-sonnet-4.5'
+        offset = len(fixture.conversation_requests())
+        connected = resumed.command('start_agent', options=options, resume=True, telemetry=telemetry)
+        require(connected['sessionId'] == session_id, 'Cold model change created a different remote session')
+        prompt = 'fixture:model-switch Continue STDIO_NEW_MODEL with the prior conversation.'
+        events = resumed.turn(session_id, prompt)
+        require(any(event['kind'] == 'message' and event['data']['content'] ==
+                    'RELAY_MODEL_SWITCH_OK ' + options['model']['id'] for event in events),
+                'Resumed remote model did not return the expected response')
+        requests = fixture.conversation_requests()[offset:]
+        require(bool(requests), 'Resumed remote model never reached inference')
+        for path, body in requests:
+            require(path.split('?', 1)[0] == '/v1/messages',
+                    'Remote model change reused the previous provider wire protocol')
+            require(body['model'] == options['model']['id'], 'Remote cold resume reused the previous model')
+            require(prompt in json.dumps(body), 'Remote cold resume replayed an earlier prompt')
+            require_wire_history(body, [
+                {'role': 'user', 'content': first_prompt},
+                {'role': 'assistant', 'content': first_response},
+            ])
         resumed.command('disconnect_agent', sessionId=session_id)
     finally:
         resumed.close()
@@ -519,7 +539,7 @@ def main():
         checks = []
         try:
             check_stdio(remote_server, root / 'stdio-home', endpoint_url, fixture)
-            checks.append('stdio: real SDK streaming, cold resume, EOF cleanup, malformed/oversized input, OTLP flush')
+            checks.append('stdio: real SDK streaming, same-session cold resume with a new provider/model and original history, EOF cleanup, malformed/oversized input, OTLP flush')
             if not arguments.skip_ssh:
                 require(os.name == 'posix', 'Use --skip-ssh on hosts without a POSIX SSH daemon')
                 check_ssh(remote_server, dev_server, root, endpoint_url, fixture)

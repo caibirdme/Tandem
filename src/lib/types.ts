@@ -126,6 +126,10 @@ export interface Commands {
     payload: { sessionId: string; permissionMode: PermissionMode };
     result: Session;
   };
+  set_session_model: {
+    payload: { sessionId: string; providerId: string; modelId: string };
+    result: Session;
+  };
   delete_session: { payload: { sessionId: string }; result: null };
   rename_session: { payload: { sessionId: string; title: string }; result: null };
   messages: { payload: { sessionId: string }; result: Message[] };

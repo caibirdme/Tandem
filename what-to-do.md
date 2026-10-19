@@ -12,7 +12,7 @@ agent能力我希望基于copilot-sdk来建设，不自己实现agent。
 2. 后端语言全使用rust(edition 2024 + 1.99.1)
 3. 前端使用pnpm + React + Typescript(7.x) + vite(8.x) + 成熟的ui组件库
 
-核心的agent部分我们使用copilot-sdk，基于它之上来开发能力，copilot-sdk版本先写死v1.0.23-preview.3
+核心的agent部分我们使用copilot-sdk，基于它之上来开发能力，copilot-sdk版本先写死v1.0.23-preview.5
 rust中的依赖，都用最新的版本，不要在cargo.toml里面固定小版本，方便随时升级修复依赖的bug
 
 我有非常重的代码洁癖，我对架构设计的合理性优雅性有非常高的要求，对代码质量有非常高的要求，因此你至少需要:

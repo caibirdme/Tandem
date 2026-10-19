@@ -190,7 +190,8 @@ impl Store {
         self.with(|db| {
             db.execute(
                 "INSERT INTO sessions(id,project_id,provider_id,data) VALUES(?1,?2,?3,?4)
-                 ON CONFLICT(id) DO UPDATE SET data=excluded.data",
+                 ON CONFLICT(id) DO UPDATE SET project_id=excluded.project_id,
+                 provider_id=excluded.provider_id,data=excluded.data",
                 params![
                     session.id,
                     session.project_id,
@@ -213,8 +214,13 @@ impl Store {
             let mut session: Session = serde_json::from_str(&data)?;
             update(&mut session);
             db.execute(
-                "UPDATE sessions SET data=?2 WHERE id=?1",
-                params![id, serde_json::to_string(&session)?],
+                "UPDATE sessions SET project_id=?2,provider_id=?3,data=?4 WHERE id=?1",
+                params![
+                    id,
+                    session.project_id,
+                    session.provider_id,
+                    serde_json::to_string(&session)?
+                ],
             )?;
             Ok(session)
         })

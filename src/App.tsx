@@ -119,6 +119,11 @@ export function App() {
         requestScope = targetId;
         relay.addSession(target, navigationRevision.current === submittedNavigation);
       }
+      if (target.projectId && target.permissionMode !== permissionMode) {
+        const confirmedMode = await relay.changePermissionMode(target.id, permissionMode);
+        if (confirmedMode !== permissionMode)
+          throw new Error('未能确认所选工具权限，消息尚未发送。请重新确认权限后再试。');
+      }
       await relay.send(target.id, content);
     } finally {
       setSendingScopes((current) => {
@@ -359,9 +364,25 @@ export function App() {
             project={project}
             providers={providers}
             selection={effectiveSelection}
-            onSelection={setSelection}
+            onSelection={(value) => {
+              if (session)
+                void relay
+                  .changeSessionModel(session.id, value)
+                  .catch((reason: unknown) => relay.setError(errorMessage(reason)));
+              else setSelection(value);
+            }}
+            modelSaving={relay.modelSaving}
+            modelError={relay.modelError}
+            onConfirmModel={() => {
+              if (session)
+                void relay
+                  .confirmSessionModel(session.id)
+                  .catch((reason: unknown) => relay.setError(errorMessage(reason)));
+            }}
             conversation={relay.conversation}
             historyLoading={relay.historyLoading}
+            historyLoaded={relay.historyLoaded}
+            onReloadHistory={relay.reloadHistory}
             sending={sending}
             permissionModeSaving={relay.permissionModeSaving}
             permissionModeError={relay.permissionModeError}

@@ -1,5 +1,6 @@
 import { emptyConversation, receiveMessages, reduceEvent } from './conversation';
 import type { Conversation } from './conversation';
+import type { ModelChangeEvent } from './modelChanges';
 import type { PermissionModeChangeEvent } from './permissionModeChanges';
 import { reconcileConversations, reconcileSessions } from './reconcile';
 import type { Message, RuntimeEvent, Session, Snapshot } from './types';
@@ -11,6 +12,8 @@ export interface RelayState {
   runtimeError: string | null;
   permissionModeUpdates: ReadonlySet<string>;
   permissionModeUncertain: Readonly<Record<string, string>>;
+  modelUpdates: ReadonlySet<string>;
+  modelUncertain: Readonly<Record<string, string>>;
   deletedSessionIds: ReadonlySet<string>;
   deletedProjectIds: ReadonlySet<string>;
   titleGenerations: ReadonlySet<string>;
@@ -24,6 +27,8 @@ export const initialRelayState: RelayState = {
   runtimeError: null,
   permissionModeUpdates: new Set(),
   permissionModeUncertain: {},
+  modelUpdates: new Set(),
+  modelUncertain: {},
   deletedSessionIds: new Set(),
   deletedProjectIds: new Set(),
   titleGenerations: new Set(),
@@ -49,6 +54,7 @@ type RelayAction =
   | { type: 'sendFailed'; sessionId: string; pendingId: string; error: string }
   | { type: 'permissionResponded'; sessionId: string; requestId: string }
   | PermissionModeChangeEvent
+  | ModelChangeEvent
   | { type: 'errorReported'; error: string | null }
   | { type: 'runtimeRecovered' };
 
@@ -228,12 +234,16 @@ export function reduceRelay(state: RelayState, action: RelayAction): RelayState 
       const conversations = { ...state.conversations };
       const permissionModeUpdates = new Set(state.permissionModeUpdates);
       const permissionModeUncertain = { ...state.permissionModeUncertain };
+      const modelUpdates = new Set(state.modelUpdates);
+      const modelUncertain = { ...state.modelUncertain };
       const titleGenerations = new Set(state.titleGenerations);
       const titleErrors = { ...state.titleErrors };
       for (const sessionId of sessionIds) {
         delete conversations[sessionId];
         permissionModeUpdates.delete(sessionId);
         delete permissionModeUncertain[sessionId];
+        modelUpdates.delete(sessionId);
+        delete modelUncertain[sessionId];
         titleGenerations.delete(sessionId);
         delete titleErrors[sessionId];
       }
@@ -242,6 +252,8 @@ export function reduceRelay(state: RelayState, action: RelayAction): RelayState 
         conversations,
         permissionModeUpdates,
         permissionModeUncertain,
+        modelUpdates,
+        modelUncertain,
         titleGenerations,
         titleErrors,
         deletedSessionIds: new Set([...state.deletedSessionIds, ...sessionIds]),
@@ -310,6 +322,37 @@ export function reduceRelay(state: RelayState, action: RelayAction): RelayState 
         permissionModeUpdates: new Set([...state.permissionModeUpdates, action.sessionId]),
         error: null,
       };
+    case 'modelChangeStarted':
+      if (state.deletedSessionIds.has(action.sessionId)) return state;
+      return {
+        ...state,
+        modelUpdates: new Set([...state.modelUpdates, action.sessionId]),
+        error: null,
+      };
+    case 'modelChanged':
+    case 'modelUnconfirmed': {
+      if (state.deletedSessionIds.has(action.sessionId)) return state;
+      const modelUpdates = new Set(state.modelUpdates);
+      modelUpdates.delete(action.sessionId);
+      const modelUncertain = { ...state.modelUncertain };
+      if (action.type === 'modelUnconfirmed') modelUncertain[action.sessionId] = action.error;
+      else delete modelUncertain[action.sessionId];
+      return {
+        ...state,
+        modelUpdates,
+        modelUncertain,
+        error: action.type === 'modelChanged' ? (action.notice ?? state.error) : state.error,
+        snapshot:
+          action.type === 'modelChanged' && state.snapshot
+            ? {
+                ...state.snapshot,
+                sessions: state.snapshot.sessions.map((session) =>
+                  session.id === action.sessionId ? { ...session, ...action.selection } : session,
+                ),
+              }
+            : state.snapshot,
+      };
+    }
     case 'permissionModeChanged':
     case 'permissionModeUnconfirmed': {
       if (state.deletedSessionIds.has(action.sessionId)) return state;

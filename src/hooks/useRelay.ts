@@ -1,11 +1,12 @@
-import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 
 import { dispatch, errorMessage, subscribe } from '../lib/api';
 import { emptyConversation } from '../lib/conversation';
+import { createModelChanges } from '../lib/modelChanges';
 import { createPermissionModeChanges } from '../lib/permissionModeChanges';
 import { protectedSessionIds } from '../lib/reconcile';
 import { initialRelayState, reduceRelay } from '../lib/relayState';
-import type { Message, PermissionMode, RuntimeEvent, Session } from '../lib/types';
+import type { Message, ModelSelection, PermissionMode, RuntimeEvent, Session } from '../lib/types';
 
 export function useRelay() {
   const [
@@ -16,6 +17,8 @@ export function useRelay() {
       runtimeError,
       permissionModeUpdates,
       permissionModeUncertain,
+      modelUpdates,
+      modelUncertain,
       titleGenerations,
       titleErrors,
     },
@@ -24,8 +27,22 @@ export function useRelay() {
   const [connected, setConnected] = useState(false);
   const [loading, setLoading] = useState(true);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
-  const [loadedSessionId, setLoadedSessionId] = useState<string | null>(null);
-  const historyLoading = activeSessionId !== null && loadedSessionId !== activeSessionId;
+  const [historyRevision, setHistoryRevision] = useState(0);
+  const historyRequest = useMemo(
+    () => ({ sessionId: activeSessionId, connected, revision: historyRevision }),
+    [activeSessionId, connected, historyRevision],
+  );
+  const [settledHistoryRequest, setSettledHistoryRequest] = useState<typeof historyRequest | null>(
+    null,
+  );
+  const [confirmedHistoryRequest, setConfirmedHistoryRequest] = useState<
+    typeof historyRequest | null
+  >(null);
+  const historyLoading = activeSessionId !== null && settledHistoryRequest !== historyRequest;
+  const historyLoaded = activeSessionId === null || confirmedHistoryRequest === historyRequest;
+  const reloadHistory = useCallback(() => {
+    setHistoryRevision((current) => current + 1);
+  }, []);
 
   const revisions = useRef<Record<string, number>>({});
   const pendingRequests = useRef(new Set<string>());
@@ -43,6 +60,7 @@ export function useRelay() {
     titleRevisions.current[id] = (titleRevisions.current[id] ?? 0) + 1;
   }, []);
   const permissionChanges = useRef<ReturnType<typeof createPermissionModeChanges> | null>(null);
+  const modelChanges = useRef<ReturnType<typeof createModelChanges> | null>(null);
   useEffect(() => {
     permissionChanges.current ??= createPermissionModeChanges({
       getRequests: () => pendingRequests.current,
@@ -56,6 +74,25 @@ export function useRelay() {
         if (mode !== 'ask' && mode !== 'allow-all')
           throw new Error('服务未返回此工作的有效权限状态');
         return mode;
+      },
+    });
+    function selectionFrom(session: Session | undefined, sessionId: string): ModelSelection {
+      if (session?.id !== sessionId || !session.providerId || !session.modelId)
+        throw new Error('服务未返回此对话的有效模型状态');
+      return { providerId: session.providerId, modelId: session.modelId };
+    }
+    modelChanges.current ??= createModelChanges({
+      getRequests: () => pendingRequests.current,
+      advance,
+      update,
+      save: async (sessionId, selection) =>
+        selectionFrom(await dispatch('set_session_model', { sessionId, ...selection }), sessionId),
+      read: async (sessionId) => {
+        const fresh = await dispatch('snapshot', {});
+        return selectionFrom(
+          fresh.sessions.find((item) => item.id === sessionId),
+          sessionId,
+        );
       },
     });
   }, [advance]);
@@ -148,28 +185,31 @@ export function useRelay() {
   }, [advance, advanceTitle, loadSnapshot]);
 
   useEffect(() => {
-    if (!activeSessionId) return;
+    const { sessionId } = historyRequest;
+    if (!sessionId) return;
     let disposed = false;
-    void dispatch('messages', { sessionId: activeSessionId })
+    void dispatch('messages', { sessionId })
       .then((messages) => {
         if (disposed) return;
-        update({ type: 'historyReceived', sessionId: activeSessionId, messages });
+        update({ type: 'historyReceived', sessionId, messages });
+        setConfirmedHistoryRequest(historyRequest);
       })
       .catch((reason: unknown) => {
         if (!disposed) update({ type: 'errorReported', error: errorMessage(reason) });
       })
       .finally(() => {
-        if (!disposed) setLoadedSessionId(activeSessionId);
+        if (!disposed) setSettledHistoryRequest(historyRequest);
       });
     return () => {
       disposed = true;
     };
-  }, [activeSessionId, connected]);
+  }, [historyRequest]);
 
   const addSession = useCallback(
     (session: Session, activate = true) => {
       if (session.projectId && deletedProjectIds.current.has(session.projectId)) {
         permissionChanges.current?.forget(session.id);
+        modelChanges.current?.forget(session.id);
         update({ type: 'sessionsDeleted', sessionIds: [session.id] });
         throw new Error('此工作所属的项目已移除。');
       }
@@ -184,7 +224,9 @@ export function useRelay() {
   const send = useCallback(
     async (sessionId: string, content: string) => {
       const changes = permissionChanges.current;
-      if (!changes) throw new Error('工作空间正在初始化，请稍后再试。');
+      const models = modelChanges.current;
+      if (!changes || !models) throw new Error('工作空间正在初始化，请稍后再试。');
+      models.assertCanSend(sessionId);
       changes.assertCanSend(sessionId);
       advance(sessionId);
       pendingRequests.current.add(sessionId);
@@ -216,7 +258,10 @@ export function useRelay() {
   );
 
   const changePermissionMode = useCallback(
-    async (sessionId: string, permissionMode: PermissionMode) => {
+    async (
+      sessionId: string,
+      permissionMode: PermissionMode,
+    ): Promise<PermissionMode | undefined> => {
       const target = snapshot?.sessions.find((item) => item.id === sessionId);
       if (!target?.projectId) {
         update({ type: 'errorReported', error: '只有工作会话可以更改工具权限。' });
@@ -231,17 +276,43 @@ export function useRelay() {
         update({ type: 'errorReported', error: '请等待当前任务结束，再更改工具权限。' });
         return;
       }
-      if (target.permissionMode === permissionMode) return;
-      await permissionChanges.current?.change(sessionId, permissionMode);
+      if (target.permissionMode === permissionMode) return target.permissionMode;
+      modelChanges.current?.assertCanSend(sessionId);
+      return permissionChanges.current?.change(sessionId, permissionMode);
     },
     [conversations, snapshot],
   );
   const confirmPermissionMode = useCallback(async (sessionId: string) => {
     await permissionChanges.current?.confirm(sessionId);
   }, []);
+  const changeSessionModel = useCallback(
+    async (sessionId: string, selection: ModelSelection) => {
+      const target = snapshot?.sessions.find((item) => item.id === sessionId);
+      if (!target) throw new Error('此对话已不存在，请刷新后重试。');
+      if (!connected) throw new Error('请等待服务重新连接，再切换模型。');
+      if (activeSessionId === sessionId && historyLoading)
+        throw new Error('请等待对话历史载入完成，再切换模型。');
+      if (
+        target.status === 'running' ||
+        conversations[sessionId]?.status === 'running' ||
+        Boolean(conversations[sessionId]?.permissions.length)
+      )
+        throw new Error('请先停止当前回复或等待结束，再切换模型。');
+      permissionChanges.current?.assertCanSend(sessionId);
+      modelChanges.current?.assertCanSend(sessionId);
+      if (target.providerId === selection.providerId && target.modelId === selection.modelId)
+        return;
+      await modelChanges.current?.change(sessionId, selection);
+    },
+    [activeSessionId, connected, conversations, historyLoading, snapshot],
+  );
+  const confirmSessionModel = useCallback(async (sessionId: string) => {
+    await modelChanges.current?.confirm(sessionId);
+  }, []);
   const deleteSession = useCallback(async (sessionId: string) => {
     await dispatch('delete_session', { sessionId });
     permissionChanges.current?.forget(sessionId);
+    modelChanges.current?.forget(sessionId);
     sessionProjects.current.delete(sessionId);
     titleRequests.current.delete(sessionId);
     titleDispatches.current.delete(sessionId);
@@ -255,6 +326,7 @@ export function useRelay() {
       .map(([sessionId]) => sessionId);
     for (const sessionId of sessionIds) {
       permissionChanges.current?.forget(sessionId);
+      modelChanges.current?.forget(sessionId);
       sessionProjects.current.delete(sessionId);
       titleRequests.current.delete(sessionId);
       titleDispatches.current.delete(sessionId);
@@ -323,6 +395,8 @@ export function useRelay() {
     send,
     changePermissionMode,
     confirmPermissionMode,
+    changeSessionModel,
+    confirmSessionModel,
     deleteSession,
     deleteProject,
     regenerateTitle,
@@ -334,8 +408,12 @@ export function useRelay() {
     permissionModeError: activeSessionId
       ? (permissionModeUncertain[activeSessionId] ?? null)
       : null,
+    modelSaving: activeSessionId !== null && modelUpdates.has(activeSessionId),
+    modelError: activeSessionId ? (modelUncertain[activeSessionId] ?? null) : null,
     respondPermission,
     historyLoading,
+    historyLoaded,
+    reloadHistory,
     conversation: activeSessionId
       ? (conversations[activeSessionId] ?? emptyConversation)
       : emptyConversation,

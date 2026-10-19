@@ -7,6 +7,7 @@ mod events;
 pub mod model;
 mod projects;
 mod providers;
+mod session_models;
 mod sessions;
 mod store;
 mod titles;

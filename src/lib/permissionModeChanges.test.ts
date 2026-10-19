@@ -78,6 +78,62 @@ function setup() {
 }
 
 describe('permission changes with uncertain transport outcomes', () => {
+  it.each([
+    { source: 'save', actual: 'ask' },
+    { source: 'save', actual: 'allow-all' },
+    { source: 'read', actual: 'ask' },
+    { source: 'read', actual: 'allow-all' },
+  ] as const)(
+    'returns the actual $actual mode confirmed by $source',
+    async ({ source, actual }) => {
+      const test = setup();
+      if (source === 'save') test.save.mockResolvedValueOnce(actual);
+      else {
+        test.save.mockRejectedValueOnce(new Error('Response lost'));
+        test.read.mockResolvedValueOnce(actual);
+      }
+      await expect(test.changes.change(session.id, 'allow-all')).resolves.toBe(actual);
+      expect(test.state.snapshot?.sessions[0]?.permissionMode).toBe(actual);
+      expect(test.requests.has(session.id)).toBe(false);
+    },
+  );
+
+  it('returns no confirmed mode when there is no uncertain setting to retry', async () => {
+    const test = setup();
+    await expect(test.changes.confirm(session.id)).resolves.toBeUndefined();
+    expect(test.read).not.toHaveBeenCalled();
+  });
+
+  it('returns no mode when a confirmation retry also fails', async () => {
+    const test = setup();
+    test.save.mockRejectedValueOnce(new Error('Response lost'));
+    test.read.mockRejectedValue(new Error('Confirmation unavailable'));
+    await expect(test.changes.change(session.id, 'allow-all')).resolves.toBeUndefined();
+    await expect(test.changes.confirm(session.id)).resolves.toBeUndefined();
+    expect(() => test.changes.assertCanSend(session.id)).toThrow('工具权限尚未确认');
+    expect(test.state.snapshot?.sessions[0]?.permissionMode).toBe('ask');
+  });
+
+  it.each(['resolve', 'reject'] as const)(
+    'returns no mode when a deleted session’s confirmation retry later %s',
+    async (outcome) => {
+      const test = setup();
+      test.save.mockRejectedValueOnce(new Error('Response lost'));
+      test.read.mockRejectedValueOnce(new Error('Confirmation unavailable'));
+      await test.changes.change(session.id, 'allow-all');
+      const pending = deferred<PermissionMode>();
+      test.read.mockReturnValueOnce(pending.promise);
+      const retry = test.changes.confirm(session.id);
+      test.deleteSession(session.id);
+      const deleted = test.state;
+      if (outcome === 'resolve') pending.resolve('allow-all');
+      else pending.reject(new Error('Late failure'));
+      await expect(retry).resolves.toBeUndefined();
+      expect(test.state).toBe(deleted);
+      expect(test.requests.has(session.id)).toBe(false);
+    },
+  );
+
   it('releases an uncertain session when deleted without preserving it through refresh', async () => {
     const test = setup();
     test.save.mockRejectedValueOnce(new Error('Response lost'));
@@ -122,7 +178,7 @@ describe('permission changes with uncertain transport outcomes', () => {
     const revision = test.revisions[session.id];
     if (outcome === 'resolve') pendingResult.resolve('allow-all');
     else pendingResult.reject(new Error('Late failure'));
-    await change;
+    await expect(change).resolves.toBeUndefined();
     expect(test.state).toBe(deleted);
     expect(test.revisions[session.id]).toBe(revision);
     expect(test.requests.has(session.id)).toBe(false);
@@ -146,7 +202,7 @@ describe('permission changes with uncertain transport outcomes', () => {
     expect(() => test.changes.assertCanSend(session.id)).toThrow();
     expect(test.state.snapshot?.sessions[0]?.permissionMode).toBe('ask');
     confirmed.resolve('allow-all');
-    await change;
+    await expect(change).resolves.toBe('allow-all');
     expect(test.state.snapshot?.sessions[0]?.permissionMode).toBe('allow-all');
     expect(test.state.error).toContain('已重新确认当前权限为「完全授权」');
     expect(test.state.permissionModeUpdates.size).toBe(0);
@@ -168,7 +224,7 @@ describe('permission changes with uncertain transport outcomes', () => {
     const test = setup();
     test.save.mockRejectedValueOnce(new Error('Connection lost'));
     test.read.mockRejectedValueOnce(new Error('Confirmation unavailable'));
-    await test.changes.change(session.id, 'allow-all');
+    await expect(test.changes.change(session.id, 'allow-all')).resolves.toBeUndefined();
     expect(test.state.permissionModeUpdates.size).toBe(0);
     expect(test.state.permissionModeUncertain[session.id]).toContain('Confirmation unavailable');
     expect(test.state.snapshot?.sessions[0]?.permissionMode).toBe('ask');
@@ -187,7 +243,7 @@ describe('permission changes with uncertain transport outcomes', () => {
     await test.changes.confirm(session.id);
     expect(test.read).toHaveBeenCalledTimes(2);
     confirmed.resolve('allow-all');
-    await retry;
+    await expect(retry).resolves.toBe('allow-all');
     expect(test.state.snapshot?.sessions[0]?.permissionMode).toBe('allow-all');
     expect(test.state.permissionModeUncertain[session.id]).toBeUndefined();
     expect(test.state.permissionModeUpdates.size).toBe(0);
@@ -198,7 +254,7 @@ describe('permission changes with uncertain transport outcomes', () => {
   it('retains the server mode when a rejected change is confirmed as not applied', async () => {
     const test = setup();
     test.save.mockRejectedValueOnce(new Error('Change rejected'));
-    await test.changes.change(session.id, 'allow-all');
+    await expect(test.changes.change(session.id, 'allow-all')).resolves.toBe('ask');
     expect(test.state.snapshot?.sessions[0]?.permissionMode).toBe('ask');
     expect(test.state.permissionModeUncertain[session.id]).toBeUndefined();
     expect(() => test.changes.assertCanSend(session.id)).not.toThrow();
@@ -212,7 +268,7 @@ describe('permission changes with uncertain transport outcomes', () => {
       test.read.mockReturnValueOnce(new Promise<PermissionMode>(() => undefined));
       const change = test.changes.change(session.id, 'allow-all');
       await vi.advanceTimersByTimeAsync(15_000);
-      await change;
+      await expect(change).resolves.toBeUndefined();
       expect(test.state.permissionModeUpdates.size).toBe(0);
       expect(test.state.permissionModeUncertain[session.id]).toContain('权限确认超时');
       expect(() => test.changes.assertCanSend(session.id)).toThrow('工具权限尚未确认');

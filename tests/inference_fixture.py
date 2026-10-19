@@ -94,6 +94,16 @@ class Fixture:
                     "file_text": "must not exist\n",
                 },
             }
+        if not completed_tool and "fixture:model-switch-permission" in prompt:
+            return {
+                "name": "create",
+                "arguments": {
+                    "path": str(self.workspace / "model-switch-approved.txt"),
+                    "file_text": "model switch approval retained\n",
+                },
+            }
+        if "fixture:model-switch" in prompt:
+            return "RELAY_MODEL_SWITCH_OK " + body["model"]
         if "fixture:slow" in prompt:
             return "RELAY_SLOW_OK"
         if not completed_tool and any(
@@ -253,14 +263,14 @@ def handler_for(fixture):
             self.end_headers()
 
         def event(self, value, name=None):
-            if name:
-                self.wfile.write(f"event: {name}\n".encode())
             try:
+                if name:
+                    self.wfile.write(f"event: {name}\n".encode())
                 self.wfile.write(
                     f"data: {json.dumps(value) if not isinstance(value, str) else value}\n\n".encode()
                 )
                 self.wfile.flush()
-            except (BrokenPipeError, ConnectionResetError):
+            except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
                 pass
 
         def completions(self, body, response):

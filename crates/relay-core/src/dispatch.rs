@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use anyhow::Result;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use uuid::Uuid;
 
@@ -66,6 +66,11 @@ pub enum Request {
         session_id: String,
         permission_mode: PermissionMode,
     },
+    SetSessionModel {
+        session_id: String,
+        provider_id: String,
+        model_id: String,
+    },
     Messages {
         session_id: String,
     },
@@ -99,101 +104,89 @@ impl App {
     /// Returns configuration, persistence, connectivity, or runtime errors for display.
     pub async fn dispatch(self: &Arc<Self>, request: Request) -> Result<Value> {
         match request {
-            Request::Snapshot {} => Ok(serde_json::to_value(self.snapshot().await?)?),
-            Request::SaveProvider { provider, api_key } => Ok(serde_json::to_value(
-                self.save_provider(provider, api_key).await?,
-            )?),
-            Request::DeleteProvider { id } => {
-                self.delete_provider(&id).await?;
-                Ok(Value::Null)
+            Request::Snapshot {} => response(self.snapshot().await?),
+            Request::SaveProvider { provider, api_key } => {
+                response(self.save_provider(provider, api_key).await?)
             }
-            Request::GetProviderApiKey { id } => {
-                Ok(serde_json::to_value(self.get_provider_api_key(&id)?)?)
-            }
+            Request::DeleteProvider { id } => response(self.delete_provider(&id).await?),
+            Request::GetProviderApiKey { id } => response(self.get_provider_api_key(&id)?),
             Request::SavePreferences {
                 telemetry,
                 cli_path,
-            } => {
-                self.save_preferences(telemetry, cli_path).await?;
-                Ok(Value::Null)
-            }
+            } => response(self.save_preferences(telemetry, cli_path).await?),
             Request::SaveTitleModel { title_model } => {
-                self.save_title_model(title_model).await?;
-                Ok(Value::Null)
+                response(self.save_title_model(title_model).await?)
             }
             Request::RegenerateTitle { session_id } => {
-                self.schedule_title(&session_id, true)?;
-                Ok(Value::Null)
+                response(self.schedule_title(&session_id, true)?)
             }
             Request::CreateProject {
                 name,
                 path,
                 connection,
-            } => Ok(serde_json::to_value(
-                self.create_project(name, path, connection).await?,
-            )?),
-            Request::DeleteProject { id } => {
-                self.delete_project(&id).await?;
-                Ok(Value::Null)
-            }
+            } => response(self.create_project(name, path, connection).await?),
+            Request::DeleteProject { id } => response(self.delete_project(&id).await?),
             Request::CreateSession {
                 project_id,
                 provider_id,
                 model_id,
                 permission_mode,
-            } => Ok(serde_json::to_value(
+            } => response(
                 self.create_session(project_id, provider_id, model_id, permission_mode)
                     .await?,
-            )?),
+            ),
             Request::DeleteSession { session_id } => {
-                self.delete_session(&session_id).await?;
-                Ok(Value::Null)
+                response(self.delete_session(&session_id).await?)
             }
             Request::RenameSession { session_id, title } => {
-                self.rename_session(&session_id, &title).await?;
-                Ok(Value::Null)
+                response(self.rename_session(&session_id, &title).await?)
             }
             Request::SetPermissionMode {
                 session_id,
                 permission_mode,
-            } => Ok(serde_json::to_value(
+            } => response(
                 self.set_permission_mode(&session_id, permission_mode)
                     .await?,
-            )?),
-            Request::Messages { session_id } => {
-                Ok(serde_json::to_value(self.store.messages(&session_id)?)?)
-            }
+            ),
+            Request::SetSessionModel {
+                session_id,
+                provider_id,
+                model_id,
+            } => response(
+                self.set_session_model(&session_id, provider_id, model_id)
+                    .await?,
+            ),
+            Request::Messages { session_id } => response(self.store.messages(&session_id)?),
             Request::SendMessage {
                 session_id,
                 content,
                 message_id,
-            } => {
-                self.send_message(&session_id, content, message_id).await?;
-                Ok(Value::Null)
-            }
+            } => response(self.send_message(&session_id, content, message_id).await?),
             Request::AbortSession { session_id } => {
-                self.abort_session(&session_id).await?;
-                Ok(Value::Null)
+                response(self.abort_session(&session_id).await?)
             }
             Request::RespondPermission {
                 session_id,
                 request_id,
                 approved,
-            } => {
+            } => response(
                 self.respond_permission(&session_id, &request_id, approved)
-                    .await?;
-                Ok(Value::Null)
-            }
+                    .await?,
+            ),
             Request::CheckConnection { connection } => {
                 Ok(json!({"message":self.check_connection(&connection).await?}))
             }
-            Request::BrowseDirectory { connection, path } => Ok(serde_json::to_value(
-                self.browse_directory(&connection, &path).await?,
-            )?),
+            Request::BrowseDirectory { connection, path } => {
+                response(self.browse_directory(&connection, &path).await?)
+            }
             Request::InstallRuntime {} => {
                 self.ensure_runtime().await?;
-                Ok(serde_json::to_value(self.runtime_status().await)?)
+                response(self.runtime_status().await)
             }
         }
     }
+}
+
+fn response(value: impl Serialize) -> Result<Value> {
+    Ok(serde_json::to_value(value)?)
 }

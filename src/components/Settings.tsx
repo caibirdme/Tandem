@@ -558,16 +558,18 @@ function Preferences({
             </div>
           </div>
           <label>
-            Copilot CLI 路径
+            Copilot CLI 路径（可选）
             <input
               value={cliPath}
               onChange={(event) => {
                 setCliPath(event.target.value);
                 setNotice(null);
               }}
-              placeholder="自动查找已安装的 Copilot CLI"
+              placeholder="默认使用应用内置的 Copilot CLI"
             />
-            <small>留空使用自动发现。手动设置时，请输入可执行文件的完整路径。</small>
+            <small>
+              应用已内置匹配版本，无需额外安装；仅在调试自定义 CLI 时填写可执行文件的完整路径。
+            </small>
           </label>
           <div className="about-card">
             <span className="brand-symbol">
@@ -576,7 +578,7 @@ function Preferences({
             <div>
               <h4>Relay</h4>
               <p>让想法与行动相连。</p>
-              <span>基于 GitHub Copilot SDK · v1.0.23-preview.3</span>
+              <span>基于 GitHub Copilot SDK · v1.0.23-preview.5</span>
             </div>
           </div>
           <BrowserLink className="text-button" href="https://github.com/github/copilot-sdk">

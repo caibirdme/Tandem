@@ -1,4 +1,4 @@
-//! Capability-limited integration with GitHub Copilot SDK v1.0.23-preview.3.
+//! Capability-limited integration with GitHub Copilot SDK v1.0.23-preview.5.
 //!
 //! The SDK owns inference, tool execution, compaction, and persisted sessions.
 //! This crate configures those capabilities and translates events for the UI.
@@ -31,8 +31,8 @@ use serde_json::json;
 use tokio::{sync::broadcast, task::JoinHandle};
 
 /// Pinned official SDK release; its bundled native runtime is a separate version.
-pub const SDK_VERSION: &str = "1.0.23-preview.3";
-pub const CLI_VERSION: &str = "1.0.99-3";
+pub const SDK_VERSION: &str = "1.0.23-preview.5";
+pub const CLI_VERSION: &str = "1.0.100-1";
 
 const EVENT_CAPACITY: usize = 4096;
 const CHAT_TOOLS: &[&str] = &["builtin:web_fetch"];

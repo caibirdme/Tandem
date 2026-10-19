@@ -102,7 +102,7 @@ def scan_for_key(directory, key, *, allow_local_vault=False):
             # An unreadable schema cannot establish the narrow storage exemption.
             unexpected = True
         if unexpected:
-            leaks.append(str(database.relative_to(directory)))
+            leaks.append(database.relative_to(directory).as_posix())
         checked_database_files = {
             database,
             database.with_name(database.name + "-wal"),
@@ -112,5 +112,5 @@ def scan_for_key(directory, key, *, allow_local_vault=False):
         if not path.is_file() or path.is_symlink() or path in checked_database_files:
             continue
         if contains_key(path, marker):
-            leaks.append(str(path.relative_to(directory)))
+            leaks.append(path.relative_to(directory).as_posix())
     return leaks

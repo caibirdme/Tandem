@@ -26,6 +26,7 @@ import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 
 import { errorMessage } from '../lib/api';
 import type { Conversation } from '../lib/conversation';
+import { needsWorkPermissionConfirmation } from '../lib/sessionOptions';
 import type {
   ModelSelection,
   PermissionMode,
@@ -35,7 +36,7 @@ import type {
   Session,
 } from '../lib/types';
 import { PermissionModeSelector } from './PermissionModeSelector';
-import { Notice, Spinner } from './ui';
+import { Modal, Notice, Spinner } from './ui';
 
 interface ChatProps {
   session: Session | undefined;
@@ -45,9 +46,14 @@ interface ChatProps {
   onSelection: (selection: ModelSelection) => void;
   conversation: Conversation;
   historyLoading: boolean;
+  historyLoaded: boolean;
+  onReloadHistory: () => void;
   sending: boolean;
   permissionModeSaving: boolean;
   permissionModeError: string | null;
+  modelSaving: boolean;
+  modelError: string | null;
+  onConfirmModel: () => void;
   onPermissionMode: (mode: PermissionMode) => void;
   onConfirmPermissionMode: () => void;
   runtime: RuntimeStatus | undefined;
@@ -66,18 +72,32 @@ export function Chat(props: ChatProps) {
   const [jumpVisible, setJumpVisible] = useState(false);
   const [pendingPermission, setPendingPermission] = useState<string | null>(null);
   const [localError, setLocalError] = useState<string | null>(null);
+  const [workPermissionPromptOpen, setWorkPermissionPromptOpen] = useState(false);
   const transcript = useRef<HTMLDivElement>(null);
   const textarea = useRef<HTMLTextAreaElement>(null);
+  const cancelWorkPermission = useRef<HTMLButtonElement>(null);
+  const pendingWorkContent = useRef<string | null>(null);
+  const submitting = useRef(false);
   const stickToBottom = useRef(true);
   const running =
     props.sending || props.conversation.status === 'running' || props.session?.status === 'running';
   const permissionMode = props.project
     ? (props.session?.permissionMode ?? draftPermissionMode)
     : 'ask';
+  const workHistoryUncertain = Boolean(
+    props.project &&
+    props.session &&
+    permissionMode === 'ask' &&
+    !props.historyLoaded &&
+    !props.conversation.messages.some((message) => message.role === 'user'),
+  );
   const permissionModeDisabled =
     running ||
+    props.historyLoading ||
     props.permissionModeSaving ||
     Boolean(props.permissionModeError) ||
+    props.modelSaving ||
+    Boolean(props.modelError) ||
     !props.connected ||
     props.conversation.permissions.length > 0;
   const hasMessages = Boolean(
@@ -91,14 +111,33 @@ export function Chat(props: ChatProps) {
   const currentModel = currentProvider?.models.find(
     (model) => model.id === props.selection?.modelId,
   );
+  const modelDisabled = permissionModeDisabled;
+  const modelLabel = props.modelError
+    ? '待确认'
+    : currentModel?.name || currentModel?.id || props.selection?.modelId || '选择模型';
+  const modelHint = running
+    ? '请先停止当前回复或等待结束，再切换模型'
+    : props.historyLoading
+      ? '正在载入对话，请稍后切换模型'
+      : props.modelSaving
+        ? '正在保存模型选择…'
+        : props.modelError
+          ? '请先重新确认当前模型'
+          : '选择模型，下一条消息将使用新模型';
+  // Sending initializes the local or remote runtime on demand.
   const canSend = Boolean(
     draft.trim() &&
     props.selection &&
-    props.runtime?.available &&
+    currentModel &&
     props.connected &&
     !running &&
+    !props.historyLoading &&
+    !workHistoryUncertain &&
     !props.permissionModeSaving &&
-    !props.permissionModeError,
+    !props.permissionModeError &&
+    !props.modelSaving &&
+    !props.modelError &&
+    props.conversation.permissions.length === 0,
   );
 
   useEffect(() => {
@@ -121,17 +160,49 @@ export function Chat(props: ChatProps) {
   }, [draft]);
 
   async function submit() {
-    if (!canSend) return;
+    if (!canSend || submitting.current || pendingWorkContent.current !== null) return;
     const content = draft.trim();
+    if (
+      needsWorkPermissionConfirmation({
+        projectId: props.project?.id ?? null,
+        sessionId: props.session?.id ?? null,
+        permissionMode,
+        historyLoaded: props.historyLoaded,
+        messages: props.conversation.messages,
+      })
+    ) {
+      pendingWorkContent.current = content;
+      setWorkPermissionPromptOpen(true);
+      return;
+    }
+    await sendDraft(content, permissionMode);
+  }
+  async function sendDraft(content: string, mode: PermissionMode) {
+    if (submitting.current) return;
+    submitting.current = true;
     setDraft('');
     setLocalError(null);
     stickToBottom.current = true;
     try {
-      await props.onSend(content, permissionMode);
+      await props.onSend(content, mode);
     } catch (reason) {
       setDraft((current) => current || content);
       setLocalError(errorMessage(reason));
+    } finally {
+      submitting.current = false;
     }
+  }
+  function cancelWorkPrompt() {
+    pendingWorkContent.current = null;
+    setWorkPermissionPromptOpen(false);
+  }
+  async function confirmWorkPermission(mode: PermissionMode) {
+    const content = pendingWorkContent.current;
+    if (content === null || !props.project || !canSend || submitting.current) return;
+    pendingWorkContent.current = null;
+    setWorkPermissionPromptOpen(false);
+    if (!props.session) setDraftPermissionMode(mode);
+    await sendDraft(content, mode);
   }
   async function permission(requestId: string, approved: boolean) {
     setPendingPermission(requestId);
@@ -151,6 +222,53 @@ export function Chat(props: ChatProps) {
 
   return (
     <div className={`chat-surface ${hasMessages ? 'has-messages' : ''}`}>
+      <Modal
+        open={workPermissionPromptOpen}
+        onOpenChange={(open) => {
+          if (!open) cancelWorkPrompt();
+        }}
+        title="确认工作权限"
+        description="当前权限为「逐次询问」，工作过程中可能频繁打断你。"
+        initialFocusRef={cancelWorkPermission}
+        returnFocusRef={textarea}
+      >
+        <div className="work-permission-confirmation">
+          <p>
+            文件读写、命令执行等工具操作可能反复请求确认。你可以保持逐次询问，也可以切换到完全授权。
+          </p>
+          <p>完全授权会自动批准此工作中的所有工具请求。</p>
+          <div className="work-permission-actions">
+            <button
+              className="button"
+              type="button"
+              ref={cancelWorkPermission}
+              onClick={cancelWorkPrompt}
+            >
+              取消
+            </button>
+            <button
+              className="button"
+              type="button"
+              disabled={!canSend || !props.project}
+              onClick={() => {
+                void confirmWorkPermission('ask');
+              }}
+            >
+              确认并继续
+            </button>
+            <button
+              className="button primary"
+              type="button"
+              disabled={!canSend || !props.project}
+              onClick={() => {
+                void confirmWorkPermission('allow-all');
+              }}
+            >
+              切换到完全授权并继续
+            </button>
+          </div>
+        </div>
+      </Modal>
       <div
         className="transcript-scroll"
         ref={transcript}
@@ -393,6 +511,38 @@ export function Chat(props: ChatProps) {
           </button>
         )}
         {localError && <Notice>{localError}</Notice>}
+        {workHistoryUncertain && !props.historyLoading && (
+          <Notice>
+            <span>尚未读取此工作的历史，请重新载入后确认首条消息的工具权限。</span>
+            <button
+              className="text-button"
+              onClick={props.onReloadHistory}
+              disabled={!props.connected}
+            >
+              重新载入对话
+            </button>
+          </Notice>
+        )}
+        {props.modelError && (
+          <Notice>
+            <span>{props.modelError}</span>
+            <button
+              className="text-button"
+              type="button"
+              onClick={props.onConfirmModel}
+              disabled={props.modelSaving || !props.connected}
+            >
+              {props.modelSaving ? (
+                <>
+                  <Spinner size={13} />
+                  正在确认模型…
+                </>
+              ) : (
+                '重新确认模型'
+              )}
+            </button>
+          </Notice>
+        )}
         {props.permissionModeError && (
           <Notice>
             <span>{props.permissionModeError}</span>
@@ -433,6 +583,7 @@ export function Chat(props: ChatProps) {
             </button>
           </div>
         ) : (
+          props.project?.connection.kind !== 'ssh' &&
           !props.runtime?.available && (
             <div className="setup-banner">
               <span>
@@ -489,11 +640,13 @@ export function Chat(props: ChatProps) {
               <Dropdown.Root>
                 <Dropdown.Trigger
                   className="model-selector"
-                  disabled={Boolean(props.session)}
-                  title={props.session ? '此对话使用固定模型，新建对话可切换' : '选择模型'}
+                  disabled={modelDisabled}
+                  aria-label={`模型：${modelLabel}`}
+                  aria-busy={props.modelSaving}
+                  title={modelHint}
                 >
-                  {currentModel?.name || currentModel?.id || '选择模型'}
-                  <ChevronDown size={13} />
+                  {modelLabel}
+                  {props.modelSaving ? <Spinner size={13} /> : <ChevronDown size={13} />}
                 </Dropdown.Trigger>
                 <Dropdown.Portal>
                   <Dropdown.Content
@@ -517,9 +670,11 @@ export function Chat(props: ChatProps) {
                             <Dropdown.Item
                               key={model.id}
                               className="dropdown-item"
-                              onSelect={() =>
-                                props.onSelection({ providerId: provider.id, modelId: model.id })
-                              }
+                              disabled={modelDisabled}
+                              onSelect={() => {
+                                if (!modelDisabled)
+                                  props.onSelection({ providerId: provider.id, modelId: model.id });
+                              }}
                             >
                               <span>{model.name || model.id}</span>
                               {props.selection?.providerId === provider.id &&

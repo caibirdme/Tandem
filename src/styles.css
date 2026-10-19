@@ -1062,6 +1062,22 @@ button {
   width: min(890px, calc(100vw - 48px));
   height: min(700px, calc(100dvh - 70px));
 }
+.work-permission-confirmation {
+  padding: 22px 26px 26px;
+  font-size: 12px;
+  line-height: 1.8;
+  color: #62665d;
+}
+.work-permission-confirmation p + p {
+  margin-top: 10px;
+}
+.work-permission-actions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 24px;
+}
 .modal-header {
   display: flex;
   align-items: flex-start;

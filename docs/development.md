@@ -98,4 +98,6 @@ SSH 使用 BatchMode 和严格主机校验，适用于密钥与 ssh-agent。未�
 
 工作会话的 `create_session` 可传 `permissionMode: "ask" | "allow-all"`，省略默认 `ask`。未运行的工作可通过 `set_permission_mode`（`sessionId`、`permissionMode`）切换，返回更新后的会话。聊天不能使用完全授权；运行中、初始化中和等待审批时拒绝切换。两套 SDK 集成验收都覆盖自动批准的真实文件和命令操作、切回询问后的拒绝，以及恢复会话后应用新模式；本地验收还覆盖应用服务重启后的模式持久化。
 
+已有聊天或工作通过 `set_session_model {sessionId, providerId, modelId}` 切换模型，返回更新后的会话。允许选择任意已配置供应商中的模型；会话 ID、消息历史、标题、项目和工具权限保持不变。运行中、初始化中和等待审批时拒绝切换。选择与供应商外键同时持久化，旧 Agent 连接失效并断开；下一条消息恢复原 SDK 会话并应用新供应商、模型及其参数。切换请求即使被取消，也会完成旧连接清理；界面在结果未确认时阻止发送，并允许重新读取实际模型选择。
+
 远端使用 `relay-protocol` 定义的逐行 JSON：请求 `{id,command,payload}`，响应 `{id,value}` 或 `{id,error:{code,message}}`，异步事件 `{event}`。这是 SSH 客户端与远端 Agent 的协议，与开发主机的 HTTP 命令入口分别维护。stdout 专用于协议，诊断输出写 stderr；请求内容和供应商凭证禁止写日志。

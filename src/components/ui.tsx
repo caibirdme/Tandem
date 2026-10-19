@@ -2,7 +2,7 @@ import * as Dialog from '@radix-ui/react-dialog';
 import * as Switch from '@radix-ui/react-switch';
 import { LoaderCircle, X } from 'lucide-react';
 import { useId } from 'react';
-import type { ReactNode } from 'react';
+import type { ReactNode, RefObject } from 'react';
 
 export function Modal({
   open,
@@ -11,6 +11,8 @@ export function Modal({
   description,
   children,
   wide = false,
+  initialFocusRef,
+  returnFocusRef,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -18,12 +20,28 @@ export function Modal({
   description: string;
   children: ReactNode;
   wide?: boolean;
+  initialFocusRef?: RefObject<HTMLElement | null>;
+  returnFocusRef?: RefObject<HTMLElement | null>;
 }) {
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay className="modal-overlay" />
-        <Dialog.Content className={`modal ${wide ? 'modal-wide' : ''}`}>
+        <Dialog.Content
+          className={`modal ${wide ? 'modal-wide' : ''}`}
+          onOpenAutoFocus={(event) => {
+            if (initialFocusRef?.current) {
+              event.preventDefault();
+              initialFocusRef.current.focus();
+            }
+          }}
+          onCloseAutoFocus={(event) => {
+            if (returnFocusRef?.current) {
+              event.preventDefault();
+              returnFocusRef.current.focus();
+            }
+          }}
+        >
           <header className="modal-header">
             <div>
               <Dialog.Title>{title}</Dialog.Title>

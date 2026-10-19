@@ -1481,7 +1481,7 @@ dependencies = [
 [[package]]
 name = "github-copilot-sdk"
 version = "0.0.0-dev"
-source = "git+https://github.com/github/copilot-sdk.git?tag=v1.0.23-preview.3#b04171f698fd80bfd5988505fd93d4a9b80a3934"
+source = "git+https://github.com/github/copilot-sdk.git?tag=v1.0.23-preview.5#b96cd2b54f7eb87458fd50f485a751c712e88f62"
 dependencies = [
  "async-trait",
  "base64 0.23.1",
