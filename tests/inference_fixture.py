@@ -1,0 +1,562 @@
+"""Local inference wire fixtures and an OTLP collector for real SDK acceptance."""
+
+from __future__ import annotations
+
+import gzip
+import json
+import shlex
+import threading
+import time
+from http.server import BaseHTTPRequestHandler
+from pathlib import Path
+
+FIXTURE_KEY = "fixture-only-not-a-credential"
+
+
+def is_title_request(body):
+    return "RELAY_TITLE_SUMMARY" in json.dumps(body, ensure_ascii=False)
+
+
+class Fixture:
+    def __init__(self, workspace: Path):
+        self.workspace = workspace
+        self.requests = []
+        self.exports = []
+        self.lock = threading.Lock()
+        self.release_slow_response = threading.Event()
+
+    def record(self, path, body, content_type):
+        with self.lock:
+            if path.startswith("/v1/traces") or path.startswith("/v1/metrics"):
+                self.exports.append((path, body, content_type))
+            else:
+                self.requests.append((path, body))
+
+    def conversation_requests(self):
+        with self.lock:
+            return [item for item in self.requests if not is_title_request(item[1])]
+
+    def response(self, body):
+        if is_title_request(body):
+            return "验收文件操作" if "fixture:work" in json.dumps(body) else "验收对话总结"
+        messages = body.get("messages", body.get("input", []))
+        if isinstance(messages, str):
+            messages = [{"role": "user", "content": messages}]
+        user_indices = [
+            index for index, item in enumerate(messages) if item.get("role") == "user"
+        ]
+        last_user = user_indices[-1] if user_indices else 0
+        prompt = json.dumps(messages[last_user].get("content", "")) if messages else ""
+        following = messages[last_user + 1 :]
+        completed_tool = any(
+            item.get("role") == "tool"
+            or item.get("type") == "function_call_output"
+            or any(
+                part.get("type") == "tool_result"
+                for part in (item.get("content") or [])
+                if isinstance(part, dict)
+            )
+            for item in following
+        )
+        if not completed_tool and "fixture:attack" in prompt:
+            return [
+                {
+                    "name": "create",
+                    "arguments": {
+                        "path": str(self.workspace.parent / "chat-escape.txt"),
+                        "file_text": "forbidden\n",
+                    },
+                },
+                {
+                    "name": "bash",
+                    "arguments": {
+                        "command": f"touch {self.workspace.parent / 'chat-shell-escape.txt'}",
+                        "description": "forbidden command",
+                    },
+                },
+            ]
+        if not completed_tool and "fixture:multi-permission" in prompt:
+            return [
+                {
+                    "name": "create",
+                    "arguments": {
+                        "path": str(self.workspace.parent / name),
+                        "file_text": "approved individually\n",
+                    },
+                }
+                for name in ["multi-a.txt", "multi-b.txt"]
+            ]
+        if not completed_tool and "fixture:cancel-permission" in prompt:
+            return {
+                "name": "create",
+                "arguments": {
+                    "path": str(self.workspace.parent / "cancelled.txt"),
+                    "file_text": "must not exist\n",
+                },
+            }
+        if "fixture:slow" in prompt:
+            return "RELAY_SLOW_OK"
+        if not completed_tool and any(
+            tag in prompt for tag in ("fixture:work-shell", "fixture:work-mode-shell")
+        ):
+            names = {
+                tool.get("function", tool).get("name") for tool in body.get("tools", [])
+            }
+            target = str(self.workspace / (
+                "mode-shell.txt" if "fixture:work-mode-shell" in prompt else "shell-approved.txt"
+            ))
+            if "powershell" in names and "bash" not in names:
+                tool = "powershell"
+                escaped = target.replace("'", "''")
+                command = (
+                    f"Set-Content -LiteralPath '{escaped}' -Value 'shell approved'"
+                )
+            else:
+                tool = "bash"
+                command = f"printf '%s\\n' 'shell approved' > {shlex.quote(target)}"
+            return {
+                "name": tool,
+                "arguments": {
+                    "command": command,
+                    "description": "Write the approved acceptance marker",
+                },
+            }
+        if not completed_tool and "fixture:work-mode-" in prompt:
+            target = str(self.workspace / "permission-mode.txt")
+            for action, tool, arguments in (
+                ("create", "create", {"path": target, "file_text": "automatic first\n"}),
+                ("read", "view", {"path": target}),
+                ("edit", "edit", {"path": target, "old_str": "automatic first", "new_str": "automatic edited"}),
+                ("ask", "create", {"path": str(self.workspace / "mode-denied.txt"), "file_text": "mode changed\n"}),
+            ):
+                if f"fixture:work-mode-{action}" in prompt:
+                    return {"name": tool, "arguments": arguments}
+        if not completed_tool and "fixture:work-create" in prompt:
+            return {
+                "name": "create",
+                "arguments": {
+                    "path": str(self.workspace / "verified.txt"),
+                    "file_text": "first version\n",
+                },
+            }
+        if not completed_tool and "fixture:work-edit" in prompt:
+            return {
+                "name": "edit",
+                "arguments": {
+                    "path": str(self.workspace / "verified.txt"),
+                    "old_str": "first version",
+                    "new_str": "verified by SDK",
+                },
+            }
+        if not completed_tool and "fixture:permission-deny" in prompt:
+            return {
+                "name": "create",
+                "arguments": {
+                    "path": str(self.workspace.parent / "denied.txt"),
+                    "file_text": "must not exist\n",
+                },
+            }
+        if not completed_tool and "fixture:permission" in prompt:
+            return {
+                "name": "create",
+                "arguments": {
+                    "path": str(self.workspace.parent / "approved.txt"),
+                    "file_text": "approved once\n",
+                },
+            }
+        return "RELAY_WORK_OK" if "fixture:work" in prompt else "RELAY_CHAT_OK"
+
+
+def handler_for(fixture):
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, *_args):
+            pass
+
+        def do_GET(self):
+            if self.path != "/__fixture/stats":
+                self.send_error(404)
+                return
+            with fixture.lock:
+                exports = [
+                    {
+                        "path": path,
+                        "bytes": len(body),
+                        "contentType": content_type,
+                        "spanNames": (
+                            json_span_names(body)
+                            if "json" in content_type
+                            else protobuf_span_names(body)
+                        )
+                        if path == "/v1/traces"
+                        else [],
+                    }
+                    for path, body, content_type in fixture.exports
+                ]
+                data = json.dumps(
+                    {"inferenceRequests": len(fixture.requests), "exports": exports}
+                ).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
+        def do_POST(self):
+            raw = self.rfile.read(int(self.headers.get("Content-Length", "0")))
+            if self.headers.get("Content-Encoding") == "gzip":
+                raw = gzip.decompress(raw)
+            content_type = self.headers.get("Content-Type", "")
+            if self.path.startswith("/v1/traces") or self.path.startswith(
+                "/v1/metrics"
+            ):
+                fixture.record(self.path, raw, content_type)
+                self.send_response(200)
+                self.send_header("Content-Type", content_type)
+                response = b"{}" if "json" in content_type else b""
+                self.send_header("Content-Length", str(len(response)))
+                self.end_headers()
+                self.wfile.write(response)
+                return
+            body = json.loads(raw)
+            if (
+                self.headers.get("Authorization") != f"Bearer {FIXTURE_KEY}"
+                and self.headers.get("x-api-key") != FIXTURE_KEY
+            ):
+                self.send_error(401, "Fixture credential was not restored")
+                return
+            fixture.record(self.path, body, content_type)
+            response = fixture.response(body)
+            if body.get("stream") is not True and not isinstance(response, str):
+                self.send_error(501, "Non-streaming tool fixtures are unsupported")
+                return
+            if self.path.endswith("/chat/completions"):
+                self.completions(body, response)
+            elif self.path.endswith("/responses"):
+                self.openai_responses(body, response)
+            elif self.path in {"/v1/messages", "/v1/messages?beta=true"}:
+                self.anthropic(body, response)
+            else:
+                self.send_error(404, "Unknown inference endpoint")
+
+        def send_json(self, value):
+            data = json.dumps(value).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
+        def start_stream(self):
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Cache-Control", "no-cache")
+            self.end_headers()
+
+        def event(self, value, name=None):
+            if name:
+                self.wfile.write(f"event: {name}\n".encode())
+            try:
+                self.wfile.write(
+                    f"data: {json.dumps(value) if not isinstance(value, str) else value}\n\n".encode()
+                )
+                self.wfile.flush()
+            except (BrokenPipeError, ConnectionResetError):
+                pass
+
+        def completions(self, body, response):
+            base = {
+                "id": "chatcmpl-fixture",
+                "object": "chat.completion.chunk",
+                "created": int(time.time()),
+                "model": body["model"],
+            }
+            if body.get("stream") is not True:
+                self.send_json({
+                    **base,
+                    "object": "chat.completion",
+                    "choices": [{
+                        "index": 0,
+                        "message": {"role": "assistant", "content": response},
+                        "finish_reason": "stop",
+                    }],
+                    "usage": {"prompt_tokens": 100, "completion_tokens": 10, "total_tokens": 110},
+                })
+                return
+            self.start_stream()
+            if isinstance(response, (dict, list)):
+                calls = response if isinstance(response, list) else [response]
+                delta = {
+                    "role": "assistant",
+                    "tool_calls": [
+                        {
+                            "index": index,
+                            "id": f"call_fixture_{index}",
+                            "type": "function",
+                            "function": {
+                                "name": call["name"],
+                                "arguments": json.dumps(call["arguments"]),
+                            },
+                        }
+                        for index, call in enumerate(calls)
+                    ],
+                }
+                self.event(
+                    {
+                        **base,
+                        "choices": [
+                            {"index": 0, "delta": delta, "finish_reason": None}
+                        ],
+                    }
+                )
+                finish = "tool_calls"
+            else:
+                for content in [response[:6], response[6:]]:
+                    self.event(
+                        {
+                            **base,
+                            "choices": [
+                                {
+                                    "index": 0,
+                                    "delta": {"role": "assistant", "content": content},
+                                    "finish_reason": None,
+                                }
+                            ],
+                        }
+                    )
+                    if response == "RELAY_SLOW_OK" and content == response[:6]:
+                        fixture.release_slow_response.wait(30)
+                finish = "stop"
+            self.event(
+                {
+                    **base,
+                    "choices": [{"index": 0, "delta": {}, "finish_reason": finish}],
+                    "usage": {
+                        "prompt_tokens": 100,
+                        "completion_tokens": 10,
+                        "total_tokens": 110,
+                    },
+                }
+            )
+            self.event("[DONE]")
+
+        def openai_responses(self, body, response):
+            text = response if isinstance(response, str) else "RELAY_CHAT_OK"
+            response_id = "resp_fixture"
+            item = {
+                "id": "msg_fixture",
+                "type": "message",
+                "role": "assistant",
+                "status": "in_progress",
+                "content": [],
+            }
+            envelope = {
+                "id": response_id,
+                "object": "response",
+                "created_at": int(time.time()),
+                "status": "in_progress",
+                "model": body["model"],
+                "output": [],
+            }
+            if body.get("stream") is not True:
+                self.send_json({
+                    **envelope,
+                    "status": "completed",
+                    "output": [{
+                        **item,
+                        "status": "completed",
+                        "content": [{"type": "output_text", "text": text, "annotations": []}],
+                    }],
+                    "usage": {"input_tokens": 100, "output_tokens": 10, "total_tokens": 110},
+                })
+                return
+            self.start_stream()
+            self.event(
+                {"type": "response.created", "response": envelope}, "response.created"
+            )
+            self.event(
+                {"type": "response.output_item.added", "output_index": 0, "item": item},
+                "response.output_item.added",
+            )
+            self.event(
+                {
+                    "type": "response.content_part.added",
+                    "item_id": item["id"],
+                    "output_index": 0,
+                    "content_index": 0,
+                    "part": {"type": "output_text", "text": "", "annotations": []},
+                },
+                "response.content_part.added",
+            )
+            for delta in [text[:6], text[6:]]:
+                self.event(
+                    {
+                        "type": "response.output_text.delta",
+                        "item_id": item["id"],
+                        "output_index": 0,
+                        "content_index": 0,
+                        "delta": delta,
+                    },
+                    "response.output_text.delta",
+                )
+            self.event(
+                {
+                    "type": "response.output_text.done",
+                    "item_id": item["id"],
+                    "output_index": 0,
+                    "content_index": 0,
+                    "text": text,
+                },
+                "response.output_text.done",
+            )
+            item = {
+                **item,
+                "status": "completed",
+                "content": [{"type": "output_text", "text": text, "annotations": []}],
+            }
+            self.event(
+                {"type": "response.output_item.done", "output_index": 0, "item": item},
+                "response.output_item.done",
+            )
+            envelope.update(
+                status="completed",
+                output=[item],
+                usage={"input_tokens": 100, "output_tokens": 10, "total_tokens": 110},
+            )
+            self.event(
+                {"type": "response.completed", "response": envelope},
+                "response.completed",
+            )
+
+        def anthropic(self, body, response):
+            text = response if isinstance(response, str) else "RELAY_CHAT_OK"
+            if body.get("stream") is not True:
+                self.send_json({
+                    "id": "msg_fixture",
+                    "type": "message",
+                    "role": "assistant",
+                    "model": body["model"],
+                    "content": [{"type": "text", "text": text}],
+                    "stop_reason": "end_turn",
+                    "stop_sequence": None,
+                    "usage": {"input_tokens": 100, "output_tokens": 10},
+                })
+                return
+            self.start_stream()
+            self.event(
+                {
+                    "type": "message_start",
+                    "message": {
+                        "id": "msg_fixture",
+                        "type": "message",
+                        "role": "assistant",
+                        "model": body["model"],
+                        "content": [],
+                        "stop_reason": None,
+                        "stop_sequence": None,
+                        "usage": {"input_tokens": 100, "output_tokens": 0},
+                    },
+                },
+                "message_start",
+            )
+            self.event(
+                {
+                    "type": "content_block_start",
+                    "index": 0,
+                    "content_block": {"type": "text", "text": ""},
+                },
+                "content_block_start",
+            )
+            for delta in [text[:6], text[6:]]:
+                self.event(
+                    {
+                        "type": "content_block_delta",
+                        "index": 0,
+                        "delta": {"type": "text_delta", "text": delta},
+                    },
+                    "content_block_delta",
+                )
+            self.event({"type": "content_block_stop", "index": 0}, "content_block_stop")
+            self.event(
+                {
+                    "type": "message_delta",
+                    "delta": {"stop_reason": "end_turn", "stop_sequence": None},
+                    "usage": {"output_tokens": 10},
+                },
+                "message_delta",
+            )
+            self.event({"type": "message_stop"}, "message_stop")
+
+    return Handler
+
+
+def require(condition, message):
+    if not condition:
+        raise AssertionError(message)
+
+
+def protobuf_fields(payload):
+    """Decode only OTLP's field framing, without a protobuf runtime dependency."""
+    offset = 0
+
+    def varint():
+        nonlocal offset
+        value, shift = 0, 0
+        while offset < len(payload):
+            byte = payload[offset]
+            offset += 1
+            value |= (byte & 127) << shift
+            if not byte & 128:
+                return value
+            shift += 7
+            require(shift < 70, "Malformed OTLP varint")
+        raise AssertionError("Truncated OTLP varint")
+
+    while offset < len(payload):
+        tag = varint()
+        field, wire = tag >> 3, tag & 7
+        if wire == 0:
+            value = varint()
+        elif wire in (1, 5):
+            size = 8 if wire == 1 else 4
+            value = payload[offset : offset + size]
+            offset += size
+        elif wire == 2:
+            size = varint()
+            value = payload[offset : offset + size]
+            offset += size
+        else:
+            raise AssertionError(f"Unexpected OTLP wire type: {wire}")
+        require(offset <= len(payload), "Truncated OTLP field")
+        yield field, value
+
+
+def protobuf_span_names(payload):
+    names = []
+    resources = [value for field, value in protobuf_fields(payload) if field == 1]
+    for resource in resources:
+        scopes = [value for field, value in protobuf_fields(resource) if field == 2]
+        for scope in scopes:
+            spans = [value for field, value in protobuf_fields(scope) if field == 2]
+            for span in spans:
+                fields = dict(protobuf_fields(span))
+                require(
+                    len(fields.get(1, b"")) == 16, "Exported span has invalid trace ID"
+                )
+                require(
+                    len(fields.get(2, b"")) == 8, "Exported span has invalid span ID"
+                )
+                names.append(fields.get(5, b"").decode())
+    return names
+
+
+def json_span_names(payload):
+    names = []
+    for resource in json.loads(payload).get("resourceSpans", []):
+        for scope in resource.get("scopeSpans", []):
+            for span in scope.get("spans", []):
+                require(
+                    bool(span.get("traceId")) and bool(span.get("spanId")),
+                    "JSON span IDs missing",
+                )
+                names.append(span.get("name"))
+    return names

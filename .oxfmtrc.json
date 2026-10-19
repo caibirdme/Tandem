@@ -1,0 +1,16 @@
+{
+  "singleQuote": true,
+  "trailingComma": "all",
+  "printWidth": 100,
+  "sortImports": {},
+  "ignorePatterns": [
+    "pnpm-lock.yaml",
+    "dist/**",
+    "node_modules/**",
+    "target/**",
+    "src-tauri/target/**",
+    "what-to-do.md",
+    "src-tauri/gen/**",
+    "artifacts/**"
+  ]
+}

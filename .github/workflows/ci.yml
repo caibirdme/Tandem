@@ -1,0 +1,103 @@
+name: Quality and desktop bundles
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  quality:
+    strategy:
+      matrix:
+        os: [macos-15, windows-2022]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: corepack enable
+      - run: corepack prepare pnpm@12.9.1 --activate
+      - run: pnpm install --frozen-lockfile
+      - run: rustup toolchain install 1.99.1 --profile minimal --component clippy
+      - run: rustup toolchain install nightly --profile minimal --component rustfmt
+      - run: pnpm format:check
+      - run: pnpm lint && pnpm typecheck && pnpm test && pnpm build
+      - run: cargo +nightly fmt --all -- --check
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo test --workspace
+      - run: python scripts/check_workspace.py
+      - run: python -m unittest discover -s tests -p 'test_*.py'
+      - run: cargo build -p relay-dev-server -p relay-server
+      - run: python tests/runtime_e2e.py
+  remote-linux:
+    strategy:
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+          - runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+    runs-on: ${{ matrix.runner }}
+    container: ubuntu:22.04
+    steps:
+      - run: apt-get update && apt-get install -y curl git build-essential pkg-config libssl-dev ca-certificates
+      - uses: actions/checkout@v4
+      - run: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.99.1 --profile minimal
+      - run: $HOME/.cargo/bin/cargo build --release -p relay-server --locked
+      - uses: actions/upload-artifact@v4
+        with:
+          name: remote-${{ matrix.target }}
+          path: target/release/relay-server
+  remote-macos:
+    strategy:
+      matrix:
+        include:
+          - runner: macos-15
+            target: aarch64-apple-darwin
+          - runner: macos-15-intel
+            target: x86_64-apple-darwin
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup toolchain install 1.99.1 --profile minimal
+      - run: cargo build --release -p relay-server --locked
+      - uses: actions/upload-artifact@v4
+        with:
+          name: remote-${{ matrix.target }}
+          path: target/release/relay-server
+  desktop:
+    needs: [quality, remote-linux, remote-macos]
+    strategy:
+      matrix:
+        os: [macos-15, macos-15-intel, windows-2022]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: corepack enable
+      - run: corepack prepare pnpm@12.9.1 --activate
+      - run: pnpm install --frozen-lockfile
+      - run: rustup toolchain install 1.99.1 --profile minimal
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: remote-*
+          path: artifacts
+      - shell: bash
+        run: |
+          for directory in artifacts/remote-*; do
+            target="${directory#artifacts/remote-}"
+            mkdir -p "src-tauri/remote/$target"
+            cp "$directory/relay-server" "src-tauri/remote/$target/relay-server"
+            chmod 700 "src-tauri/remote/$target/relay-server"
+          done
+      - run: pnpm tauri build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: relay-${{ matrix.os }}
+          path: |
+            target/release/bundle/**/*.dmg
+            target/release/bundle/**/*.msi
+            target/release/bundle/**/*.exe

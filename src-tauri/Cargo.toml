@@ -1,0 +1,21 @@
+[package]
+name = "relay-desktop"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+relay-core = { path = "../crates/relay-core" }
+serde_json.workspace = true
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+tauri-plugin-opener = "2"
+tokio.workspace = true
+tracing.workspace = true
+
+[lints]
+workspace = true
