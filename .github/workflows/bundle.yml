@@ -1,0 +1,106 @@
+name: Desktop bundles
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  remote-linux:
+    name: Remote Agent (${{ matrix.target }})
+    strategy:
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+          - runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+    runs-on: ${{ matrix.runner }}
+    # 在较旧的 glibc 上编译，产物才能运行在更多 Linux 发行版上。
+    container: ubuntu:22.04
+    timeout-minutes: 60
+    steps:
+      - run: apt-get update && apt-get install -y curl git build-essential pkg-config libssl-dev ca-certificates
+      - uses: actions/checkout@v7
+      - run: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain none --profile minimal
+      - run: echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+      - run: rustup toolchain install
+      - run: cargo build --release -p tandem-server --locked
+      - uses: actions/upload-artifact@v7
+        with:
+          name: remote-${{ matrix.target }}
+          path: target/release/tandem-server
+          if-no-files-found: error
+
+  remote-macos:
+    name: Remote Agent (${{ matrix.target }})
+    strategy:
+      matrix:
+        include:
+          - runner: macos-15
+            target: aarch64-apple-darwin
+          - runner: macos-15-intel
+            target: x86_64-apple-darwin
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - run: rustup toolchain install
+      - run: cargo build --release -p tandem-server --locked
+      - uses: actions/upload-artifact@v7
+        with:
+          name: remote-${{ matrix.target }}
+          path: target/release/tandem-server
+          if-no-files-found: error
+
+  desktop:
+    name: Desktop (${{ matrix.platform }})
+    needs: [remote-linux, remote-macos]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            platform: macos-aarch64
+          - runner: macos-15-intel
+            platform: macos-x86_64
+          - runner: windows-2022
+            platform: windows-x86_64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - run: rustup toolchain install
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: remote-*
+          path: artifacts
+      - name: Add remote Agents to bundle resources
+        shell: bash
+        run: |
+          for directory in artifacts/remote-*; do
+            target="${directory#artifacts/remote-}"
+            mkdir -p "src-tauri/remote/$target"
+            cp "$directory/tandem-server" "src-tauri/remote/$target/tandem-server"
+            chmod 700 "src-tauri/remote/$target/tandem-server"
+          done
+      # macOS 使用 tauri.conf.json 中的 ad-hoc 签名，不需要 Apple 证书。
+      - run: pnpm tauri build
+      - uses: actions/upload-artifact@v7
+        with:
+          name: tandem-${{ matrix.platform }}
+          path: |
+            target/release/bundle/dmg/*.dmg
+            target/release/bundle/msi/*.msi
+            target/release/bundle/nsis/*.exe
+          if-no-files-found: error
