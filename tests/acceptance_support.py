@@ -220,6 +220,7 @@ class Application:
             "send_message",
             sessionId=session["id"],
             content="fixture:slow Hold the stream for cancellation.",
+            messageId=str(uuid.uuid4()),
         )
         self.wait_event(session["id"], lambda event: event["kind"] == "delta")
         self.command("abort_session", sessionId=session["id"])
@@ -231,6 +232,7 @@ class Application:
             "send_message",
             sessionId=session["id"],
             content="fixture:cancel-permission Request the write and wait for cancellation.",
+            messageId=str(uuid.uuid4()),
         )
         event = self.wait_event(
             session["id"], lambda event: event["kind"] == "permission"
@@ -260,6 +262,7 @@ class Application:
             "send_message",
             sessionId=session["id"],
             content="fixture:slow Hold the stream for unexpected process termination.",
+            messageId=str(uuid.uuid4()),
         )
         self.wait_event(session["id"], lambda event: event["kind"] == "delta")
         processes = subprocess.check_output(

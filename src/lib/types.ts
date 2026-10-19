@@ -43,7 +43,7 @@ export interface Project {
 export type SessionStatus = 'idle' | 'running' | 'error';
 export type PermissionMode = 'ask' | 'allow-all';
 export interface Session {
-  titleState?: 'preserved' | 'pending' | 'attempted';
+  titleState: 'preserved' | 'pending' | 'attempted';
   id: string;
   title: string;
   projectId: string | null;
@@ -68,8 +68,8 @@ export interface RuntimeStatus {
   message: string;
 }
 export interface Snapshot {
-  titleGenerations?: string[];
-  activeTurns?: Record<string, { stream: string; permissions: Permission[] }>;
+  titleGenerations: string[];
+  activeTurns: Record<string, { stream: string; permissions: Permission[] }>;
   settings: Settings;
   projects: Project[];
   sessions: Session[];
@@ -91,7 +91,7 @@ export type RuntimeEvent = { sessionId: string } & (
   | { kind: 'message'; data: Message }
   | { kind: 'tool'; data: ToolActivity }
   | { kind: 'permission'; data: Permission }
-  | { kind: 'status'; data: { status: SessionStatus; title?: string } }
+  | { kind: 'status'; data: { status: SessionStatus } }
   | { kind: 'error'; data: { message: string } }
   | { kind: 'title'; data: { title: string } }
   | { kind: 'title_error'; data: { message: string } }
@@ -135,7 +135,7 @@ export interface Commands {
   rename_session: { payload: { sessionId: string; title: string }; result: null };
   messages: { payload: { sessionId: string }; result: Message[] };
   send_message: {
-    payload: { sessionId: string; content: string; messageId?: string };
+    payload: { sessionId: string; content: string; messageId: string };
     result: null;
   };
   abort_session: { payload: { sessionId: string }; result: null };

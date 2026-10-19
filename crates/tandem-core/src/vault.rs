@@ -3,8 +3,6 @@ use std::{collections::HashMap, path::PathBuf, sync::Mutex, time::Duration};
 use anyhow::{Context, Result};
 use rusqlite::{Connection, OptionalExtension, params};
 
-use crate::storage_paths::database_path;
-
 /// Credential persistence is separate from provider metadata and frontend snapshots.
 pub trait SecretStore: Send + Sync {
     /// Read a credential, returning `None` when it has not been configured.
@@ -32,8 +30,8 @@ impl LocalVault {
     }
 
     fn open(&self) -> Result<Connection> {
-        let database = Connection::open(database_path(&self.database)?)
-            .context("Cannot open the local API key database")?;
+        let database =
+            Connection::open(&self.database).context("Cannot open the local API key database")?;
         database.busy_timeout(Duration::from_secs(5))?;
         database.execute_batch(
             "CREATE TABLE IF NOT EXISTS provider_secrets (

@@ -7,6 +7,7 @@ import { initialTandemState, reduceTandem } from './tandemState';
 import type { ModelSelection, Session, Snapshot } from './types';
 
 const session: Session = {
+  titleState: 'preserved',
   id: 'session-1',
   title: 'Existing conversation',
   projectId: 'project-1',
@@ -18,6 +19,8 @@ const session: Session = {
   updatedAt: '2026-10-19T00:00:00Z',
 };
 const snapshot: Snapshot = {
+  titleGenerations: [],
+  activeTurns: {},
   sessions: [session, { ...session, id: 'session-2' }],
   projects: [],
   settings: {

@@ -4,10 +4,7 @@ use anyhow::{Context, Result, bail};
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::de::DeserializeOwned;
 
-use crate::{
-    model::{Message, Preferences, Project, Provider, Session, SessionStatus},
-    storage_paths::database_path,
-};
+use crate::model::{Message, Preferences, Project, Provider, Session, SessionStatus};
 
 pub(crate) struct Store {
     connection: Mutex<Connection>,
@@ -15,8 +12,7 @@ pub(crate) struct Store {
 
 impl Store {
     pub fn open(path: &Path) -> Result<Self> {
-        let connection =
-            Connection::open(database_path(path)?).context("Cannot open the local data file")?;
+        let connection = Connection::open(path).context("Cannot open the local data file")?;
         connection.busy_timeout(std::time::Duration::from_secs(5))?;
         connection.execute_batch(
             "PRAGMA journal_mode=WAL;
@@ -318,7 +314,8 @@ mod tests {
         }))?)?;
         store.save_session(&serde_json::from_value(json!({
             "id":"session", "title":"Session", "projectId":"project", "providerId":"provider",
-            "modelId":"model", "status":"idle", "createdAt":"2026-10-17", "updatedAt":"2026-10-17"
+            "modelId":"model", "status":"idle", "titleState":"pending", "permissionMode":"ask",
+            "createdAt":"2026-10-17", "updatedAt":"2026-10-17"
         }))?)?;
         store.with(|db| {
             db.execute("INSERT INTO providers(id,data) VALUES('broken','invalid json')", [])?;

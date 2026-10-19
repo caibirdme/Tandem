@@ -117,7 +117,7 @@ Use `CI=true just desktop-build` on a locked screen or in automation to skip DMG
 
 Released installers bundle remote agents for Linux x64 (`x86_64-unknown-linux-gnu`) and Apple Silicon macOS (`aarch64-apple-darwin`). The application also recognizes Linux arm64 and Intel Mac hosts, but installers do not contain those binaries and report a missing artifact when connecting. Build the required target yourself and use `scripts/prepare-remote.mjs <target>` to add it to resources.
 
-Application and command names use Tandem. The Windows executable without an installer is `target/release/tandem-desktop.exe`; the remote artifact is `tandem-server`. Set `TANDEM_REMOTE_ARTIFACTS` for a custom artifact directory. When unset, the old `RELAY_REMOTE_ARTIFACTS` is still accepted, but the directory must contain the new `tandem-server`; old executable names are not loaded. See [History and API keys](architecture.md#history-and-api-keys) for existing data directory and SDK state compatibility.
+The Windows executable without an installer is `target/release/tandem-desktop.exe`; the remote artifact is `tandem-server`. Set `TANDEM_REMOTE_ARTIFACTS` for a custom artifact directory containing that binary.
 
 SSH uses BatchMode and strict host verification, supporting keys and ssh-agent. For an unknown host or interactive login, log in from a terminal first. Windows clients require system OpenSSH; Windows remote execution hosts are not supported.
 
@@ -145,7 +145,7 @@ Title settings use the separate command `save_title_model {titleModel: {provider
 
 The provider editor reads the saved key with `get_provider_api_key` (`id`), which returns a string or `null` and errors if the provider does not exist. Ordinary `snapshot` and `save_provider` responses contain only `hasApiKey`. Omitting `apiKey` from a save preserves the value; a nonempty string replaces it; an empty string clears it. Keys are stored only in local SQLite's `provider_secrets.secret`, never in messages, logs, or remote state. The development host's `--data-dir` selects storage for both configuration and keys; `--ephemeral-secrets` switches to an in-process test store.
 
-`send_message` accepts an optional `messageId` UUID. The saved user message retains that ID so the UI can merge it accurately with history after a lost live confirmation. The service generates an ID when omitted. The database rejects repeated submissions with the same ID rather than executing them again.
+`send_message` requires a caller-supplied `messageId` UUID. The saved user message retains that ID so the UI can merge it accurately with history after a lost live confirmation. The database rejects repeated submissions with the same ID rather than executing them again.
 
 For work, `create_session` accepts `permissionMode: "ask" | "allow-all"`, defaulting to `ask`. Inactive work can switch through `set_permission_mode` (`sessionId`, `permissionMode`), which returns the updated session. Chat cannot use this full-access setting. Switching is rejected during execution, initialization, or pending approval. Both SDK integration suites cover automatically approved real file/command operations, denial after switching back to ask mode, and recovery with a new mode. Local verification also checks persistence after restarting application services.
 

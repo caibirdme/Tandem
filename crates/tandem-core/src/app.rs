@@ -12,7 +12,6 @@ use tokio::sync::{Mutex, broadcast};
 use crate::{
     agent::LiveSession,
     model::{Event, Preferences, RuntimeStatus, SessionStatus, Settings, Snapshot, Telemetry},
-    storage_paths::application_directory,
     store::Store,
     titles::TitleJobs,
     turns::ActiveTurns,
@@ -41,13 +40,12 @@ impl AppOptions {
     /// Resolve the per-user application directory.
     ///
     /// # Errors
-    /// Returns an error if the platform does not expose a user data directory or
-    /// existing application paths cannot be inspected.
+    /// Returns an error if the platform does not expose a user data directory.
     pub fn native() -> Result<Self> {
         let directory = dirs::data_local_dir()
             .context("Cannot determine the application data directory")?
             .join("app.tandem.desktop");
-        Ok(Self::local(application_directory(&directory)?))
+        Ok(Self::local(directory))
     }
 }
 
