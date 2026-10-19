@@ -1,6 +1,5 @@
 use std::{sync::Arc, time::Duration};
 
-use anyhow::{Context, Result};
 use copilot_runtime::{AgentSession, ApprovalDecision, RuntimeEvent};
 use serde_json::{Value, json};
 use tandem_remote::RemoteTransport;
@@ -9,7 +8,7 @@ use tokio::{
     task::JoinHandle,
 };
 
-use crate::events::EventOutcome;
+use crate::{Error, Result, events::EventOutcome};
 
 /// Application operations are independent of the agent's execution location.
 #[derive(Clone)]
@@ -115,16 +114,11 @@ pub(crate) enum AgentEvents {
 impl AgentEvents {
     pub async fn recv(&mut self) -> Result<RuntimeEvent> {
         match self {
-            Self::Local(incoming) => incoming
-                .recv()
-                .await
-                .context("The runtime event stream was interrupted"),
+            Self::Local(incoming) => incoming.recv().await.map_err(Error::RuntimeEventStream),
             Self::Remote(incoming) => {
-                let value = incoming
-                    .recv()
-                    .await
-                    .context("The SSH session was disconnected")?;
-                serde_json::from_value(value).context("The remote event format is invalid")
+                let value = incoming.recv().await.map_err(Error::RemoteEventStream)?;
+                serde_json::from_value(value)
+                    .map_err(|error| Error::InvalidRemoteEvent(error.into()))
             }
         }
     }
@@ -175,10 +169,9 @@ impl TurnCompletion {
                 false
             }
         });
-        anyhow::ensure!(
-            started,
-            "The session connection is no longer valid. Try again."
-        );
+        if !started {
+            return Err(Error::SessionDisconnected);
+        }
         Ok(())
     }
 
@@ -221,12 +214,12 @@ impl TurnCompletion {
                 completed
                     .changed()
                     .await
-                    .context("Conversation event forwarding has stopped")?;
+                    .map_err(Error::ForwardingStopped)?;
             }
             Ok(())
         })
         .await
-        .context("The conversation completion event is still being processed. Try again shortly.")?
+        .map_err(Error::CompletionTimeout)?
     }
 }
 
@@ -238,9 +231,39 @@ impl Drop for LiveSession {
 
 #[cfg(test)]
 mod tests {
+    use anyhow::Result;
     use tokio::sync::oneshot;
 
     use super::*;
+
+    #[tokio::test]
+    async fn remote_event_decode_failures_are_typed_and_do_not_echo_private_values() -> Result<()> {
+        use std::error::Error as _;
+
+        let (events, incoming) = broadcast::channel(2);
+        let mut incoming = AgentEvents::Remote(incoming);
+        events.send(json!({"sessionId":"session","kind":"private-event-value","data":{}}))?;
+        let error = incoming
+            .recv()
+            .await
+            .err()
+            .ok_or_else(|| anyhow::anyhow!("invalid event accepted"))?;
+        assert!(matches!(error, Error::InvalidRemoteEvent(_)));
+        assert_eq!(error.code(), crate::ErrorCode::Internal);
+        assert!(!format!("{error:?}").contains("private-event-value"));
+        let source = error
+            .source()
+            .ok_or_else(|| anyhow::anyhow!("event decode source missing"))?;
+        assert!(source.is::<crate::EventDecodeError>());
+        drop(events);
+        assert!(matches!(
+            incoming.recv().await,
+            Err(Error::RemoteEventStream(
+                broadcast::error::RecvError::Closed
+            ))
+        ));
+        Ok(())
+    }
 
     #[tokio::test]
     async fn a_new_turn_waits_until_the_previous_terminal_event_is_handled() -> Result<()> {

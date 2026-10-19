@@ -10,7 +10,7 @@ use tokio::{
 };
 
 use super::*;
-use crate::{ProviderProtocol, Runtime};
+use crate::{Error, ProviderProtocol, Runtime};
 
 const TEST_TIMEOUT: Duration = Duration::from_secs(120);
 
@@ -291,7 +291,12 @@ async fn cancellation_during_creation_or_inference_still_deletes_the_session() {
 
 #[tokio::test(start_paused = true)]
 async fn inference_failures_and_timeout_abort_and_delete_without_exposing_provider_errors() {
-    for failure in ["rpc", "event", "no-text", "timeout"] {
+    for (failure, expected) in [
+        ("rpc", SummaryError::InferenceFailed),
+        ("event", SummaryError::InferenceFailed),
+        ("no-text", SummaryError::NoText),
+        ("timeout", SummaryError::InferenceTimeout),
+    ] {
         let (mut server, create, result) = start(ProviderProtocol::OpenaiResponses).await;
         server.created(&create).await;
         let send = server.request().await;
@@ -312,17 +317,22 @@ async fn inference_failures_and_timeout_abort_and_delete_without_exposing_provid
             }
         }
         server.cleaned(true).await;
-        let error = outcome(result)
-            .await
-            .expect_err("fixture must fail")
-            .to_string();
-        assert!(!error.contains("private-provider-error"));
+        let error = outcome(result).await.expect_err("fixture must fail");
+        assert!(matches!(&error, Error::Summary(error) if *error == expected));
+        assert!(!error.to_string().contains("private-provider-error"));
+        assert!(!format!("{error:?}").contains("private-provider-error"));
+        assert!(std::error::Error::source(&expected).is_none());
     }
 }
 
 #[tokio::test(start_paused = true)]
 async fn creation_failure_still_attempts_deletion_and_cleanup_failure_is_reported() {
-    for (creation_timeout, reject_delete) in [(false, false), (true, false), (false, true)] {
+    for (creation_timeout, reject_delete, expected) in [
+        (false, Some(false), SummaryError::CreationFailed),
+        (true, Some(false), SummaryError::CreationTimeout),
+        (false, Some(true), SummaryError::DeletionFailed),
+        (false, None, SummaryError::DeletionTimeout),
+    ] {
         let (mut server, create, result) = start(ProviderProtocol::OpenaiResponses).await;
         if !creation_timeout {
             server.reject(&create).await;
@@ -330,24 +340,72 @@ async fn creation_failure_still_attempts_deletion_and_cleanup_failure_is_reporte
         let delete = server.request().await;
         assert_eq!(delete["method"], "session.delete");
         assert_eq!(delete["params"]["sessionId"], server.id);
-        if reject_delete {
-            server.reject(&delete).await;
-        } else {
-            server.respond(&delete, json!({})).await;
+        match reject_delete {
+            Some(true) => server.reject(&delete).await,
+            Some(false) => server.respond(&delete, json!({})).await,
+            None => (),
         }
-        let error = outcome(result)
-            .await
-            .expect_err("fixture must fail")
-            .to_string();
-        assert_eq!(
-            error,
-            if reject_delete {
-                "title summary: temporary session could not be deleted"
-            } else if creation_timeout {
-                "title summary: session creation timed out"
-            } else {
-                "title summary: session creation failed"
-            },
-        );
+        let error = outcome(result).await.expect_err("fixture must fail");
+        assert!(matches!(&error, Error::Summary(error) if *error == expected));
+        assert!(!error.to_string().contains("private-provider-error"));
+        assert!(!format!("{error:?}").contains("private-provider-error"));
     }
+}
+
+#[tokio::test(start_paused = true)]
+async fn runtime_shutdown_retains_the_sdk_error_aggregate_and_source_chain() {
+    let (client_writer, reader) = duplex(65_536);
+    let (writer, client_reader) = duplex(65_536);
+    let directory = std::env::temp_dir();
+    let client = Client::from_streams(client_reader, client_writer, directory.clone())
+        .expect("valid SDK fixture");
+    let (provider, model) = settings(ProviderProtocol::OpenaiResponses);
+    let config = configuration(&provider, &model, directory.clone(), temporary_id())
+        .expect("valid SDK fixture");
+    let create = tokio::spawn({
+        let client = client.clone();
+        async move { client.create_session(config).await }
+    });
+    let mut server = Server {
+        reader: BufReader::new(reader),
+        writer,
+        id: String::new(),
+    };
+    let request = server.request().await;
+    server.id = request["params"]["sessionId"]
+        .as_str()
+        .expect("valid SDK fixture")
+        .to_owned();
+    server.created(&request).await;
+    let _session = create
+        .await
+        .expect("valid SDK fixture")
+        .expect("valid SDK fixture");
+    let runtime = Runtime {
+        client,
+        chat_directory: directory,
+    };
+    let stop = tokio::spawn(async move { runtime.stop().await });
+    let detach = server.request().await;
+    assert_eq!(detach["method"], "session.detach");
+    server.reject(&detach).await;
+    let error = timeout(TEST_TIMEOUT, stop)
+        .await
+        .expect("valid SDK fixture")
+        .expect("valid SDK fixture")
+        .expect_err("fixture must fail");
+    assert!(matches!(
+        &error,
+        Error::Shutdown(errors)
+            if errors.errors().len() == 1
+                && matches!(errors.errors()[0].kind(), github_copilot_sdk::ErrorKind::Rpc { code: -32000 })
+    ));
+    let source = std::error::Error::source(&error).expect("shutdown aggregate remains available");
+    assert!(source.is::<github_copilot_sdk::StopErrors>());
+    assert!(
+        source
+            .source()
+            .expect("the aggregate retains the SDK error")
+            .is::<github_copilot_sdk::Error>()
+    );
 }

@@ -1,7 +1,64 @@
-use anyhow::{Result, bail};
+use std::fmt;
+
 pub use copilot_runtime::PermissionMode;
 use serde::{Deserialize, Serialize};
 use url::Url;
+
+/// A display-name field with consistent validation and a stable typed identity.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum NameField {
+    ProviderName,
+    ModelId,
+    ModelName,
+    ProjectName,
+    ConversationName,
+}
+
+impl fmt::Display for NameField {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
+            Self::ProviderName => "Provider name",
+            Self::ModelId => "Model ID",
+            Self::ModelName => "Model name",
+            Self::ProjectName => "Project name",
+            Self::ConversationName => "Conversation name",
+        })
+    }
+}
+
+/// Invalid user-supplied provider, model, telemetry, or display-name settings.
+#[derive(Debug, thiserror::Error)]
+pub enum ValidationError {
+    #[error("{field} must not be empty, contain control characters, or exceed 256 characters.")]
+    InvalidName { field: NameField },
+    #[error("Add at least one model.")]
+    MissingModels,
+    #[error("Model IDs must be unique: {id}")]
+    DuplicateModelId { id: String },
+    #[error("Reasoning effort must be low, medium, or high.")]
+    UnsupportedReasoningEffort { effort: String },
+    #[error("Token counts must be between 1 and 10,000,000.")]
+    InvalidTokenCount { count: i64 },
+    #[error("Maximum output must be smaller than the context window to leave room for input.")]
+    OutputExceedsContext { context: i64, output: i64 },
+    #[error("Enter a complete HTTP or HTTPS URL.")]
+    InvalidEndpoint {
+        #[source]
+        source: url::ParseError,
+    },
+    #[error("The URL must use HTTP or HTTPS.")]
+    UnsupportedEndpointScheme,
+    #[error("The URL must not contain credentials. Enter credentials in API Key.")]
+    EndpointContainsCredentials,
+    #[error("The URL must not contain query parameters.")]
+    EndpointContainsQuery,
+    #[error("The URL must not contain fragments.")]
+    EndpointContainsFragment,
+    #[error("Copilot SDK telemetry export supports http/protobuf and http/json.")]
+    UnsupportedTelemetryProtocol { protocol: String },
+}
+
+type Result<T> = std::result::Result<T, ValidationError>;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -39,37 +96,39 @@ impl Provider {
     /// # Errors
     /// Returns an error for incomplete, duplicate, or unsupported configuration.
     pub fn validate(&self) -> Result<()> {
-        validate_name(&self.name, "Provider name")?;
+        validate_name(&self.name, NameField::ProviderName)?;
         validate_endpoint(&self.base_url)?;
         if self.models.is_empty() {
-            bail!("Add at least one model.");
+            return Err(ValidationError::MissingModels);
         }
         let mut ids = std::collections::HashSet::new();
         for model in &self.models {
-            validate_name(&model.id, "Model ID")?;
-            validate_name(&model.name, "Model name")?;
+            validate_name(&model.id, NameField::ModelId)?;
+            validate_name(&model.name, NameField::ModelName)?;
             if !ids.insert(&model.id) {
-                bail!("Model IDs must be unique: {}", model.id);
+                return Err(ValidationError::DuplicateModelId {
+                    id: model.id.clone(),
+                });
             }
             if let Some(effort) = &model.reasoning_effort
                 && !["low", "medium", "high"].contains(&effort.as_str())
             {
-                bail!("Reasoning effort must be low, medium, or high.");
+                return Err(ValidationError::UnsupportedReasoningEffort {
+                    effort: effort.clone(),
+                });
             }
             for count in [model.context_window, model.max_output_tokens]
                 .into_iter()
                 .flatten()
             {
                 if !(1..=10_000_000).contains(&count) {
-                    bail!("Token counts must be between 1 and 10,000,000.");
+                    return Err(ValidationError::InvalidTokenCount { count });
                 }
             }
             if let (Some(context), Some(output)) = (model.context_window, model.max_output_tokens)
                 && output >= context
             {
-                bail!(
-                    "Maximum output must be smaller than the context window to leave room for input."
-                );
+                return Err(ValidationError::OutputExceedsContext { context, output });
             }
         }
         Ok(())
@@ -112,7 +171,9 @@ impl Telemetry {
         if self.enabled {
             validate_endpoint(&self.endpoint)?;
             if !["http/protobuf", "http/json"].contains(&self.protocol.as_str()) {
-                bail!("Copilot SDK telemetry export supports http/protobuf and http/json.");
+                return Err(ValidationError::UnsupportedTelemetryProtocol {
+                    protocol: self.protocol.clone(),
+                });
             }
         }
         Ok(())
@@ -265,38 +326,163 @@ pub struct Event {
     pub data: serde_json::Value,
 }
 
-pub(crate) fn validate_name(value: &str, label: &str) -> Result<()> {
+pub(crate) fn validate_name(value: &str, field: NameField) -> Result<()> {
     if value.trim().is_empty() || value.chars().count() > 256 || value.chars().any(char::is_control)
     {
-        bail!("{label} must not be empty, contain control characters, or exceed 256 characters.");
+        return Err(ValidationError::InvalidName { field });
     }
     Ok(())
 }
 
 pub(crate) fn validate_endpoint(value: &str) -> Result<()> {
-    let url =
-        Url::parse(value).map_err(|_| anyhow::anyhow!("Enter a complete HTTP or HTTPS URL."))?;
+    let url = Url::parse(value).map_err(|source| ValidationError::InvalidEndpoint { source })?;
     if !["http", "https"].contains(&url.scheme()) || url.host_str().is_none() {
-        bail!("The URL must use HTTP or HTTPS.");
+        return Err(ValidationError::UnsupportedEndpointScheme);
     }
-    if !url.username().is_empty()
-        || url.password().is_some()
-        || url.query().is_some()
-        || url.fragment().is_some()
-    {
-        bail!(
-            "The URL must not contain credentials, query parameters, or fragments. Enter credentials in API Key."
-        );
+    if !url.username().is_empty() || url.password().is_some() {
+        return Err(ValidationError::EndpointContainsCredentials);
+    }
+    if url.query().is_some() {
+        return Err(ValidationError::EndpointContainsQuery);
+    }
+    if url.fragment().is_some() {
+        return Err(ValidationError::EndpointContainsFragment);
     }
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
-    use anyhow::Context;
+    use std::error::Error as _;
+
+    use anyhow::{Context, Result};
     use serde_json::json;
 
     use super::*;
+
+    #[test]
+    fn invalid_endpoints_preserve_categories_without_retaining_sensitive_input() -> Result<()> {
+        let invalid = [
+            "https://fixture-user:fixture-secret@[invalid",
+            "https://fixture-user:fixture-secret@example.com",
+            "https://example.com?key=fixture-secret",
+            "https://example.com#fixture-secret",
+            "file:///tmp/fixture-secret",
+        ];
+        for (index, endpoint) in invalid.into_iter().enumerate() {
+            let error = validate_endpoint(endpoint)
+                .err()
+                .context("endpoint must be rejected")?;
+            assert!(matches!(
+                (&error, index),
+                (ValidationError::InvalidEndpoint { .. }, 0)
+                    | (ValidationError::EndpointContainsCredentials, 1)
+                    | (ValidationError::EndpointContainsQuery, 2)
+                    | (ValidationError::EndpointContainsFragment, 3)
+                    | (ValidationError::UnsupportedEndpointScheme, 4)
+            ));
+            let diagnostic = format!("{error} {error:?}");
+            assert!(!diagnostic.contains("fixture-secret"));
+            assert!(!diagnostic.contains("fixture-user"));
+            if index == 0 {
+                let source = error
+                    .source()
+                    .context("URL parsing must retain its source")?;
+                assert!(!source.to_string().contains("fixture-secret"));
+                assert!(source.downcast_ref::<url::ParseError>().is_some());
+            } else {
+                assert!(error.source().is_none());
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn name_boundaries_retain_their_typed_field() {
+        for (value, valid) in [
+            (String::new(), false),
+            ("   ".into(), false),
+            ("Name\n".into(), false),
+            ("a".repeat(257), false),
+            ("名字".repeat(128), true),
+        ] {
+            for field in [
+                NameField::ProviderName,
+                NameField::ModelId,
+                NameField::ModelName,
+                NameField::ProjectName,
+                NameField::ConversationName,
+            ] {
+                let result = validate_name(&value, field);
+                if valid {
+                    assert!(result.is_ok());
+                } else {
+                    assert!(
+                        matches!(result, Err(ValidationError::InvalidName { field: actual }) if actual == field)
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn validation_failures_expose_domain_fields() -> Result<()> {
+        assert!(matches!(
+            validate_name("", NameField::ProjectName),
+            Err(ValidationError::InvalidName {
+                field: NameField::ProjectName
+            })
+        ));
+        let provider: Provider = serde_json::from_value(json!({
+            "id": "provider", "name": "Provider", "protocol": "anthropic",
+            "baseUrl": "https://example.com", "models": [{"id": "model", "name": "Model"}]
+        }))?;
+        let model = provider.models[0].clone();
+        let mut missing = provider.clone();
+        missing.models.clear();
+        assert!(matches!(
+            missing.validate(),
+            Err(ValidationError::MissingModels)
+        ));
+        let mut duplicate = provider.clone();
+        duplicate.models.push(model);
+        assert!(matches!(
+            duplicate.validate(),
+            Err(ValidationError::DuplicateModelId { id }) if id == "model"
+        ));
+        let mut effort = provider.clone();
+        effort.models[0].reasoning_effort = Some("unsupported".into());
+        assert!(matches!(
+            effort.validate(),
+            Err(ValidationError::UnsupportedReasoningEffort { effort }) if effort == "unsupported"
+        ));
+        let mut tokens = provider.clone();
+        tokens.models[0].context_window = Some(0);
+        assert!(matches!(
+            tokens.validate(),
+            Err(ValidationError::InvalidTokenCount { count: 0 })
+        ));
+        let mut output = provider;
+        output.models[0].context_window = Some(100);
+        output.models[0].max_output_tokens = Some(101);
+        assert!(matches!(
+            output.validate(),
+            Err(ValidationError::OutputExceedsContext {
+                context: 100,
+                output: 101
+            })
+        ));
+        let telemetry = Telemetry {
+            enabled: true,
+            protocol: "grpc".into(),
+            ..Telemetry::default()
+        };
+        assert!(matches!(
+            telemetry.validate(),
+            Err(ValidationError::UnsupportedTelemetryProtocol { protocol }) if protocol == "grpc"
+        ));
+        Ok(())
+    }
 
     #[test]
     fn stored_sessions_require_explicit_title_and_permission_state() -> Result<()> {

@@ -19,7 +19,7 @@ use tokio::{
 };
 
 use crate::{
-    RemoteError,
+    DisconnectReason, RemoteError,
     ssh::{STDERR_LIMIT, missing_pipe, safe_diagnostic},
 };
 
@@ -32,7 +32,7 @@ struct TransportInner {
     pending: Pending,
     events: broadcast::Receiver<Value>,
     next_id: AtomicU64,
-    closed: watch::Receiver<Option<String>>,
+    closed: watch::Receiver<Option<Arc<DisconnectReason>>>,
     shutdown: mpsc::Sender<()>,
 }
 
@@ -118,7 +118,7 @@ impl RemoteTransport {
             .try_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
                 value.checked_add(1)
             })
-            .map_err(|_| RemoteError::Protocol("request identifier exhausted; reconnect".into()))?;
+            .map_err(|_| RemoteError::RequestIdExhausted)?;
         let frame = encode_frame(&RequestEnvelope::new(id, command, payload)?)?;
         let (sender, receiver) = oneshot::channel();
         {
@@ -127,9 +127,7 @@ impl RemoteTransport {
                 return Err(RemoteError::Disconnected(reason.clone()));
             }
             if pending.len() >= MAX_PENDING_REQUESTS {
-                return Err(RemoteError::Protocol(
-                    "too many outstanding remote requests".into(),
-                ));
+                return Err(RemoteError::TooManyRequests);
             }
             pending.insert(id, sender);
         }
@@ -143,16 +141,16 @@ impl RemoteTransport {
             {
                 let mut input = self.inner.stdin.lock().await;
                 let writer = input.as_mut().ok_or_else(|| {
-                    RemoteError::Disconnected("The SSH input stream has closed.".into())
+                    RemoteError::Disconnected(Arc::new(DisconnectReason::InputClosed))
                 })?;
                 registration.write_in_progress = true;
                 writer.write_all(&frame).await?;
                 writer.flush().await?;
                 registration.write_in_progress = false;
             }
-            receiver
-                .await
-                .map_err(|_| RemoteError::Disconnected("response channel ended".into()))?
+            receiver.await.map_err(|_| {
+                RemoteError::Disconnected(Arc::new(DisconnectReason::ResponseChannelClosed))
+            })?
         };
         timeout(deadline, operation)
             .await
@@ -219,39 +217,33 @@ async fn supervise(
     mut stderr_reader: JoinHandle<()>,
     diagnostic: Arc<StdMutex<Vec<u8>>>,
     pending: Pending,
-    closed: watch::Sender<Option<String>>,
+    closed: watch::Sender<Option<Arc<DisconnectReason>>>,
     mut stop: mpsc::Receiver<()>,
 ) {
-    let (reason, reader_finished) = tokio::select! {
-        status = child.wait() => {
-            let reason = match status {
-                Ok(status) => format!("SSH exited with {status}."),
-                Err(_) => "The SSH process could not be monitored.".into(),
-            };
-            (reason, false)
-        }
+    enum Termination {
+        Process(std::io::Result<std::process::ExitStatus>),
+        Reader(Result<Result<(), RemoteError>, tokio::task::JoinError>),
+        Closed,
+    }
+    let (mut termination, reader_finished) = tokio::select! {
+        status = child.wait() => (Termination::Process(status), false),
         result = &mut reader => {
             let _ = child.kill().await;
             let _ = child.wait().await;
-            let reason = match result {
-                Ok(Err(error)) => error.to_string(),
-                Ok(Ok(())) => "The remote server closed its output stream.".into(),
-                Err(_) => "The remote response reader ended unexpectedly.".into(),
-            };
-            (reason, true)
+            (Termination::Reader(result), true)
         }
         _ = stop.recv() => {
             let _ = child.kill().await;
             let _ = child.wait().await;
-            ("The connection was closed.".into(), false)
+            (Termination::Closed, false)
         }
     };
-    if !reader_finished
-        && timeout(Duration::from_millis(500), &mut reader)
-            .await
-            .is_err()
-    {
-        reader.abort();
+    if !reader_finished {
+        match timeout(Duration::from_millis(500), &mut reader).await {
+            Ok(result @ (Ok(Err(_)) | Err(_))) => termination = Termination::Reader(result),
+            Ok(Ok(Ok(()))) => {}
+            Err(_) => reader.abort(),
+        }
     }
     if timeout(Duration::from_millis(500), &mut stderr_reader)
         .await
@@ -259,8 +251,20 @@ async fn supervise(
     {
         stderr_reader.abort();
     }
-    let reason = format!("{reason} {}", safe_diagnostic(&lock(&diagnostic)));
-    let _ = closed.send(Some(reason.clone()));
+    let diagnostic = safe_diagnostic(&lock(&diagnostic));
+    let reason = Arc::new(match termination {
+        Termination::Process(Ok(status)) => DisconnectReason::ProcessExited { status, diagnostic },
+        Termination::Process(Err(source)) => {
+            DisconnectReason::ProcessMonitor { source, diagnostic }
+        }
+        Termination::Reader(Ok(Err(source))) => {
+            DisconnectReason::ResponseFailed { source, diagnostic }
+        }
+        Termination::Reader(Ok(Ok(()))) => DisconnectReason::OutputClosed { diagnostic },
+        Termination::Reader(Err(source)) => DisconnectReason::ReaderStopped { source, diagnostic },
+        Termination::Closed => DisconnectReason::Closed,
+    });
+    let _ = closed.send(Some(Arc::clone(&reason)));
     let requests = std::mem::take(&mut *lock(&pending));
     for sender in requests.into_values() {
         let _ = sender.send(Err(RemoteError::Disconnected(reason.clone())));
@@ -286,13 +290,7 @@ fn dispatch_frame(frame: ServerFrame, pending: &Pending, events: &broadcast::Sen
             return;
         }
         ServerFrame::Response { id, value } => (id, Ok(value)),
-        ServerFrame::Failure { id, error } => (
-            id,
-            Err(RemoteError::Remote {
-                code: error.code,
-                message: error.message,
-            }),
-        ),
+        ServerFrame::Failure { id, error } => (id, Err(RemoteError::Remote(error))),
     };
     if let Some(sender) = lock(pending).remove(&id) {
         let _ = sender.send(result);
@@ -346,6 +344,50 @@ mod tests {
             Some(json!({"kind":"delta"}))
         );
         assert!(lock(&pending).is_empty());
+    }
+
+    #[tokio::test]
+    async fn operation_failure_preserves_its_code_and_leaves_other_requests_usable() {
+        let pending: Pending = Arc::new(StdMutex::new(HashMap::new()));
+        let (events, _) = broadcast::channel(1);
+        let (failed_tx, failed_rx) = oneshot::channel();
+        let (success_tx, success_rx) = oneshot::channel();
+        lock(&pending).insert(1, failed_tx);
+        lock(&pending).insert(2, success_tx);
+        let failure = ServerFrame::decode(
+            br#"{"id":1,"error":{"code":"approval_not_found","message":"approval expired"}}"#,
+        )
+        .unwrap_or_else(|error| panic!("decode failed: {error}"));
+        dispatch_frame(failure, &pending, &events);
+        dispatch_frame(
+            ServerFrame::Response {
+                id: 2,
+                value: Value::Null,
+            },
+            &pending,
+            &events,
+        );
+        assert!(
+            matches!(failed_rx.await, Ok(Err(RemoteError::Remote(error))) if error.code == crate::RpcErrorCode::ApprovalNotFound)
+        );
+        assert!(matches!(success_rx.await, Ok(Ok(Value::Null))));
+        assert!(lock(&pending).is_empty());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn malformed_responses_preserve_protocol_failure_when_closing_requests() {
+        let mut command = Command::new("sh");
+        command.args(["-c", "read request; printf '%s\\n' '[]'"]);
+        let transport =
+            RemoteTransport::spawn(command).unwrap_or_else(|error| panic!("spawn failed: {error}"));
+        let result = transport
+            .request_with_timeout("ping", Value::Null, Duration::from_secs(5))
+            .await;
+        assert!(
+            matches!(result, Err(RemoteError::Disconnected(reason)) if matches!(reason.as_ref(), DisconnectReason::ResponseFailed { source: RemoteError::Protocol(tandem_protocol::ProtocolError::ExpectedObject), .. }))
+        );
+        transport.shutdown().await;
     }
 
     #[cfg(unix)]

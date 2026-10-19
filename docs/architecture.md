@@ -46,6 +46,12 @@ The application command entry point only dispatches requests and serializes resu
 
 A pure reducer centralizes frontend session state changes; subscriptions and requests remain in hooks. Form submission rules are separate from components, so history merging, late events, and key retention/deletion can be tested without starting the desktop. Both SSH endpoints share framing and size limits. Connection tests inject I/O to cover broken streams and write failures directly.
 
+## Typed failures
+
+When an operation fails, users receive an actionable message and can retry after correcting the indicated settings or session state. Rust services return domain-specific `thiserror` enums: validation, persistence, API key storage, runtime configuration, title inference, SSH, and RPC framing each preserve distinct failure reasons. `tandem-core::Error` composes these errors and enumerates application conflicts such as changing a running conversation's model. Callers match variants rather than inspecting message text. Underlying I/O, SQLite, JSON, and SDK causes remain available through error sources where they do not expose private input; sensitive parse errors retain only their category and location, and title inference retains only a safe failure variant.
+
+Desktop IPC and development HTTP serialize command failures as `{code, error}`. The code is one of `invalid_input`, `not_found`, `conflict`, `unavailable`, or `internal`; HTTP maps these to 400, 404, 409, 503, and 500 respectively. The frontend retains both fields in `CommandError`. SSH RPC failure envelopes carry `{id, error: {code, message}}`, with `RpcErrorCode` distinguishing invalid payloads, missing approvals, disconnected sessions, busy runtimes, timeouts, and other remote failures. The SSH client preserves that code until the application boundary maps it to the corresponding command category. Display messages may change without changing recovery logic.
+
 ## Interface language
 
 The application defaults to English, independently of the operating system language. Users can switch to Simplified Chinese in **Settings > General > Language**. The selection applies immediately and is saved under `tandem.locale` in the local browser/webview storage; only the language preference is stored there. Startup applies that preference before rendering the interface.

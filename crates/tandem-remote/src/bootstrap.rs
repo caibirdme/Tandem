@@ -3,7 +3,7 @@ use std::{path::PathBuf, time::Duration};
 use serde::Serialize;
 
 use crate::{
-    RemoteError, RemoteTransport, SshConnection,
+    DirectoryValidationError, RemoteError, RemoteResponseError, RemoteTransport, SshConnection,
     ssh::{run, shell_quote},
 };
 
@@ -64,10 +64,7 @@ impl ArtifactLocator {
                 Err(error) => return Err(error.into()),
             };
             if !metadata.is_file() || metadata.len() == 0 || metadata.len() > MAX_ARTIFACT_BYTES {
-                return Err(RemoteError::InvalidArtifact {
-                    path: path.display().to_string(),
-                    reason: "expected a non-empty executable smaller than 512 MiB",
-                });
+                return Err(RemoteError::InvalidArtifact { path });
             }
             return Ok(path);
         }
@@ -228,14 +225,13 @@ impl RemoteClient {
         )
         .await?;
         let mut directories = parse_directories(&output)?;
-        if directories.len() != 1 {
-            return Err(RemoteError::Protocol(
-                "expected one canonical directory".into(),
-            ));
+        let actual = directories.len();
+        if actual != 1 {
+            return Err(RemoteResponseError::CanonicalDirectoryCount { actual }.into());
         }
         directories
             .pop()
-            .ok_or_else(|| RemoteError::Protocol("missing canonical directory".into()))
+            .ok_or_else(|| RemoteResponseError::CanonicalDirectoryCount { actual }.into())
     }
 
     /// Enumerate immediate subdirectories, including hidden directories, without a runtime.
@@ -259,18 +255,11 @@ impl RemoteClient {
 }
 
 fn parse_probe(output: &[u8]) -> Result<(RemotePlatform, Option<String>), RemoteError> {
-    let response = std::str::from_utf8(output)
-        .map_err(|_| RemoteError::Protocol("environment probe was not UTF-8".into()))?;
+    let response = std::str::from_utf8(output).map_err(RemoteResponseError::ProbeEncoding)?;
     let mut parts = response.splitn(3, '\0');
-    let os = parts
-        .next()
-        .ok_or_else(|| RemoteError::Protocol("missing remote OS".into()))?;
-    let architecture = parts
-        .next()
-        .ok_or_else(|| RemoteError::Protocol("missing remote architecture".into()))?;
-    let version = parts
-        .next()
-        .ok_or_else(|| RemoteError::Protocol("incomplete environment probe".into()))?;
+    let os = parts.next().ok_or(RemoteResponseError::IncompleteProbe)?;
+    let architecture = parts.next().ok_or(RemoteResponseError::IncompleteProbe)?;
+    let version = parts.next().ok_or(RemoteResponseError::IncompleteProbe)?;
     let version = version
         .trim()
         .strip_prefix("tandem-server ")
@@ -297,10 +286,14 @@ mv -f "$temporary" "$destination/tandem-server"
 }
 
 fn directory_command(path: &str, list: bool) -> Result<String, RemoteError> {
-    if path.is_empty() || path.len() > 4096 || path.contains('\0') {
-        return Err(RemoteError::InvalidDirectory(
-            "use a non-empty path without NUL bytes, at most 4096 bytes long".into(),
-        ));
+    if path.is_empty() {
+        return Err(DirectoryValidationError::Empty.into());
+    }
+    if path.len() > 4096 {
+        return Err(DirectoryValidationError::TooLong { limit: 4096 }.into());
+    }
+    if path.contains('\0') {
+        return Err(DirectoryValidationError::NullByte.into());
     }
     let mut command = format!(
         r#"set -eu
@@ -331,20 +324,15 @@ done
 
 fn parse_directories(output: &[u8]) -> Result<Vec<RemoteDirectory>, RemoteError> {
     if !output.is_empty() && output.last() != Some(&0) {
-        return Err(RemoteError::Protocol(
-            "incomplete directory response".into(),
-        ));
+        return Err(RemoteResponseError::IncompleteDirectory.into());
     }
     output
         .split(|byte| *byte == 0)
         .filter(|part| !part.is_empty())
         .map(|part| {
-            let path = std::str::from_utf8(part)
-                .map_err(|_| RemoteError::Protocol("directory names must be valid UTF-8".into()))?;
+            let path = std::str::from_utf8(part).map_err(RemoteResponseError::DirectoryEncoding)?;
             if !path.starts_with('/') {
-                return Err(RemoteError::Protocol(
-                    "remote directory was not absolute".into(),
-                ));
+                return Err(RemoteResponseError::RelativeDirectory.into());
             }
             let path = if path == "/" {
                 "/"
@@ -400,6 +388,58 @@ mod tests {
         for invalid in [b"relative\0".as_slice(), b"/truncated", b"/\xff\0"] {
             assert!(parse_directories(invalid).is_err());
         }
+    }
+
+    #[test]
+    fn malformed_bootstrap_responses_and_directory_inputs_have_distinct_variants() {
+        assert!(matches!(
+            parse_probe(b"Linux"),
+            Err(RemoteError::InvalidResponse(
+                RemoteResponseError::IncompleteProbe
+            ))
+        ));
+        assert!(matches!(
+            parse_probe(b"\xff"),
+            Err(RemoteError::InvalidResponse(
+                RemoteResponseError::ProbeEncoding(_)
+            ))
+        ));
+        assert!(matches!(
+            parse_directories(b"relative\0"),
+            Err(RemoteError::InvalidResponse(
+                RemoteResponseError::RelativeDirectory
+            ))
+        ));
+        assert!(matches!(
+            parse_directories(b"/truncated"),
+            Err(RemoteError::InvalidResponse(
+                RemoteResponseError::IncompleteDirectory
+            ))
+        ));
+        assert!(matches!(
+            parse_directories(b"/\xff\0"),
+            Err(RemoteError::InvalidResponse(
+                RemoteResponseError::DirectoryEncoding(_)
+            ))
+        ));
+        assert!(matches!(
+            directory_command("", false),
+            Err(RemoteError::InvalidDirectory(
+                DirectoryValidationError::Empty
+            ))
+        ));
+        assert!(matches!(
+            directory_command(&"x".repeat(4097), false),
+            Err(RemoteError::InvalidDirectory(
+                DirectoryValidationError::TooLong { limit: 4096 }
+            ))
+        ));
+        assert!(matches!(
+            directory_command("/a\0b", false),
+            Err(RemoteError::InvalidDirectory(
+                DirectoryValidationError::NullByte
+            ))
+        ));
     }
 
     #[test]

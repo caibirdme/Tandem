@@ -2,27 +2,105 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use serde_json::{Value, json};
-use tandem_core::{App, AppOptions, MemoryVault, Request, SecretStore, model::Provider};
+use tandem_core::{
+    App, AppOptions, MemoryVault, Request, SecretError, SecretStore, model::Provider,
+};
 use tandem_remote::ArtifactLocator;
 use tempfile::TempDir;
 
 fn app(directory: &TempDir, secrets: Arc<dyn SecretStore>) -> Result<Arc<App>> {
-    App::open(AppOptions {
+    Ok(App::open(AppOptions {
         data_directory: directory.path().to_owned(),
         secrets,
         remote_artifacts: ArtifactLocator::default(),
-    })
+    })?)
 }
 
 async fn call(app: &Arc<App>, command: &str, payload: Value) -> Result<Value> {
-    app.dispatch(serde_json::from_value::<Request>(
-        json!({"command":command,"payload":payload}),
-    )?)
-    .await
+    Ok(app
+        .dispatch(serde_json::from_value::<Request>(
+            json!({"command":command,"payload":payload}),
+        )?)
+        .await?)
 }
 
 fn provider() -> Value {
     json!({"id":"","name":"Test inference","protocol":"openai-completions","baseUrl":"http://127.0.0.1:9999/v1", "models":[{"id":"model-one","name":"Model one","reasoningEffort":null,"contextWindow":32000,"maxOutputTokens":4096}]})
+}
+
+#[tokio::test]
+async fn application_failures_remain_typed_through_dispatch() -> Result<()> {
+    use tandem_core::{Error, ErrorCode, ErrorResponse, StorageError};
+
+    let directory = TempDir::new()?;
+    let application = App::open(AppOptions::local(directory.path().into()))?;
+    let missing = application
+        .dispatch(Request::Messages {
+            session_id: "missing".into(),
+        })
+        .await;
+    assert!(
+        matches!(&missing, Err(Error::Storage(StorageError::SessionNotFound { id })) if id == "missing")
+    );
+    let missing = missing.err().context("missing session must fail")?;
+    assert_eq!(missing.code(), ErrorCode::NotFound);
+    assert_eq!(
+        serde_json::to_value(ErrorResponse::from(missing))?["code"],
+        "not_found"
+    );
+
+    let invalid = application
+        .dispatch(Request::SendMessage {
+            session_id: "missing".into(),
+            content: " ".into(),
+            message_id: uuid::Uuid::new_v4(),
+        })
+        .await;
+    assert!(matches!(invalid, Err(Error::InvalidMessage)));
+
+    let saved = call(
+        &application,
+        "save_provider",
+        json!({"provider":provider()}),
+    )
+    .await?;
+    let session = call(
+        &application,
+        "create_session",
+        json!({
+            "projectId":null,"providerId":saved["id"],"modelId":"model-one"
+        }),
+    )
+    .await?;
+    let absent_model = application
+        .dispatch(Request::SetSessionModel {
+            session_id: session["id"].as_str().context("session id")?.into(),
+            provider_id: saved["id"].as_str().context("provider id")?.into(),
+            model_id: "absent".into(),
+        })
+        .await;
+    assert!(
+        matches!(absent_model, Err(Error::ModelNotConfigured { model_id, .. }) if model_id == "absent")
+    );
+
+    rusqlite::Connection::open(directory.path().join("tandem.sqlite3"))?.execute(
+        "UPDATE sessions SET data=json_set(data,'$.status','running') WHERE id=?1",
+        [session["id"].as_str().context("session id")?],
+    )?;
+    let running = application
+        .dispatch(Request::DeleteSession {
+            session_id: session["id"].as_str().context("session id")?.into(),
+        })
+        .await;
+    assert!(matches!(running, Err(Error::ConversationRunning)));
+    assert_eq!(
+        running
+            .err()
+            .context("running session must block deletion")?
+            .code(),
+        ErrorCode::Conflict
+    );
+    Ok(())
 }
 
 #[test]
@@ -105,11 +183,11 @@ async fn local_credentials_can_be_read_on_demand_and_survive_restart() -> Result
 async fn missing_and_keyless_providers_do_not_read_credential_storage() -> Result<()> {
     struct UnreadableVault;
     impl SecretStore for UnreadableVault {
-        fn get(&self, _: &str) -> Result<Option<String>> {
-            anyhow::bail!("credential lookup must not be attempted")
+        fn get(&self, _: &str) -> std::result::Result<Option<String>, SecretError> {
+            Err(SecretError::LockPoisoned)
         }
 
-        fn set(&self, _: &str, _: Option<&str>) -> Result<()> {
+        fn set(&self, _: &str, _: Option<&str>) -> std::result::Result<(), SecretError> {
             Ok(())
         }
     }
@@ -301,13 +379,13 @@ async fn failed_credential_deletion_keeps_provider_available_for_retry() -> Resu
 
     struct LockedVault(AtomicBool);
     impl SecretStore for LockedVault {
-        fn get(&self, _: &str) -> Result<Option<String>> {
+        fn get(&self, _: &str) -> std::result::Result<Option<String>, SecretError> {
             Ok(None)
         }
 
-        fn set(&self, _: &str, _: Option<&str>) -> Result<()> {
+        fn set(&self, _: &str, _: Option<&str>) -> std::result::Result<(), SecretError> {
             if self.0.load(Ordering::SeqCst) {
-                anyhow::bail!("credential store is unavailable");
+                return Err(SecretError::LockPoisoned);
             }
             Ok(())
         }

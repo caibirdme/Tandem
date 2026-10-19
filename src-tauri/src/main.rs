@@ -5,18 +5,15 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
 };
 
-use tandem_core::{App, AppOptions, Request};
+use tandem_core::{App, AppOptions, ErrorResponse, Request};
 use tauri::{Emitter, Manager, State};
 
 #[tauri::command]
 async fn dispatch(
     state: State<'_, Arc<App>>,
     request: Request,
-) -> Result<serde_json::Value, String> {
-    state
-        .dispatch(request)
-        .await
-        .map_err(|error| format!("{error:#}"))
+) -> Result<serde_json::Value, ErrorResponse> {
+    state.dispatch(request).await.map_err(ErrorResponse::from)
 }
 
 fn main() {
@@ -26,7 +23,7 @@ fn main() {
     }
 }
 
-fn run() -> Result<(), Box<dyn std::error::Error>> {
+fn run() -> Result<(), tauri::Error> {
     let application = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())

@@ -1,7 +1,22 @@
 use std::{collections::HashMap, path::PathBuf, sync::Mutex, time::Duration};
 
-use anyhow::{Context, Result};
 use rusqlite::{Connection, OptionalExtension, params};
+
+/// Credential persistence failures, without including credential values.
+#[derive(Debug, thiserror::Error)]
+pub enum SecretError {
+    #[error("Cannot open the local API key database: {source}")]
+    OpenDatabase {
+        #[source]
+        source: rusqlite::Error,
+    },
+    #[error("Cannot access the local API key database: {0}")]
+    Database(#[from] rusqlite::Error),
+    #[error("Credential lock is unavailable. Restart the application.")]
+    LockPoisoned,
+}
+
+type Result<T> = std::result::Result<T, SecretError>;
 
 /// Credential persistence is separate from provider metadata and frontend snapshots.
 pub trait SecretStore: Send + Sync {
@@ -30,8 +45,8 @@ impl LocalVault {
     }
 
     fn open(&self) -> Result<Connection> {
-        let database =
-            Connection::open(&self.database).context("Cannot open the local API key database")?;
+        let database = Connection::open(&self.database)
+            .map_err(|source| SecretError::OpenDatabase { source })?;
         database.busy_timeout(Duration::from_secs(5))?;
         database.execute_batch(
             "CREATE TABLE IF NOT EXISTS provider_secrets (
@@ -74,16 +89,13 @@ impl SecretStore for MemoryVault {
         Ok(self
             .0
             .lock()
-            .map_err(|_| anyhow::anyhow!("credential lock poisoned"))?
+            .map_err(|_| SecretError::LockPoisoned)?
             .get(id)
             .cloned())
     }
 
     fn set(&self, id: &str, secret: Option<&str>) -> Result<()> {
-        let mut entries = self
-            .0
-            .lock()
-            .map_err(|_| anyhow::anyhow!("credential lock poisoned"))?;
+        let mut entries = self.0.lock().map_err(|_| SecretError::LockPoisoned)?;
         if let Some(value) = secret.filter(|value| !value.is_empty()) {
             entries.insert(id.into(), value.into());
         } else {
@@ -95,9 +107,76 @@ impl SecretStore for MemoryVault {
 
 #[cfg(test)]
 mod tests {
+    use std::error::Error as _;
+
+    use anyhow::{Context, Result};
     use tempfile::TempDir;
 
     use super::*;
+
+    #[test]
+    fn poisoned_credential_lock_is_typed_and_redacted() -> Result<()> {
+        let vault = MemoryVault::default();
+        vault.set("provider", Some("fixture-sensitive-key"))?;
+        let panicked = std::thread::scope(|scope| {
+            scope
+                .spawn(|| {
+                    if let Ok(_guard) = vault.0.lock() {
+                        panic!("fixture lock failure");
+                    }
+                })
+                .join()
+        });
+        assert!(panicked.is_err());
+        for result in [
+            vault.get("provider").map(|_| ()),
+            vault.set("provider", None),
+        ] {
+            let error = result.err().context("poisoned credential lock must fail")?;
+            assert!(matches!(error, SecretError::LockPoisoned));
+            assert!(!format!("{error} {error:?}").contains("fixture-sensitive-key"));
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn unavailable_database_has_a_typed_source() -> Result<()> {
+        let directory = TempDir::new()?;
+        let vault = LocalVault::new(directory.path().join("missing/test.sqlite3"));
+        let error = vault
+            .get("provider")
+            .err()
+            .context("opening a missing parent directory must fail")?;
+        assert!(matches!(error, SecretError::OpenDatabase { .. }));
+        assert!(
+            error
+                .source()
+                .and_then(|source| source.downcast_ref::<rusqlite::Error>())
+                .is_some()
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn credential_write_errors_retain_sources_without_secret_values() -> Result<()> {
+        let directory = TempDir::new()?;
+        let path = directory.path().join("tandem.sqlite3");
+        Connection::open(&path)?.execute_batch(
+            "CREATE TABLE provider_secrets (id TEXT PRIMARY KEY, secret TEXT CHECK(secret IS NULL));"
+        )?;
+        let vault = LocalVault::new(path);
+        let error = vault
+            .set("provider", Some("fixture-sensitive-key"))
+            .err()
+            .context("the fixture constraint must reject credentials")?;
+        assert!(matches!(error, SecretError::Database(_)));
+        let source = error
+            .source()
+            .context("database failure must retain its source")?;
+        assert!(source.downcast_ref::<rusqlite::Error>().is_some());
+        assert!(!format!("{error} {error:?} {source}").contains("fixture-sensitive-key"));
+        Ok(())
+    }
 
     #[test]
     fn local_keys_and_clears_survive_restart() -> Result<()> {

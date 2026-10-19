@@ -6,7 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
-anyhow.workspace = true
+thiserror.workspace = true
 axum = "0.8"
 futures-util = "0.3"
 tandem-core = { path = "../tandem-core" }

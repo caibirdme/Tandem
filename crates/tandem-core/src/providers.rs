@@ -1,8 +1,7 @@
-use anyhow::{Context, Result, bail};
 use uuid::Uuid;
 
 use crate::{
-    App,
+    App, Error, Result,
     model::{Provider, SessionStatus},
 };
 
@@ -18,7 +17,7 @@ impl App {
         if provider.id.is_empty() {
             provider.id = Uuid::new_v4().to_string();
         } else {
-            Uuid::parse_str(&provider.id).context("The provider ID is invalid")?;
+            Uuid::parse_str(&provider.id).map_err(Error::InvalidProviderId)?;
         }
         let _guard = self.mutation_gate.lock().await;
         self.require_provider_idle(&provider.id)?;
@@ -56,10 +55,13 @@ impl App {
             self.store.delete_provider(id)?;
             if let Err(error) = self.options.secrets.set(id, None) {
                 // Keep the provider visible and retryable when local credential storage fails.
-                self.store
-                    .save_provider(&provider)
-                    .with_context(|| format!("Deleting the API key failed ({error}), and the provider record could not be restored"))?;
-                return Err(error);
+                if let Err(storage) = self.store.save_provider(&provider) {
+                    return Err(Error::ProviderRestore {
+                        secret: Box::new(error),
+                        storage: Box::new(storage),
+                    });
+                }
+                return Err(error.into());
             }
             self.clear_invalid_title_model()
         })
@@ -70,7 +72,7 @@ impl App {
         if !provider.has_api_key {
             return Ok(None);
         }
-        self.options.secrets.get(id)
+        Ok(self.options.secrets.get(id)?)
     }
 
     fn require_provider_idle(&self, id: &str) -> Result<()> {
@@ -80,7 +82,7 @@ impl App {
             .iter()
             .any(|session| session.provider_id == id && session.status == SessionStatus::Running)
         {
-            bail!("Wait for this provider's conversations to finish before changing its settings.");
+            return Err(Error::ProviderRunning);
         }
         Ok(())
     }
@@ -93,12 +95,13 @@ mod tests {
         time::Duration,
     };
 
+    use anyhow::Result;
     use serde_json::json;
     use tempfile::TempDir;
     use tokio::sync::oneshot;
 
     use super::*;
-    use crate::{AppOptions, MemoryVault, SecretStore};
+    use crate::{AppOptions, MemoryVault, SecretError, SecretStore};
 
     struct WaitingVault {
         keys: MemoryVault,
@@ -107,30 +110,32 @@ mod tests {
     }
 
     impl WaitingVault {
-        fn pause_once(&self) -> Result<()> {
+        fn pause_once(&self) {
             let entered = self
                 .entered
                 .lock()
-                .map_err(|_| anyhow::anyhow!("fixture lock poisoned"))?
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
                 .take();
             if let Some(entered) = entered {
                 let _ = entered.send(());
-                self.resume
-                    .lock()
-                    .map_err(|_| anyhow::anyhow!("fixture lock poisoned"))?
-                    .recv_timeout(Duration::from_secs(5))?;
+                assert!(
+                    self.resume
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                        .recv_timeout(Duration::from_secs(5))
+                        .is_ok()
+                );
             }
-            Ok(())
         }
     }
 
     impl SecretStore for WaitingVault {
-        fn get(&self, id: &str) -> Result<Option<String>> {
+        fn get(&self, id: &str) -> std::result::Result<Option<String>, SecretError> {
             self.keys.get(id)
         }
 
-        fn set(&self, id: &str, secret: Option<&str>) -> Result<()> {
-            self.pause_once()?;
+        fn set(&self, id: &str, secret: Option<&str>) -> std::result::Result<(), SecretError> {
+            self.pause_once();
             self.keys.set(id, secret)
         }
     }

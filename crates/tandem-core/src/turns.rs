@@ -1,10 +1,10 @@
 use std::{collections::HashMap, sync::Mutex};
 
-use anyhow::{Result, anyhow};
 use serde_json::Value;
 use uuid::Uuid;
 
 use crate::{
+    Error, Result,
     app::now,
     model::{ActiveTurnView, Message, MessageRole},
 };
@@ -28,10 +28,7 @@ impl ActiveTurns {
             return Ok(());
         };
         let message_id = data["messageId"].as_str().unwrap_or_default();
-        let mut turns = self
-            .0
-            .lock()
-            .map_err(|_| anyhow!("Session state lock is unavailable. Restart the application."))?;
+        let mut turns = self.0.lock().map_err(|_| Error::SessionStatePoisoned)?;
         let turn = turns.entry(session_id.to_owned()).or_default();
         if let Some((_, message)) = turn.messages.iter_mut().find(|(id, _)| id == message_id) {
             message.content.push_str(content);
@@ -52,10 +49,7 @@ impl ActiveTurns {
     }
 
     pub fn completed(&self, session_id: &str, data: &Value) -> Result<()> {
-        let mut turns = self
-            .0
-            .lock()
-            .map_err(|_| anyhow!("Session state lock is unavailable. Restart the application."))?;
+        let mut turns = self.0.lock().map_err(|_| Error::SessionStatePoisoned)?;
         if let Some(turn) = turns.get_mut(session_id) {
             let id = data["id"].as_str().unwrap_or_default();
             let content = data["content"].as_str().unwrap_or_default();
@@ -71,10 +65,7 @@ impl ActiveTurns {
     }
 
     pub fn permission(&self, session_id: &str, data: &Value) -> Result<()> {
-        let mut turns = self
-            .0
-            .lock()
-            .map_err(|_| anyhow!("Session state lock is unavailable. Restart the application."))?;
+        let mut turns = self.0.lock().map_err(|_| Error::SessionStatePoisoned)?;
         let permissions = &mut turns.entry(session_id.to_owned()).or_default().permissions;
         permissions.retain(|permission| permission["requestId"] != data["requestId"]);
         permissions.push(data.clone());
@@ -82,10 +73,7 @@ impl ActiveTurns {
     }
 
     pub fn resolve_permission(&self, session_id: &str, request_id: &str) -> Result<()> {
-        let mut turns = self
-            .0
-            .lock()
-            .map_err(|_| anyhow!("Session state lock is unavailable. Restart the application."))?;
+        let mut turns = self.0.lock().map_err(|_| Error::SessionStatePoisoned)?;
         if let Some(turn) = turns.get_mut(session_id) {
             turn.permissions
                 .retain(|permission| permission["requestId"] != request_id);
@@ -94,20 +82,14 @@ impl ActiveTurns {
     }
 
     pub fn has_pending_permissions(&self, session_id: &str) -> Result<bool> {
-        let turns = self
-            .0
-            .lock()
-            .map_err(|_| anyhow!("Session state lock is unavailable. Restart the application."))?;
+        let turns = self.0.lock().map_err(|_| Error::SessionStatePoisoned)?;
         Ok(turns
             .get(session_id)
             .is_some_and(|turn| !turn.permissions.is_empty()))
     }
 
     pub fn finish(&self, session_id: &str) -> Result<Vec<Message>> {
-        let mut turns = self
-            .0
-            .lock()
-            .map_err(|_| anyhow!("Session state lock is unavailable. Restart the application."))?;
+        let mut turns = self.0.lock().map_err(|_| Error::SessionStatePoisoned)?;
         Ok(turns.remove(session_id).map_or_else(Vec::new, |turn| {
             turn.messages
                 .into_iter()
@@ -117,10 +99,7 @@ impl ActiveTurns {
     }
 
     pub fn snapshot(&self) -> Result<HashMap<String, ActiveTurnView>> {
-        let turns = self
-            .0
-            .lock()
-            .map_err(|_| anyhow!("Session state lock is unavailable. Restart the application."))?;
+        let turns = self.0.lock().map_err(|_| Error::SessionStatePoisoned)?;
         Ok(turns
             .iter()
             .map(|(id, turn)| {
@@ -142,6 +121,7 @@ impl ActiveTurns {
 
 #[cfg(test)]
 mod tests {
+    use anyhow::Result;
     use serde_json::json;
 
     use super::*;

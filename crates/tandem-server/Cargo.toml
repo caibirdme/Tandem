@@ -6,12 +6,15 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
-anyhow.workspace = true
 copilot-runtime = { path = "../copilot-runtime" }
 tandem-protocol = { path = "../tandem-protocol" }
 serde_json.workspace = true
 tokio.workspace = true
 tracing-subscriber.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+anyhow.workspace = true
 
 [lints]
 workspace = true

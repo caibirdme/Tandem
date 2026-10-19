@@ -12,7 +12,7 @@ use github_copilot_sdk::{
 };
 use tokio::{sync::oneshot, time::timeout};
 
-use crate::{Error, ModelSettings, ProviderSettings, Result};
+use crate::{ModelSettings, ProviderSettings, Result, SummaryError};
 
 const CREATE_TIMEOUT: Duration = Duration::from_secs(30);
 const INFERENCE_TIMEOUT: Duration = Duration::from_secs(60);
@@ -34,9 +34,7 @@ pub(crate) async fn summarize(
         let result = run(&client, config, &id, prompt, &mut reply).await;
         let _ = reply.send(result);
     });
-    result
-        .await
-        .map_err(|_| Error::Summary("the inference task stopped unexpectedly"))?
+    result.await.map_err(|_| SummaryError::TaskStopped)?
 }
 
 fn temporary_id() -> SessionId {
@@ -106,24 +104,29 @@ async fn run(
         Ok(Ok(session)) => {
             let result = tokio::select! {
                 biased;
-                () = reply.closed() => Err(Error::Summary("cancelled")),
+                () = reply.closed() => Err(SummaryError::Cancelled.into()),
                 response = session.send_and_wait(
                     MessageOptions::new(prompt).with_wait_timeout(INFERENCE_TIMEOUT),
                 ) => match response {
                     Ok(Some(event)) => event.data.get("content")
                         .and_then(serde_json::Value::as_str)
                         .map(str::to_owned)
-                        .ok_or(Error::Summary("the model returned no text")),
-                    Ok(None) => Err(Error::Summary("the model returned no text")),
+                        .ok_or_else(|| SummaryError::NoText.into()),
+                    Ok(None) => Err(SummaryError::NoText.into()),
                     // Provider errors may echo request data. Keep background
                     // title failures safe for the application's error logs.
-                    Err(_) => Err(Error::Summary("inference failed or timed out")),
+                    Err(error) => Err(match error.kind() {
+                        github_copilot_sdk::ErrorKind::Session(
+                            github_copilot_sdk::SessionErrorKind::Timeout(_),
+                        ) => SummaryError::InferenceTimeout,
+                        _ => SummaryError::InferenceFailed,
+                    }.into()),
                 },
             };
             (Some(session), result)
         }
-        Ok(Err(_)) => (None, Err(Error::Summary("session creation failed"))),
-        Err(_) => (None, Err(Error::Summary("session creation timed out"))),
+        Ok(Err(_)) => (None, Err(SummaryError::CreationFailed.into())),
+        Err(_) => (None, Err(SummaryError::CreationTimeout.into())),
     };
     cleanup(client, id, session.as_ref(), result.is_err()).await?;
     result
@@ -145,8 +148,8 @@ async fn cleanup(
     // detach failed; a known caller-supplied ID makes that attempt possible.
     timeout(CLEANUP_TIMEOUT, client.delete_session(id))
         .await
-        .map_err(|_| Error::Summary("temporary session deletion timed out"))?
-        .map_err(|_| Error::Summary("temporary session could not be deleted"))
+        .map_err(|_| SummaryError::DeletionTimeout)?
+        .map_err(|_| SummaryError::DeletionFailed.into())
 }
 
 #[cfg(test)]

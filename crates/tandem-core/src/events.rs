@@ -1,12 +1,11 @@
 use std::sync::Arc;
 
-use anyhow::{Context, Result};
 use copilot_runtime::{EventKind, RuntimeEvent};
 use serde_json::{Value, json};
 use uuid::Uuid;
 
 use crate::{
-    App,
+    App, Error, Result,
     app::now,
     model::{Event, Message, MessageRole, SessionStatus},
 };
@@ -76,7 +75,7 @@ impl App {
             }
             EventKind::Status => {
                 let status: SessionStatus = serde_json::from_value(data["state"].clone())
-                    .context("The runtime returned an invalid session state")?;
+                    .map_err(|error| Error::InvalidRuntimeState(error.into()))?;
                 if status == SessionStatus::Idle {
                     self.persist_interrupted(&event.session_id)?;
                 }

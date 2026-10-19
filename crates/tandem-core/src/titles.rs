@@ -4,14 +4,13 @@ use std::{
     time::Duration,
 };
 
-use anyhow::{Context, Result, bail};
 use copilot_runtime::{ModelSettings, ProviderProtocol, ProviderSettings};
 use serde_json::json;
 use tokio::{sync::Semaphore, task::JoinHandle};
 use uuid::Uuid;
 
 use crate::{
-    App,
+    App, Error, Result,
     model::{Protocol, TitleModel, TitleState},
 };
 
@@ -70,9 +69,7 @@ impl Default for TitleJobs {
 
 impl TitleJobs {
     pub(crate) fn lock(&self) -> Result<MutexGuard<'_, TitleStateMap>> {
-        self.state.lock().map_err(|_| {
-            anyhow::anyhow!("Title task state is unavailable. Restart the application.")
-        })
+        self.state.lock().map_err(|_| Error::TitleStatePoisoned)
     }
 
     pub(crate) fn pause(&self) -> Result<TitlePause<'_>> {
@@ -139,7 +136,10 @@ impl App {
             .models
             .iter()
             .find(|model| model.id == model_id)
-            .context("The model configuration was deleted. Select a model again.")?;
+            .ok_or_else(|| Error::ModelNotConfigured {
+                provider_id: provider_id.into(),
+                model_id: model_id.into(),
+            })?;
         Ok((
             ProviderSettings {
                 protocol: match provider.protocol {
@@ -169,12 +169,15 @@ impl App {
                     .iter()
                     .any(|model| model.id == selection.model_id)
                 {
-                    bail!("The title model does not exist. Select a model again.");
+                    return Err(Error::ModelNotConfigured {
+                        provider_id: selection.provider_id.clone(),
+                        model_id: selection.model_id.clone(),
+                    });
                 }
             }
             let mut preferences = self.store.preferences()?;
             preferences.title_model = title_model;
-            self.store.save_preferences(&preferences)
+            Ok(self.store.save_preferences(&preferences)?)
         })
     }
 
@@ -217,10 +220,10 @@ impl App {
     pub(crate) fn schedule_title(self: &Arc<Self>, session_id: &str, manual: bool) -> Result<()> {
         let mut titles = self.titles.lock()?;
         if titles.closed {
-            bail!("The application is shutting down.");
+            return Err(Error::ShuttingDown);
         }
         if titles.paused {
-            bail!("Runtime settings are being updated. Try generating the title again shortly.");
+            return Err(Error::TitleConfigurationUpdating);
         }
         if !manual && titles.interrupted.contains(session_id) {
             return Ok(());
@@ -231,7 +234,7 @@ impl App {
         }
         let Some((user, assistant)) = self.store.title_exchange(session_id)? else {
             if manual {
-                bail!("Complete a conversation turn before generating a title.");
+                return Err(Error::TitleExchangeRequired);
             }
             return Ok(());
         };
@@ -246,7 +249,7 @@ impl App {
         });
         let (provider, model) = self.model_settings(&selection.provider_id, &selection.model_id)?;
         if titles.jobs.len() >= MAX_PENDING_TITLES && !titles.jobs.contains_key(session_id) {
-            bail!("Too many titles are being generated. Try again shortly.");
+            return Err(Error::TitleQueueFull);
         }
         titles.cancel(session_id);
         let request_id = Uuid::new_v4();
@@ -260,16 +263,16 @@ impl App {
                 let _slot = slots
                     .acquire_owned()
                     .await
-                    .context("Title tasks have been shut down")?;
+                    .map_err(|_| Error::ShuttingDown)?;
                 let runtime = {
-                    let app = app.upgrade().context("The application has shut down")?;
+                    let app = app.upgrade().ok_or(Error::ShuttingDown)?;
                     app.ensure_runtime().await?
                 };
                 let response = runtime.summarize_title(provider, model, &prompt).await?;
                 clean_title(&response)
             })
             .await
-            .map_err(|_| anyhow::anyhow!("Title generation timed out"))
+            .map_err(Error::TitleTimeout)
             .and_then(std::convert::identity);
             if let Some(app) = app.upgrade() {
                 app.finish_title(&id, request_id, result);
@@ -324,19 +327,20 @@ fn title_prompt(user: &str, assistant: &str) -> String {
 fn clean_title(response: &str) -> Result<String> {
     let response = response.trim();
     if response.is_empty() || response.chars().any(char::is_control) {
-        bail!("The title must be a single line of text.");
+        return Err(Error::TitleNotSingleLine);
     }
     let response = response
         .trim_matches(['"', '\'', '`', '“', '”', '「', '」'])
         .trim();
     if response.is_empty() || response.starts_with(['#', '{', '[']) {
-        bail!("The title format is invalid.");
+        return Err(Error::InvalidTitleFormat);
     }
     Ok(response.chars().take(TITLE_CHARACTERS).collect())
 }
 
 #[cfg(test)]
 mod tests {
+    use anyhow::{Context, Result};
     use copilot_runtime::{EventKind, RuntimeEvent};
     use tempfile::TempDir;
 
@@ -369,14 +373,14 @@ mod tests {
         content: &str,
         interrupted: bool,
     ) -> Result<()> {
-        app.store.append_message(&Message {
+        Ok(app.store.append_message(&Message {
             id: Uuid::new_v4().to_string(),
             session_id: session.id.clone(),
             role,
             content: content.into(),
             created_at: now(),
             interrupted,
-        })
+        })?)
     }
 
     fn exchange(app: &App, session: &Session) -> Result<()> {
@@ -619,7 +623,9 @@ mod tests {
         app.finish_title(
             &session.id,
             failed,
-            Err(anyhow::anyhow!("private provider response")),
+            Err(Error::Io(std::io::Error::other(
+                "private provider response",
+            ))),
         );
         let error = events.try_recv()?;
         assert_eq!(error.kind, "title_error");

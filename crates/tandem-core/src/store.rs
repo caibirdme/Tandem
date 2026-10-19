@@ -1,10 +1,35 @@
 use std::{path::Path, sync::Mutex};
 
-use anyhow::{Context, Result, bail};
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::de::DeserializeOwned;
 
 use crate::model::{Message, Preferences, Project, Provider, Session, SessionStatus};
+
+/// Local persistence failures and missing records that callers can handle by type.
+#[derive(Debug, thiserror::Error)]
+pub enum StorageError {
+    #[error("Cannot open the local data file: {source}")]
+    OpenDatabase {
+        #[source]
+        source: rusqlite::Error,
+    },
+    #[error("Cannot access local data: {0}")]
+    Database(#[from] rusqlite::Error),
+    #[error("Cannot encode or decode local data: {0}")]
+    Json(#[from] serde_json::Error),
+    #[error("Data lock is unavailable. Restart the application.")]
+    LockPoisoned,
+    #[error("Provider does not exist. Select a provider again in Settings.")]
+    ProviderNotFound { id: String },
+    #[error("Project does not exist.")]
+    ProjectNotFound { id: String },
+    #[error("Conversation does not exist.")]
+    SessionNotFound { id: String },
+    #[error("Delete this provider's conversations before deleting the provider.")]
+    ProviderInUse { id: String },
+}
+
+type Result<T> = std::result::Result<T, StorageError>;
 
 pub(crate) struct Store {
     connection: Mutex<Connection>,
@@ -12,7 +37,8 @@ pub(crate) struct Store {
 
 impl Store {
     pub fn open(path: &Path) -> Result<Self> {
-        let connection = Connection::open(path).context("Cannot open the local data file")?;
+        let connection =
+            Connection::open(path).map_err(|source| StorageError::OpenDatabase { source })?;
         connection.busy_timeout(std::time::Duration::from_secs(5))?;
         connection.execute_batch(
             "PRAGMA journal_mode=WAL;
@@ -52,7 +78,7 @@ impl Store {
         let connection = self
             .connection
             .lock()
-            .map_err(|_| anyhow::anyhow!("Data lock is unavailable. Restart the application."))?;
+            .map_err(|_| StorageError::LockPoisoned)?;
         operation(&connection)
     }
 
@@ -107,7 +133,7 @@ impl Store {
 
     pub fn provider(&self, id: &str) -> Result<Provider> {
         self.optional_provider(id)?
-            .context("Provider does not exist. Select a provider again in Settings.")
+            .ok_or_else(|| StorageError::ProviderNotFound { id: id.into() })
     }
 
     pub fn optional_provider(&self, id: &str) -> Result<Option<Provider>> {
@@ -116,12 +142,12 @@ impl Store {
 
     pub fn project(&self, id: &str) -> Result<Project> {
         self.lookup("SELECT data FROM projects WHERE id=?1", id)?
-            .context("Project does not exist")
+            .ok_or_else(|| StorageError::ProjectNotFound { id: id.into() })
     }
 
     pub fn session(&self, id: &str) -> Result<Session> {
         self.lookup("SELECT data FROM sessions WHERE id=?1", id)?
-            .context("Conversation does not exist")
+            .ok_or_else(|| StorageError::SessionNotFound { id: id.into() })
     }
 
     fn lookup<T: DeserializeOwned>(&self, sql: &str, id: &str) -> Result<Option<T>> {
@@ -161,7 +187,7 @@ impl Store {
                 |row| row.get(0),
             )?;
             if referenced {
-                bail!("Delete this provider's conversations before deleting the provider.");
+                return Err(StorageError::ProviderInUse { id: id.into() });
             }
             db.execute("DELETE FROM providers WHERE id=?1", [id])?;
             Ok(())
@@ -210,7 +236,7 @@ impl Store {
                     row.get(0)
                 })
                 .optional()?
-                .context("Conversation does not exist")?;
+                .ok_or_else(|| StorageError::SessionNotFound { id: id.into() })?;
             let mut session: Session = serde_json::from_str(&data)?;
             update(&mut session);
             db.execute(
@@ -295,10 +321,30 @@ impl Store {
 
 #[cfg(test)]
 mod tests {
+    use std::error::Error as _;
+
+    use anyhow::{Context, Result};
     use serde_json::json;
     use tempfile::TempDir;
 
     use super::*;
+
+    #[test]
+    fn unavailable_database_retains_its_sqlite_source() -> Result<()> {
+        let directory = TempDir::new()?;
+        let result = Store::open(&directory.path().join("missing/test.sqlite3"));
+        let Err(error) = result else {
+            anyhow::bail!("opening a missing parent directory must fail");
+        };
+        assert!(matches!(error, StorageError::OpenDatabase { .. }));
+        assert!(
+            error
+                .source()
+                .and_then(|source| source.downcast_ref::<rusqlite::Error>())
+                .is_some()
+        );
+        Ok(())
+    }
 
     #[test]
     fn primary_key_reads_do_not_decode_unrelated_corrupt_records() -> Result<()> {
@@ -327,10 +373,37 @@ mod tests {
         assert_eq!(store.project("project")?.id, "project");
         assert_eq!(store.session("session")?.id, "session");
         assert!(!store.has_messages("session")?);
-        assert!(store.provider("missing").is_err());
-        assert!(store.project("missing").is_err());
-        assert!(store.session("missing").is_err());
-        assert!(store.delete_provider("provider").is_err());
+        assert!(matches!(
+            store.provider("missing"),
+            Err(StorageError::ProviderNotFound { id }) if id == "missing"
+        ));
+        assert!(matches!(
+            store.project("missing"),
+            Err(StorageError::ProjectNotFound { id }) if id == "missing"
+        ));
+        assert!(matches!(
+            store.session("missing"),
+            Err(StorageError::SessionNotFound { id }) if id == "missing"
+        ));
+        assert!(matches!(
+            store.update_session("missing", |_| {}),
+            Err(StorageError::SessionNotFound { id }) if id == "missing"
+        ));
+        assert!(matches!(
+            store.delete_provider("provider"),
+            Err(StorageError::ProviderInUse { id }) if id == "provider"
+        ));
+        let error = store
+            .provider("broken")
+            .err()
+            .context("corrupt provider must fail decoding")?;
+        assert!(matches!(error, StorageError::Json(_)));
+        assert!(
+            error
+                .source()
+                .and_then(|source| source.downcast_ref::<serde_json::Error>())
+                .is_some()
+        );
         Ok(())
     }
 }

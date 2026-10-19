@@ -4,6 +4,7 @@
 //! This crate configures those capabilities and translates events for the UI.
 
 mod config;
+mod error;
 mod events;
 mod lifecycle;
 mod permissions;
@@ -19,6 +20,7 @@ pub use config::{
     ModelSettings, PermissionMode, ProviderProtocol, ProviderSettings, RuntimeOptions, SessionMode,
     SessionOptions, TelemetryProtocol, TelemetrySettings,
 };
+pub use error::{ConfigurationError, Error, SummaryError};
 pub use events::{EventKind, RuntimeEvent};
 use github_copilot_sdk::{
     CliProgram, Client, ClientInfo, ClientMode, ClientOptions, MessageOptions, ResumeSessionConfig,
@@ -56,30 +58,6 @@ const WORK_TOOLS: &[&str] = &[
     "builtin:report_intent",
     "builtin:task_complete",
 ];
-
-#[derive(Debug, thiserror::Error)]
-pub enum Error {
-    #[error("invalid runtime configuration: {0}")]
-    InvalidConfiguration(String),
-    #[error("Copilot runtime: {0}")]
-    Sdk(#[from] github_copilot_sdk::Error),
-    #[error("runtime storage: {0}")]
-    Io(#[from] std::io::Error),
-    #[error("this session already has an active turn")]
-    Busy,
-    #[error("Copilot runtime is disconnected; start a new connection before sending")]
-    Disconnected,
-    #[error("Copilot runtime did not complete startup within thirty seconds")]
-    StartupTimeout,
-    #[error("Copilot runtime did not acknowledge cancellation within ten seconds")]
-    AbortTimeout,
-    #[error("approval request is missing, expired, or already answered")]
-    UnknownApproval,
-    #[error("failed to stop Copilot runtime: {0}")]
-    Shutdown(String),
-    #[error("title summary: {0}")]
-    Summary(&'static str),
-}
 
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -198,10 +176,7 @@ impl Runtime {
     /// # Errors
     /// Returns an error if the runtime cannot shut down cleanly.
     pub async fn stop(&self) -> Result<()> {
-        self.client
-            .stop()
-            .await
-            .map_err(|error| Error::Shutdown(error.to_string()))
+        self.client.stop().await.map_err(Error::Shutdown)
     }
 
     async fn directory_for(&self, mode: &SessionMode) -> Result<PathBuf> {
@@ -211,9 +186,7 @@ impl Runtime {
         };
         let canonical = tokio::fs::canonicalize(directory).await?;
         if !tokio::fs::metadata(&canonical).await?.is_dir() {
-            return Err(Error::InvalidConfiguration(
-                "workspace must be a directory".into(),
-            ));
+            return Err(ConfigurationError::WorkspaceNotDirectory.into());
         }
         Ok(canonical)
     }
@@ -400,7 +373,7 @@ impl AgentSession {
             return Err(Error::Disconnected);
         }
         if prompt.trim().is_empty() {
-            return Err(Error::InvalidConfiguration("prompt cannot be empty".into()));
+            return Err(ConfigurationError::EmptyPrompt.into());
         }
         self.lifecycle.begin_turn()?;
         match self.session.send(MessageOptions::new(prompt)).await {

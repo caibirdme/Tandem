@@ -3,6 +3,7 @@
 mod agent;
 mod app;
 mod dispatch;
+mod error;
 mod events;
 pub mod model;
 mod projects;
@@ -16,4 +17,6 @@ mod vault;
 
 pub use app::{App, AppOptions};
 pub use dispatch::Request;
-pub use vault::{LocalVault, MemoryVault, SecretStore};
+pub use error::{Error, ErrorCode, ErrorResponse, EventDecodeError, Result};
+pub use store::StorageError;
+pub use vault::{LocalVault, MemoryVault, SecretError, SecretStore};
