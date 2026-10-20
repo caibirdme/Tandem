@@ -1,5 +1,15 @@
 # Verification record
 
+## Windows skill acceptance source tracking (2026-10-21)
+
+Developed from `main` in `.worktrees/skills-intent-ci`, then fast-forwarded to PR #14 before applying the fix. The Windows CI run passed compilation, static analysis, Rust unit tests, and initial skill discovery, but the optional-root acceptance case failed. SDK canonical paths use the Windows verbatim prefix, while the test compared them lexically with ordinary Python paths and incorrectly expected deliberately removed skills to remain available.
+
+The fixture now retains its original source root separately from the SDK's canonical selection path. Availability checks use that provenance, while selections still carry only the exact name and canonical path. Regression cases cover native paths, Windows extended drive paths, and extended UNC paths on every host, invalidating both project and home roots without changing the original fixtures or enabling excluded sources. The former classifier fails all four Windows regression cases.
+
+`just check` and `just build` passed locally. After adding the regressions, all 34 Python unit tests passed with bundled Python 3.12. The production application and packaged resources are unchanged; the existing CI path filters and Python discovery include the new test file.
+
+Full local SDK acceptance passed with 126 inference requests, including 23 title requests, and 15 telemetry exports. Direct remote stdio acceptance passed with 12 inference requests and five telemetry exports; SSH was skipped for this test-only correction. Both used the production binaries and real pinned SDK with isolated state and local inference/telemetry test services.
+
 ## Compact intent headings with execution shimmer (2026-10-21)
 
 Developed from `main` in `.worktrees/skills-intent-polish`, carrying forward the agent-skill fixes recorded below. Users click a left chevron or its intent text to expand the stage. The heading shows no tool count, failed count, spinner, or visible status badge. Tool details and failure notices remain available, and assistive technology retains the stage's status and busy state.

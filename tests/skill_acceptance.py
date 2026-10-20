@@ -41,7 +41,7 @@ def write_project_skills(workspace, home):
         )
         skills[suffix] = {
             "name": name, "path": str(path), "description": description, "marker": marker,
-            "available": available,
+            "available": available, "root": root.resolve(),
         }
     duplicate = workspace / ".github/skills/tandem-fixture-auto-duplicate/SKILL.md"
     duplicate.parent.mkdir(parents=True, exist_ok=True)
@@ -110,9 +110,10 @@ def broken_skill_root(directory):
 
 
 def skills_without_root(skills, directory):
+    """Use source provenance independently of SDK canonical selection paths."""
     root = directory.resolve() / ".agents/skills"
     return {
-        suffix: {**skill, "available": skill["available"] and not Path(skill["path"]).is_relative_to(root)}
+        suffix: {**skill, "available": skill["available"] and skill["root"] != root}
         for suffix, skill in skills.items()
     }
 
