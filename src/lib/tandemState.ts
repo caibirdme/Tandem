@@ -2,6 +2,7 @@ import { emptyConversation, receiveMessages, reduceEvent } from './conversation'
 import type { Conversation } from './conversation';
 import type { ModelChangeEvent } from './modelChanges';
 import type { PermissionModeChangeEvent } from './permissionModeChanges';
+import type { ReasoningEffortChangeEvent } from './reasoningEffortChanges';
 import { reconcileConversations, reconcileSessions } from './reconcile';
 import type { Message, RuntimeEvent, Session, Snapshot } from './types';
 
@@ -14,6 +15,8 @@ export interface TandemState {
   permissionModeUncertain: Readonly<Record<string, string>>;
   modelUpdates: ReadonlySet<string>;
   modelUncertain: Readonly<Record<string, string>>;
+  reasoningEffortUpdates: ReadonlySet<string>;
+  reasoningEffortUncertain: Readonly<Record<string, string>>;
   deletedSessionIds: ReadonlySet<string>;
   deletedProjectIds: ReadonlySet<string>;
   titleGenerations: ReadonlySet<string>;
@@ -29,6 +32,8 @@ export const initialTandemState: TandemState = {
   permissionModeUncertain: {},
   modelUpdates: new Set(),
   modelUncertain: {},
+  reasoningEffortUpdates: new Set(),
+  reasoningEffortUncertain: {},
   deletedSessionIds: new Set(),
   deletedProjectIds: new Set(),
   titleGenerations: new Set(),
@@ -55,6 +60,7 @@ type TandemAction =
   | { type: 'permissionResponded'; sessionId: string; requestId: string }
   | PermissionModeChangeEvent
   | ModelChangeEvent
+  | ReasoningEffortChangeEvent
   | { type: 'errorReported'; error: string | null }
   | { type: 'runtimeRecovered' };
 
@@ -230,6 +236,8 @@ export function reduceTandem(state: TandemState, action: TandemAction): TandemSt
       const permissionModeUncertain = { ...state.permissionModeUncertain };
       const modelUpdates = new Set(state.modelUpdates);
       const modelUncertain = { ...state.modelUncertain };
+      const reasoningEffortUpdates = new Set(state.reasoningEffortUpdates);
+      const reasoningEffortUncertain = { ...state.reasoningEffortUncertain };
       const titleGenerations = new Set(state.titleGenerations);
       const titleErrors = { ...state.titleErrors };
       for (const sessionId of sessionIds) {
@@ -238,6 +246,8 @@ export function reduceTandem(state: TandemState, action: TandemAction): TandemSt
         delete permissionModeUncertain[sessionId];
         modelUpdates.delete(sessionId);
         delete modelUncertain[sessionId];
+        reasoningEffortUpdates.delete(sessionId);
+        delete reasoningEffortUncertain[sessionId];
         titleGenerations.delete(sessionId);
         delete titleErrors[sessionId];
       }
@@ -248,6 +258,8 @@ export function reduceTandem(state: TandemState, action: TandemAction): TandemSt
         permissionModeUncertain,
         modelUpdates,
         modelUncertain,
+        reasoningEffortUpdates,
+        reasoningEffortUncertain,
         titleGenerations,
         titleErrors,
         deletedSessionIds: new Set([...state.deletedSessionIds, ...sessionIds]),
@@ -323,6 +335,41 @@ export function reduceTandem(state: TandemState, action: TandemAction): TandemSt
         modelUpdates: new Set([...state.modelUpdates, action.sessionId]),
         error: null,
       };
+    case 'reasoningEffortChangeStarted':
+      if (state.deletedSessionIds.has(action.sessionId)) return state;
+      return {
+        ...state,
+        reasoningEffortUpdates: new Set([...state.reasoningEffortUpdates, action.sessionId]),
+        error: null,
+      };
+    case 'reasoningEffortChanged':
+    case 'reasoningEffortUnconfirmed': {
+      if (state.deletedSessionIds.has(action.sessionId)) return state;
+      const reasoningEffortUpdates = new Set(state.reasoningEffortUpdates);
+      reasoningEffortUpdates.delete(action.sessionId);
+      const reasoningEffortUncertain = { ...state.reasoningEffortUncertain };
+      if (action.type === 'reasoningEffortUnconfirmed')
+        reasoningEffortUncertain[action.sessionId] = action.error;
+      else delete reasoningEffortUncertain[action.sessionId];
+      return {
+        ...state,
+        reasoningEffortUpdates,
+        reasoningEffortUncertain,
+        error:
+          action.type === 'reasoningEffortChanged' ? (action.notice ?? state.error) : state.error,
+        snapshot:
+          action.type === 'reasoningEffortChanged' && state.snapshot
+            ? {
+                ...state.snapshot,
+                sessions: state.snapshot.sessions.map((session) =>
+                  session.id === action.sessionId
+                    ? { ...session, reasoningEffort: action.reasoningEffort }
+                    : session,
+                ),
+              }
+            : state.snapshot,
+      };
+    }
     case 'modelChanged':
     case 'modelUnconfirmed': {
       if (state.deletedSessionIds.has(action.sessionId)) return state;

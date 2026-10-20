@@ -14,7 +14,7 @@ _Keep project conversations, model selection, and permission controls together i
 
 - **Chat with your models.** Connect OpenAI-compatible APIs, Anthropic, or your own model gateway. Chat can read web pages.
 - **Work where your files are.** Open a local directory or connect to a Linux or macOS host over SSH. The agent can read and edit files and run commands.
-- **Choose how the agent works.** Approve each tool permission request or grant full access for a work session. Switch models as the conversation continues.
+- **Choose how the agent works.** Approve each tool permission request or grant full access for a work session. Switch models and choose reasoning effort for each conversation.
 
 ## Install
 

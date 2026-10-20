@@ -1,4 +1,4 @@
-import type { Commands, Message, ModelSelection, PermissionMode } from './types';
+import type { Commands, Message, ModelSelection, PermissionMode, ReasoningEffort } from './types';
 
 /** Only the first user message of a work with known history needs this reminder. */
 export function needsWorkPermissionConfirmation({
@@ -27,10 +27,12 @@ export function newSessionPayload(
   projectId: string | null,
   selection: ModelSelection,
   permissionMode: PermissionMode = 'ask',
+  reasoningEffort: ReasoningEffort = null,
 ): Commands['create_session']['payload'] {
   return {
     ...selection,
     projectId,
     permissionMode: projectId === null ? 'ask' : permissionMode,
+    reasoningEffort,
   };
 }

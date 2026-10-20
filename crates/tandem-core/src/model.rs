@@ -60,6 +60,17 @@ pub enum ValidationError {
 
 type Result<T> = std::result::Result<T, ValidationError>;
 
+pub(crate) fn validate_reasoning_effort(effort: Option<&str>) -> Result<()> {
+    if let Some(effort) = effort
+        && !["low", "medium", "high"].contains(&effort)
+    {
+        return Err(ValidationError::UnsupportedReasoningEffort {
+            effort: effort.into(),
+        });
+    }
+    Ok(())
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Model {
@@ -110,13 +121,7 @@ impl Provider {
                     id: model.id.clone(),
                 });
             }
-            if let Some(effort) = &model.reasoning_effort
-                && !["low", "medium", "high"].contains(&effort.as_str())
-            {
-                return Err(ValidationError::UnsupportedReasoningEffort {
-                    effort: effort.clone(),
-                });
-            }
+            validate_reasoning_effort(model.reasoning_effort.as_deref())?;
             for count in [Some(model.context_window), model.max_output_tokens]
                 .into_iter()
                 .flatten()
@@ -250,6 +255,8 @@ pub struct Session {
     pub provider_id: String,
     pub model_id: String,
     pub permission_mode: PermissionMode,
+    /// None inherits the selected provider model's default.
+    pub reasoning_effort: Option<String>,
     pub created_at: String,
     pub updated_at: String,
     pub status: SessionStatus,

@@ -15,6 +15,7 @@ const project: Project = {
   createdAt: '2026-10-17T00:00:00Z',
 };
 const session: Session = {
+  reasoningEffort: null,
   contextUsage: null,
   titleState: 'preserved',
   id: 'session-1',
@@ -58,6 +59,10 @@ const props: ComponentProps<typeof Chat> = {
   permissionModeError: null,
   modelSaving: false,
   modelError: null,
+  reasoningEffortSaving: false,
+  reasoningEffortError: null,
+  onReasoningEffort: () => undefined,
+  onConfirmReasoningEffort: () => undefined,
   onConfirmModel: () => undefined,
   onPermissionMode: () => undefined,
   onConfirmPermissionMode: () => undefined,
@@ -75,6 +80,9 @@ function modeControl(markup: string) {
 }
 function modelControl(markup: string) {
   return markup.match(/<button[^>]*aria-label="Model: [^"]+"[^>]*>/)?.[0];
+}
+function reasoningControl(markup: string) {
+  return markup.match(/<button[^>]*aria-label="Reasoning effort: [^"]+"[^>]*>/)?.[0];
 }
 
 afterEach(() => {
@@ -101,6 +109,104 @@ describe('Work skill discovery entry point', () => {
     expect(markup).not.toContain('role="combobox"');
     expect(markup).not.toContain('$ for skills');
     expect(markup).toContain('Enter to send · Shift Enter for a new line');
+  });
+});
+
+describe('conversation reasoning effort controls', () => {
+  const reasoningProps = {
+    ...props,
+    session,
+    providers: [provider],
+    selection: { providerId: provider.id, modelId: session.modelId },
+  };
+
+  it.each([undefined, project])(
+    'offers a model default in every new Chat and Work',
+    (draftProject) => {
+      const markup = renderToStaticMarkup(
+        <Chat {...reasoningProps} project={draftProject} session={undefined} />,
+      );
+      expect(reasoningControl(markup)).toContain('Reasoning effort: Default');
+      expect(reasoningControl(markup)).not.toContain('disabled');
+    },
+  );
+
+  it('shows the effective provider default without storing it as an override', () => {
+    const configured: Provider = {
+      ...provider,
+      models: provider.models.map((model) => ({ ...model, reasoningEffort: 'high' })),
+    };
+    const inherited = renderToStaticMarkup(<Chat {...reasoningProps} providers={[configured]} />);
+    const overridden = renderToStaticMarkup(
+      <Chat
+        {...reasoningProps}
+        providers={[configured]}
+        session={{ ...session, reasoningEffort: 'low' }}
+      />,
+    );
+    expect(reasoningControl(inherited)).toContain('Reasoning effort: Default (High)');
+    expect(reasoningControl(overridden)).toContain('Reasoning effort: Low');
+  });
+
+  it.each([
+    {
+      name: 'active response',
+      override: {
+        session: { ...session, status: 'running' as const },
+        conversation: { ...emptyConversation, status: 'running' as const },
+      },
+    },
+    { name: 'send in progress', override: { sending: true } },
+    { name: 'history loading', override: { historyLoading: true } },
+    {
+      name: 'tool approval pending',
+      override: {
+        conversation: {
+          ...emptyConversation,
+          permissions: [{ requestId: 'permission-1', kind: 'shell', description: 'Run a command' }],
+        },
+      },
+    },
+  ])('allows changing the next turn during $name', ({ override }) => {
+    const markup = renderToStaticMarkup(<Chat {...reasoningProps} {...override} />);
+    expect(reasoningControl(markup)).not.toContain('disabled');
+    expect(markup).toContain('The current response continues unchanged.');
+  });
+
+  it.each([
+    { name: 'disconnected', override: { connected: false } },
+    { name: 'saving reasoning effort', override: { reasoningEffortSaving: true } },
+    {
+      name: 'reasoning effort unconfirmed',
+      override: { reasoningEffortError: 'Cannot confirm reasoning effort' },
+    },
+    { name: 'saving the model', override: { modelSaving: true } },
+    { name: 'model unconfirmed', override: { modelError: 'Cannot confirm model' } },
+  ])('locks the selector while $name', ({ override }) => {
+    const markup = renderToStaticMarkup(<Chat {...reasoningProps} {...override} />);
+    expect(reasoningControl(markup)).toContain('disabled');
+  });
+
+  it('offers confirmation recovery without disabling the stop button', () => {
+    const markup = renderToStaticMarkup(
+      <Chat
+        {...reasoningProps}
+        session={{ ...session, status: 'running' }}
+        reasoningEffortError="Could not confirm reasoning effort"
+      />,
+    );
+    expect(markup).toContain('Confirm reasoning effort again');
+    const stop = markup.match(/<button[^>]*aria-label="Stop generating"[^>]*>/)?.[0];
+    expect(stop).toBeDefined();
+    expect(stop).not.toContain('disabled');
+  });
+
+  it('translates the session control', () => {
+    setLocale('zh-CN');
+    const markup = renderToStaticMarkup(
+      <Chat {...reasoningProps} session={{ ...session, reasoningEffort: 'high' }} />,
+    );
+    expect(markup).toContain('思考强度：高');
   });
 });
 

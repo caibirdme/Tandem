@@ -6,7 +6,7 @@ Start with the [README](../README.md#get-started) to connect a provider and open
 
 Open **Settings > Model providers > Add provider**, choose OpenAI Chat Completions, OpenAI Responses, or Anthropic Messages, and enter the provider's base URL and API key. Add at least one model ID supported by that provider.
 
-For each model, enter its required context window in **K** (1 K = 1,000 tokens): enter `256` for 256k or `1000` for 1M. Display names are customizable. Reasoning effort and output limits are optional advanced settings; set them only if the model supports them.
+For each model, enter its required context window in **K** (1 K = 1,000 tokens): enter `256` for 256k or `1000` for 1M. Display names are customizable. Default reasoning effort and output limits are optional advanced settings; set them only if the model supports them. The reasoning setting supplies the default for conversations using that model; each conversation can override it.
 
 Required fields are marked with a red **\***. If you leave one empty and click **Save provider**, the form scrolls to and focuses the first missing field and displays a prompt. Type the context limit directly into the compact input; it has no stepper arrows.
 
@@ -45,6 +45,14 @@ Keep each skill's `SKILL.md` in its own subdirectory under `.agents/skills`, `.g
 Click the model name beside the composer to select any configured model, including one from another provider. The next message uses the saved selection while keeping the conversation's history, title, and tool permissions. Unsent text stays in the composer.
 
 Wait for generation or tool approval to finish, or click **Stop**, before switching. If a connection failure leaves the selection unconfirmed, click **Confirm model again** before sending another message.
+
+### Choose reasoning effort
+
+Use **Reasoning effort** beside the composer in any chat or local/SSH work session. Choose **Low**, **Medium**, or **High** to override the model's configured default for that conversation, or choose **Default** to follow it. When the provider leaves its default unset, the model chooses its own effort. Only use effort levels supported by your model and provider.
+
+You can choose before the first message and change it at any time, including during a reply or tool approval. Changes apply to the next message; the current response continues with its original setting. Each conversation saves its own choice, restores it when reopened, and keeps it when switching models. Choose **Default** again to follow the newly selected model's default. Changing one conversation never changes the provider or other conversations.
+
+If a connection failure leaves the choice unconfirmed, use **Confirm reasoning effort again** before sending the next message.
 
 ### Choose tool permissions
 

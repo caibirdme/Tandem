@@ -44,12 +44,14 @@ import type {
   Project,
   ProjectSkill,
   Provider,
+  ReasoningEffort,
   RuntimeStatus,
   Session,
   SelectedSkill,
 } from '../lib/types';
 import { ContextUsageIndicator } from './ContextUsageIndicator';
 import { PermissionModeSelector } from './PermissionModeSelector';
+import { ReasoningEffortSelector } from './ReasoningEffortSelector';
 import { SkillPicker } from './SkillPicker';
 import { Modal, Notice, Spinner } from './ui';
 
@@ -69,6 +71,10 @@ interface ChatProps {
   modelSaving: boolean;
   modelError: string | null;
   onConfirmModel: () => void;
+  reasoningEffortSaving: boolean;
+  reasoningEffortError: string | null;
+  onReasoningEffort: (reasoningEffort: ReasoningEffort) => void;
+  onConfirmReasoningEffort: () => void;
   onPermissionMode: (mode: PermissionMode) => void;
   onConfirmPermissionMode: () => void;
   runtime: RuntimeStatus | undefined;
@@ -79,6 +85,7 @@ interface ChatProps {
     content: string,
     permissionMode: PermissionMode,
     skills: SelectedSkill[],
+    reasoningEffort: ReasoningEffort,
   ) => Promise<void>;
   onAbort: () => void;
   onPermission: (requestId: string, approved: boolean) => Promise<void>;
@@ -107,6 +114,7 @@ export function Chat(props: ChatProps) {
   const skillsSelectable =
     !skillCatalog.loading && !skillCatalog.error && props.connected && matchingSkills.length > 0;
   const [draftPermissionMode, setDraftPermissionMode] = useState<PermissionMode>('ask');
+  const [draftReasoningEffort, setDraftReasoningEffort] = useState<ReasoningEffort>(null);
   const [jumpVisible, setJumpVisible] = useState(false);
   const [pendingPermission, setPendingPermission] = useState<string | null>(null);
   const [localError, setLocalError] = useState<string | null>(null);
@@ -123,6 +131,7 @@ export function Chat(props: ChatProps) {
   const permissionMode = props.project
     ? (props.session?.permissionMode ?? draftPermissionMode)
     : 'ask';
+  const reasoningEffort = props.session ? props.session.reasoningEffort : draftReasoningEffort;
   const workHistoryUncertain = Boolean(
     props.project &&
     props.session &&
@@ -137,6 +146,8 @@ export function Chat(props: ChatProps) {
     Boolean(props.permissionModeError) ||
     props.modelSaving ||
     Boolean(props.modelError) ||
+    props.reasoningEffortSaving ||
+    Boolean(props.reasoningEffortError) ||
     !props.connected ||
     props.conversation.permissions.length > 0;
   const hasMessages = Boolean(
@@ -151,6 +162,12 @@ export function Chat(props: ChatProps) {
     (model) => model.id === props.selection?.modelId,
   );
   const modelDisabled = permissionModeDisabled;
+  const reasoningEffortDisabled =
+    !props.connected ||
+    !currentModel ||
+    (props.sending && !props.session) ||
+    props.modelSaving ||
+    Boolean(props.modelError);
   const modelLabel = props.modelError
     ? t('permissions.unconfirmed')
     : currentModel?.name || currentModel?.id || props.selection?.modelId || t('chat.selectModel');
@@ -176,6 +193,8 @@ export function Chat(props: ChatProps) {
     !props.permissionModeError &&
     !props.modelSaving &&
     !props.modelError &&
+    !props.reasoningEffortSaving &&
+    !props.reasoningEffortError &&
     props.conversation.permissions.length === 0,
   );
 
@@ -242,6 +261,7 @@ export function Chat(props: ChatProps) {
         savedDraft.text.trim(),
         mode,
         props.project ? selectedSkills(savedDraft) : [],
+        reasoningEffort,
       );
     } catch (reason) {
       setSkillDraft((current) => (current.text ? current : savedDraft));
@@ -649,6 +669,26 @@ export function Chat(props: ChatProps) {
             </button>
           </Notice>
         )}
+        {props.reasoningEffortError && (
+          <Notice>
+            <span>{props.reasoningEffortError}</span>
+            <button
+              className="text-button"
+              type="button"
+              onClick={props.onConfirmReasoningEffort}
+              disabled={props.reasoningEffortSaving || !props.connected}
+            >
+              {props.reasoningEffortSaving ? (
+                <>
+                  <Spinner size={13} />
+                  {t('chat.reasoningConfirming')}
+                </>
+              ) : (
+                t('chat.confirmReasoningAgain')
+              )}
+            </button>
+          </Notice>
+        )}
         {!props.connected && (
           <div className="setup-banner">
             <span>
@@ -838,6 +878,18 @@ export function Chat(props: ChatProps) {
                   </Dropdown.Content>
                 </Dropdown.Portal>
               </Dropdown.Root>
+              <ReasoningEffortSelector
+                effort={reasoningEffort}
+                defaultEffort={currentModel?.reasoningEffort ?? null}
+                disabled={reasoningEffortDisabled}
+                saving={props.reasoningEffortSaving}
+                uncertain={Boolean(props.reasoningEffortError)}
+                onChange={(effort) => {
+                  if (reasoningEffortDisabled) return;
+                  if (props.session) props.onReasoningEffort(effort);
+                  else setDraftReasoningEffort(effort);
+                }}
+              />
               {props.project && (
                 <PermissionModeSelector
                   mode={permissionMode}

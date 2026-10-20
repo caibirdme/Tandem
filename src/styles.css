@@ -678,6 +678,14 @@ button {
   opacity: 0.75;
   cursor: default;
 }
+.reasoning-effort-menu {
+  max-width: 300px;
+}
+.reasoning-effort-hint {
+  white-space: normal;
+  max-width: 280px;
+  line-height: 1.5;
+}
 .permission-mode-selector {
   display: inline-flex;
   align-items: center;

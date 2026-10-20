@@ -112,6 +112,14 @@ class Fixture:
                     "file_text": "model switch approval retained\n",
                 },
             }
+        if not completed_tool and "fixture:reasoning-permission" in prompt:
+            return {
+                "name": "create",
+                "arguments": {
+                    "path": str(self.workspace / "reasoning-approved.txt"),
+                    "file_text": "reasoning approval retained\n",
+                },
+            }
         if "fixture:model-switch" in prompt:
             return "TANDEM_MODEL_SWITCH_OK " + body["model"]
         if "fixture:slow" in prompt:

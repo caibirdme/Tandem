@@ -147,6 +147,13 @@ impl ProviderSettings {
         if model.id.trim().is_empty() {
             return Err(ConfigurationError::EmptyModelId.into());
         }
+        if model
+            .reasoning_effort
+            .as_deref()
+            .is_some_and(|effort| !["low", "medium", "high"].contains(&effort))
+        {
+            return Err(ConfigurationError::UnsupportedReasoningEffort.into());
+        }
         let limits = model.token_limits()?;
         let (provider_type, wire_api) = match self.protocol {
             ProviderProtocol::OpenaiCompletions => ("openai", Some("completions")),
@@ -229,6 +236,39 @@ mod tests {
             assert_eq!(encoded["permissionMode"], wire);
             let restored: SessionOptions = serde_json::from_value(encoded)?;
             assert_eq!(restored.permission_mode, mode);
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn remote_reasoning_effort_rejects_unsupported_settings() -> Result<()> {
+        let provider = ProviderSettings {
+            protocol: ProviderProtocol::OpenaiResponses,
+            base_url: "https://example.com/v1".into(),
+            api_key: None,
+        };
+        for effort in [None, Some("low"), Some("medium"), Some("high")] {
+            let model = ModelSettings {
+                id: "fixture".into(),
+                context_window: 200_000,
+                reasoning_effort: effort.map(str::to_owned),
+                max_output_tokens: None,
+            };
+            provider.to_sdk(&model)?;
+        }
+        for effort in ["", "LOW", " high", "xhigh", "unsupported"] {
+            let model = ModelSettings {
+                id: "fixture".into(),
+                context_window: 200_000,
+                reasoning_effort: Some(effort.into()),
+                max_output_tokens: None,
+            };
+            assert!(matches!(
+                provider.to_sdk(&model),
+                Err(Error::InvalidConfiguration(
+                    ConfigurationError::UnsupportedReasoningEffort
+                ))
+            ));
         }
         Ok(())
     }

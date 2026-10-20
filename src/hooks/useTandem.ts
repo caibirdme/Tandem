@@ -5,12 +5,14 @@ import { dispatch, errorMessage, subscribe } from '../lib/api';
 import { emptyConversation } from '../lib/conversation';
 import { createModelChanges } from '../lib/modelChanges';
 import { createPermissionModeChanges } from '../lib/permissionModeChanges';
+import { createReasoningEffortChanges } from '../lib/reasoningEffortChanges';
 import { protectedSessionIds } from '../lib/reconcile';
 import { initialTandemState, reduceTandem } from '../lib/tandemState';
 import type {
   Message,
   ModelSelection,
   PermissionMode,
+  ReasoningEffort,
   RuntimeEvent,
   SelectedSkill,
   Session,
@@ -27,6 +29,8 @@ export function useTandem() {
       permissionModeUncertain,
       modelUpdates,
       modelUncertain,
+      reasoningEffortUpdates,
+      reasoningEffortUncertain,
       titleGenerations,
       titleErrors,
     },
@@ -54,6 +58,8 @@ export function useTandem() {
 
   const revisions = useRef<Record<string, number>>({});
   const pendingRequests = useRef(new Set<string>());
+  // Reasoning updates configure the next turn and may overlap an active response.
+  const reasoningRequests = useRef(new Set<string>());
   const sessionProjects = useRef(new Map<string, string | null>());
   const deletedProjectIds = useRef(new Set<string>());
   const titleRequests = useRef(new Map<string, symbol>());
@@ -69,6 +75,7 @@ export function useTandem() {
   }, []);
   const permissionChanges = useRef<ReturnType<typeof createPermissionModeChanges> | null>(null);
   const modelChanges = useRef<ReturnType<typeof createModelChanges> | null>(null);
+  const reasoningChanges = useRef<ReturnType<typeof createReasoningEffortChanges> | null>(null);
   useEffect(() => {
     permissionChanges.current ??= createPermissionModeChanges({
       getRequests: () => pendingRequests.current,
@@ -102,13 +109,39 @@ export function useTandem() {
         );
       },
     });
+    function reasoningFrom(session: Session | undefined, sessionId: string): ReasoningEffort {
+      const effort = session?.reasoningEffort;
+      if (
+        session?.id !== sessionId ||
+        (effort !== null && effort !== 'low' && effort !== 'medium' && effort !== 'high')
+      )
+        throw new Error(t('error.invalidReasoning'));
+      return effort;
+    }
+    reasoningChanges.current ??= createReasoningEffortChanges({
+      getRequests: () => reasoningRequests.current,
+      advance,
+      update,
+      save: async (sessionId, reasoningEffort) =>
+        reasoningFrom(
+          await dispatch('set_session_reasoning_effort', { sessionId, reasoningEffort }),
+          sessionId,
+        ),
+      read: async (sessionId) => {
+        const fresh = await dispatch('snapshot', {});
+        return reasoningFrom(
+          fresh.sessions.find((item) => item.id === sessionId),
+          sessionId,
+        );
+      },
+    });
   }, [advance]);
 
   const loadSnapshot = useCallback(async (isCurrent: () => boolean) => {
     const requestSequence = ++snapshotSequence.current;
     const requested = { ...revisions.current };
     const requestedTitles = { ...titleRevisions.current };
-    const pendingAtRequest = new Set(pendingRequests.current);
+    const pendingAtRequest = new Set([...pendingRequests.current, ...reasoningRequests.current]);
     const titlesAtRequest = new Set(titleDispatches.current.keys());
     const next = await dispatch('snapshot', {});
     if (!isCurrent() || requestSequence < appliedSnapshotSequence.current) return next;
@@ -118,7 +151,7 @@ export function useTandem() {
       requested,
       revisions.current,
       pendingAtRequest,
-      pendingRequests.current,
+      new Set([...pendingRequests.current, ...reasoningRequests.current]),
     );
     const titleProtectedIds = protectedSessionIds(
       requestedTitles,
@@ -230,7 +263,9 @@ export function useTandem() {
     async (sessionId: string, content: string, skills: SelectedSkill[] = []) => {
       const changes = permissionChanges.current;
       const models = modelChanges.current;
-      if (!changes || !models) throw new Error(t('error.initializing'));
+      const reasoning = reasoningChanges.current;
+      if (!changes || !models || !reasoning) throw new Error(t('error.initializing'));
+      reasoning.assertCanSend(sessionId);
       models.assertCanSend(sessionId);
       changes.assertCanSend(sessionId);
       advance(sessionId);
@@ -283,6 +318,7 @@ export function useTandem() {
         return;
       }
       if (target.permissionMode === permissionMode) return target.permissionMode;
+      reasoningChanges.current?.assertCanSend(sessionId);
       modelChanges.current?.assertCanSend(sessionId);
       return permissionChanges.current?.change(sessionId, permissionMode);
     },
@@ -304,6 +340,7 @@ export function useTandem() {
       )
         throw new Error(t('error.waitResponse'));
       permissionChanges.current?.assertCanSend(sessionId);
+      reasoningChanges.current?.assertCanSend(sessionId);
       modelChanges.current?.assertCanSend(sessionId);
       if (target.providerId === selection.providerId && target.modelId === selection.modelId)
         return;
@@ -314,10 +351,25 @@ export function useTandem() {
   const confirmSessionModel = useCallback(async (sessionId: string) => {
     await modelChanges.current?.confirm(sessionId);
   }, []);
+  const changeReasoningEffort = useCallback(
+    async (sessionId: string, reasoningEffort: ReasoningEffort) => {
+      const target = snapshot?.sessions.find((item) => item.id === sessionId);
+      if (!target) throw new Error(t('error.sessionMissing'));
+      if (!connected) throw new Error(t('error.reasoningWaitConnection'));
+      reasoningChanges.current?.assertCanSend(sessionId);
+      if (target.reasoningEffort === reasoningEffort) return;
+      await reasoningChanges.current?.change(sessionId, reasoningEffort);
+    },
+    [connected, snapshot],
+  );
+  const confirmReasoningEffort = useCallback(async (sessionId: string) => {
+    await reasoningChanges.current?.confirm(sessionId);
+  }, []);
   const deleteSession = useCallback(async (sessionId: string) => {
     await dispatch('delete_session', { sessionId });
     permissionChanges.current?.forget(sessionId);
     modelChanges.current?.forget(sessionId);
+    reasoningChanges.current?.forget(sessionId);
     sessionProjects.current.delete(sessionId);
     titleRequests.current.delete(sessionId);
     titleDispatches.current.delete(sessionId);
@@ -332,6 +384,7 @@ export function useTandem() {
     for (const sessionId of sessionIds) {
       permissionChanges.current?.forget(sessionId);
       modelChanges.current?.forget(sessionId);
+      reasoningChanges.current?.forget(sessionId);
       sessionProjects.current.delete(sessionId);
       titleRequests.current.delete(sessionId);
       titleDispatches.current.delete(sessionId);
@@ -402,6 +455,8 @@ export function useTandem() {
     confirmPermissionMode,
     changeSessionModel,
     confirmSessionModel,
+    changeReasoningEffort,
+    confirmReasoningEffort,
     deleteSession,
     deleteProject,
     regenerateTitle,
@@ -415,6 +470,10 @@ export function useTandem() {
       : null,
     modelSaving: activeSessionId !== null && modelUpdates.has(activeSessionId),
     modelError: activeSessionId ? (modelUncertain[activeSessionId] ?? null) : null,
+    reasoningEffortSaving: activeSessionId !== null && reasoningEffortUpdates.has(activeSessionId),
+    reasoningEffortError: activeSessionId
+      ? (reasoningEffortUncertain[activeSessionId] ?? null)
+      : null,
     respondPermission,
     historyLoading,
     historyLoaded,
