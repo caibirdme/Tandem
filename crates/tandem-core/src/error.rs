@@ -171,8 +171,7 @@ impl Error {
                 | tandem_remote::RpcErrorCode::StateDirectoryUnavailable => ErrorCode::Unavailable,
             },
             Self::Runtime(copilot_runtime::Error::Skills(error)) => match error {
-                copilot_runtime::SkillError::DiscoveryTimeout
-                | copilot_runtime::SkillError::PreparationTimeout => ErrorCode::Unavailable,
+                copilot_runtime::SkillError::PreparationTimeout => ErrorCode::Unavailable,
                 _ => ErrorCode::InvalidInput,
             },
             Self::Runtime(copilot_runtime::Error::InvalidConfiguration(_))

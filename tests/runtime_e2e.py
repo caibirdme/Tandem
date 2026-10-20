@@ -120,11 +120,20 @@ def main():
         root = Path(temporary)
         workspace = root / "project"
         workspace.mkdir()
+        home = root / "home"
+        home.mkdir()
+        environment = os.environ.copy()
+        environment.update(
+            HOME=str(home), USERPROFILE=str(home), XDG_CACHE_HOME=str(home / ".cache"),
+            XDG_CONFIG_HOME=str(home / ".config"), XDG_STATE_HOME=str(home / ".state"),
+        )
+        for key in ("COPILOT_CLI_PATH", "GITHUB_TOKEN", "GH_TOKEN", "COPILOT_GITHUB_TOKEN"):
+            environment.pop(key, None)
         fixture = Fixture(workspace)
         endpoint = ThreadingHTTPServer(("127.0.0.1", 0), handler_for(fixture))
         threading.Thread(target=endpoint.serve_forever, daemon=True).start()
         fixture_url = f"http://127.0.0.1:{endpoint.server_port}"
-        app = Application(arguments.server.resolve(), root, arguments.ephemeral_secrets)
+        app = Application(arguments.server.resolve(), root, arguments.ephemeral_secrets, env=environment)
         summary = []
         providers = {}
         chats = {}
@@ -300,10 +309,10 @@ def main():
             )
             summary.append("grouped activity: two progress stages, parallel tools, failure visibility, preserved details, and ordered history")
             skill_state = check_project_skills(
-                app, fixture, project, provider, model, workspace,
+                app, fixture, project, provider, model, workspace, home,
             )
             summary.append(
-                "project skills: native discovery, automatic and explicit loading, Chat isolation, and invalid-selection rejection"
+                "skills: only home/project .agents roots, missing/invalid sources ignored, automatic/explicit loading, Chat isolation, and invalid-selection rejection"
             )
             check_custom_provider_paths(app, fixture, fixture_url, project)
             summary.append(
@@ -489,7 +498,7 @@ def main():
             if not arguments.ephemeral_secrets:
                 require_local_secret(root, cleared_provider["id"], None)
             app.close()
-            app = Application(arguments.server.resolve(), root, arguments.ephemeral_secrets)
+            app = Application(arguments.server.resolve(), root, arguments.ephemeral_secrets, env=environment)
             require(app.command("snapshot")["settings"]["titleModel"] == selection,
                     "Server restart lost the chosen title model")
             require(

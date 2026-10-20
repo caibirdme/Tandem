@@ -66,3 +66,43 @@ describe('conservative activity fallback headings', () => {
     expect(heading(['unknown'])).toBe('Agent 活动');
   });
 });
+
+describe('intent disclosure', () => {
+  it.each([
+    { status: 'running', label: 'Running' },
+    { status: 'completed', label: 'Completed' },
+    { status: 'error', label: 'Failed' },
+    { status: 'interrupted', label: 'Stopped' },
+  ] as const)(
+    'exposes the $status state without adding visible status or counts',
+    ({ status, label }) => {
+      const markup = renderToStaticMarkup(
+        <ActivityMessage
+          content="Checking the conversation layout"
+          activity={{
+            status,
+            tools: [{ toolCallId: 'check-1', name: 'check_layout', status }],
+          }}
+        />,
+      );
+      const summary = markup.match(
+        /<details class="activity-group"><summary>(.*?)<\/summary>/,
+      )?.[1];
+
+      expect(markup).toContain(`class="activity-message ${status}"`);
+      expect(markup).not.toMatch(/<details[^>]*\bopen(?:=|\s|>)/);
+      expect(summary).toMatch(/^<svg\b[^>]*aria-hidden="true"[^>]*>/);
+      expect(summary).toMatch(/class="[^"]*activity-chevron[^"]*"/);
+      expect(summary).toContain(
+        '</svg><span class="activity-title">Checking the conversation layout',
+      );
+      expect(summary).toContain(
+        `<span class="activity-group-status"><span class="activity-status ${status}">${label}</span></span>`,
+      );
+      expect(summary?.match(/<svg\b/g)).toHaveLength(1);
+      expect(summary).not.toContain('activity-count');
+      expect(summary).not.toContain('activity-failed-count');
+      expect(summary).not.toContain('tool call');
+    },
+  );
+});

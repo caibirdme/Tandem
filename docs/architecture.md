@@ -76,7 +76,7 @@ If the save response is lost, the UI reads the actual permission mode from the s
 
 Bare configuration removes the SDK's default environment context. Work prompts therefore include the normalized project path explicitly and require file tools to use absolute paths based on it. The SDK session configuration still provides the shell working directory. Chat prompts contain no host directory.
 
-Work explicitly enables the SDK's skill support and `builtin:skill` tool, with skill roots scoped to the selected project. Creation and recovery apply the same configuration. The `$` picker obtains metadata from the runtime on the project's execution host. Explicit selections travel as names and paths alongside message text, are validated by the runtime, and are expanded through the native skill command API before sending. Chat and title generation retain their disabled skill configuration. See [Project skills](skills.md) for directory layout, interaction, and the protocol research.
+Work explicitly enables the SDK's skill support and `builtin:skill` tool, loading only the selected project's `.agents/skills` and the execution user's `~/.agents/skills`. Creation and recovery apply the same configuration. The `$` picker obtains metadata from the runtime on the project's execution host; missing or invalid sources are skipped, and discovery failures behave as an empty catalog. Explicit selections travel as names and paths alongside message text, are validated against the same roots by the runtime, and are expanded through the native skill command API before sending. Chat and title generation retain their disabled skill configuration. See [Project skills](skills.md) for directory layout, interaction, and the protocol research.
 
 ## History and API keys
 
@@ -100,7 +100,7 @@ Title tasks limit concurrency and wait time. Failure displays only a retryable t
 
 ## Events and interruption
 
-Users expand a progress heading to inspect the tools for that stage, then expand a tool for its arguments and output. Tool activity is collapsed by default, while final responses and permission requests remain visible.
+Users click the chevron or progress heading to inspect the tools for that stage, then expand a tool for its arguments and output. The compact heading shows no call counts. While a stage is running, a white highlight repeatedly sweeps across its text from left to right; completion, failure, or interruption returns it to static text. Reduced-motion preferences disable the highlight. Tool activity is collapsed by default, while final responses, tool failure notices, and permission requests remain visible. Assistive technology can still read the stage's status.
 
 `copilot-runtime` preserves the SDK's human-readable `assistant.intent`, message/tool identities, and tool lifecycle details. Intent is ephemeral in the SDK, so `tandem-core` captures activity headings and tools in durable `activity` messages alongside ordinary conversation messages. It groups tools by meaningful progress updates rather than creating a section for every model iteration. Assistant text associated with tools becomes the group's heading without appearing twice. The optional SDK `phase` remains provider metadata; it is not assumed to have Codex's commentary/final-answer semantics.
 

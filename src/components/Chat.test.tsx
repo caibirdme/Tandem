@@ -561,7 +561,8 @@ describe('grouped activity timeline', () => {
     expect(markup).not.toMatch(/<details[^>]*\bopen(?:=|\s|>)/);
     const summary = markup.match(/<details class="activity-group"><summary>(.*?)<\/summary>/)?.[1];
     expect(summary).toContain(activity.content);
-    expect(summary).toContain('2 tool calls');
+    expect(summary).not.toContain('tool calls');
+    expect(summary).not.toContain('activity-count');
     expect(summary).not.toContain('Read the chat component');
     expect(markup).toContain('Read the chat component');
     expect(markup).toContain('Read the conversation state');
@@ -603,6 +604,11 @@ describe('grouped activity timeline', () => {
       />,
     );
     expect(markup).toContain('class="activity-status error">Failed');
+    const summary = markup.match(/<details class="activity-group"><summary>(.*?)<\/summary>/)?.[1];
+    expect(summary).toContain(
+      '<span class="activity-group-status"><span class="activity-status error">Failed</span></span>',
+    );
+    expect(summary).not.toContain('activity-failed-count');
     expect(markup).toContain('Check the layout failed. Expand this step for details.');
     expect(markup.indexOf('class="activity-failure"')).toBeGreaterThan(
       markup.lastIndexOf('</details>'),
@@ -635,12 +641,13 @@ describe('grouped activity timeline', () => {
       />,
     );
     expect(markup).toContain('Agent 活动');
-    expect(markup).toContain('1 次工具调用');
+    expect(markup).toContain('class="activity-message interrupted"');
+    expect(markup).not.toContain('次工具调用');
     expect(markup).toContain('已停止');
     expect(markup).not.toContain('已完成');
   });
 
-  it('shows failed tool counts even while another call is still running', () => {
+  it('keeps failures visible while another call is still running without showing counts', () => {
     const markup = renderToStaticMarkup(
       <Chat
         {...props}
@@ -663,8 +670,13 @@ describe('grouped activity timeline', () => {
       />,
     );
     const summary = markup.match(/<details class="activity-group"><summary>(.*?)<\/summary>/)?.[1];
-    expect(summary).toContain('1 failed');
-    expect(summary).toContain('Running');
+    expect(summary).not.toContain('1 failed');
+    expect(summary).not.toContain('activity-failed-count');
+    expect(summary).not.toContain('activity-count');
+    expect(summary).toContain(
+      '<span class="activity-group-status"><span class="activity-status running">Running</span></span>',
+    );
+    expect(markup).toContain('class="activity-message running"');
     expect(markup).toContain('check_layout failed. Expand this step for details.');
     expect(markup).not.toContain('class="thinking"');
   });

@@ -1,13 +1,11 @@
 # Project skills
 
-Open a local or SSH project and start Work. Type `$` in the message box to see the project's skills, or type `$prefix` to filter by name. Choose a skill with the mouse, or use the arrow keys and Enter or Tab. Escape closes the list. A selected skill appears as `$name` in the message; deleting or changing that mention removes its explicit selection.
+Open a local or SSH project and start Work. Type `$` in the message box to see available skills, or type `$prefix` to filter by name. Choose a skill with the mouse, or use the arrow keys and Enter or Tab. Escape closes the list. A selected skill appears as `$name` in the message; deleting or changing that mention removes its explicit selection.
 
-Place each skill in its own directory with a `SKILL.md` file under one of these project directories:
+Place each skill in its own directory with a `SKILL.md` file under one of these directories:
 
-- `.agents/skills/`
-- `.github/skills/`
-- `.claude/skills/`
-- `skills/`
+- `<project>/.agents/skills/` for the selected project.
+- `~/.agents/skills/` for skills shared across projects.
 
 For example, `.agents/skills/review/SKILL.md` can contain:
 
@@ -21,9 +19,11 @@ Inspect the changed code and its callers. Report actionable problems with file
 locations and explain what verification would establish the expected behavior.
 ```
 
-Work makes the project skill catalog available to the agent so it can choose relevant skills automatically. Selecting a skill in the message box explicitly requests that skill for the next message. The two mechanisms use the same Copilot SDK skill support. For SSH projects, discovery and loading happen on the remote host; skill paths are remote paths.
+Work makes the available skill catalog accessible to the agent so it can choose relevant skills automatically. Selecting a skill in the message box explicitly requests that skill for the next message. The two mechanisms use the same Copilot SDK skill support. For SSH projects, discovery and loading happen on the remote host, using that host's home directory; skill paths are remote paths.
 
-The directories above are checked in the listed order. When names repeat, the first source wins. Skill files must resolve inside these project skill roots; ambient user skills and links to sources outside the roots are excluded. Skills marked `user-invocable: false` are omitted from the picker. Select up to 16 distinct skills per message.
+The directories above are checked in the listed order. When names repeat, the project source wins. No other skill directories are loaded. Skill files must resolve inside these roots; links to files outside the resolved roots are excluded. Skills marked `user-invocable: false` are omitted from the picker. Select up to 16 distinct skills per message.
+
+Missing or unreadable directories and invalid skill definitions are skipped. Other valid skills remain available. If discovery fails or times out, the picker behaves as if no skills were found, without an error or retry prompt. Reopen the picker to scan again.
 
 Chat and automatic title generation do not load project skills. Enabling skills does not enable ambient plugins, file hooks, general configuration discovery, or change the session's permission mode.
 

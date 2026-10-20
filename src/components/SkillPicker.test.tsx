@@ -15,12 +15,10 @@ const props: ComponentProps<typeof SkillPicker> = {
   ],
   index: 0,
   loading: false,
-  error: null,
   connected: true,
   filtered: false,
   onIndex: () => undefined,
   onSelect: () => undefined,
-  onReload: () => undefined,
   onBlur: () => undefined,
 };
 
@@ -43,15 +41,11 @@ describe('project skill picker', () => {
       override: { skills: [], filtered: true },
       message: 'No skills match this prefix.',
     },
-    {
-      override: { error: 'SSH connection closed' },
-      message: 'Could not load project skills: SSH connection closed',
-    },
   ])('announces $message', ({ override, message }) => {
     const markup = renderToStaticMarkup(<SkillPicker {...props} {...override} />);
     expect(markup).toContain(`<output class="skill-picker-status">`);
     expect(markup).toContain(message);
     expect(markup).not.toContain('$review');
-    if (override.error) expect(markup).toContain('Retry');
+    expect(markup).not.toContain('Retry');
   });
 });

@@ -70,10 +70,6 @@ pub enum SkillError {
     Unavailable { name: String },
     #[error("skill '{name}' cannot be invoked as a message in this session")]
     UnsupportedInvocation { name: String },
-    #[error("project skill definitions could not be loaded: {errors:?}")]
-    InvalidDefinitions { errors: Vec<String> },
-    #[error("project skill discovery did not complete within fifteen seconds")]
-    DiscoveryTimeout,
     #[error("project skill preparation did not complete within fifteen seconds")]
     PreparationTimeout,
 }

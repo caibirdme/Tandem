@@ -59,8 +59,7 @@ impl ServerError {
         match self {
             Self::UnsupportedCommand => RpcErrorCode::UnsupportedCommand,
             Self::Runtime(RuntimeError::Skills(error)) => match error {
-                copilot_runtime::SkillError::DiscoveryTimeout
-                | copilot_runtime::SkillError::PreparationTimeout => RpcErrorCode::RuntimeTimeout,
+                copilot_runtime::SkillError::PreparationTimeout => RpcErrorCode::RuntimeTimeout,
                 _ => RpcErrorCode::InvalidPayload,
             },
             Self::RequiredField { .. }

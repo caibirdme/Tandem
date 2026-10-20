@@ -1,5 +1,31 @@
 # Verification record
 
+## Compact intent headings with execution shimmer (2026-10-21)
+
+Developed from `main` in `.worktrees/skills-intent-polish`, carrying forward the agent-skill fixes recorded below. Users click a left chevron or its intent text to expand the stage. The heading shows no tool count, failed count, spinner, or visible status badge. Tool details and failure notices remain available, and assistive technology retains the stage's status and busy state.
+
+Running intent text has a repeating white highlight that moves from left to right. Completed, failed, and interrupted stages use static text. The animation follows the existing group status, so a failed parallel tool does not stop the shimmer while another tool is still running. CSS handles motion without timers or duplicated text; reduced-motion and forced-color preferences restore solid text, and unsupported text clipping retains the normal text color.
+
+`just check` passed with 324 frontend tests, 147 Rust tests, and 32 Python tests, plus formatting, linting, TypeScript checks, Clippy, and workspace dependency checks. The final frontend changes also passed the complete frontend suite, strict lint, and TypeScript checks. `just build` passed. Regression cases cover the leading decorative chevron, absent counts, hidden accessible status, all activity states, retained tool failures, and pending approvals. No dependency or application protocol changed; the existing CI paths cover these files.
+
+Browser verification rendered the production React component and stylesheet in an isolated local preview. It confirmed running animation, static completed and failed states, English and wrapping Chinese intent text, left chevrons, absent counts, nested arguments/results, and retained expansion after status updates. It used synthetic activity records without provider access or user application data. The existing real-SDK local and SSH skill integration results are recorded below; no backend activity behavior changed.
+
+`CI=true just desktop-build` passed on Apple Silicon with both the skill and intent changes. Application-signature integrity and bundled remote-agent identity checks passed. The native app was not launched or installed; the saved browser preview is an ignored artifact under `artifacts/intent-preview/`.
+
+## Agent skill roots and silent discovery (2026-10-21)
+
+Developed from `main` in `.worktrees/skills-agents-only`. In local and SSH Work, users type `$` to choose skills from the selected project's `.agents/skills` or the execution user's `~/.agents/skills`. No other skill directories contribute to discovery or invocation. Project definitions take precedence over home definitions with the same name. Missing directories and invalid definitions are skipped; other valid entries remain available. Discovery failures and timeouts produce an empty picker without an error or retry prompt. Configured roots remain present when initially missing so existing sessions can reload skills added later.
+
+`just check` passed with 320 frontend tests, 147 Rust tests, and 32 Python tests, including formatting, strict linting, TypeScript checks, Clippy, and workspace dependency checks. `just build` passed. Regression coverage includes both allowed roots, excluded project and home sources, canonical path containment, escaping symlinks, invalid definitions, partial catalogs, frontend request failures, and creation/resume configuration. Existing CI path filters and integration steps cover all changed source and test files.
+
+Local integration passed with 126 inference requests, including 23 title requests, and 15 telemetry exports. It used the real pinned SDK/CLI and production application services with isolated home and state directories, test credentials, and local inference/OTLP test services. The new cases verify skills added after session startup, project/home duplicate precedence, automatic invocation, explicit global and project selections, unavailable selections, invalid optional roots, Chat isolation, and reload after restart. No paid provider was used; the existing Chat web-fetch case contacted `https://example.com`.
+
+Full remote stdio and isolated OpenSSH integration passed with 69 inference requests and 70 telemetry exports. It used the real remote executable and pinned SDK with local inference/telemetry test services, temporary SSH keys, isolated home directories, and test credentials. The skill cases passed over both direct stdio and SSH, alongside existing permissions, deployment, reasoning, recovery, and credential-privacy checks. A final focused stdio skill run passed with six inference requests after aligning the duplicate fixture's directory name with its frontmatter name.
+
+`CI=true just desktop-build` passed on Apple Silicon, producing `Tandem.app` and `Tandem_0.0.1_aarch64.dmg`. Strict application-signature integrity and DMG checksum verification passed, and the bundled remote agent matches the release binary. The installer was not installed and the native app was not launched against user data. Frontend verification used regression tests rather than an interactive browser session.
+
+No dependency was added; the Copilot SDK remains pinned to `v1.0.23-preview.5`. Context7 was unavailable, so interfaces were checked against the exact cached SDK, its official skill documentation, and the Rust standard library's home-directory documentation.
+
 ## Grouped tool activity (2026-10-20)
 
 Developed from `main` in `.worktrees/grouped-tool-activity`. Users expand a progress heading to inspect related tools, then expand a tool for its arguments, progress, result, or error. Groups start collapsed and show their status and call count. Explicit progress text takes priority; known tool categories provide localized fallback headings. Final responses, failure notices, and actionable permission requests remain visible.
