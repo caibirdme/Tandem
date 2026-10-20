@@ -40,6 +40,7 @@ impl ActiveTurns {
                     session_id: session_id.into(),
                     role: MessageRole::Assistant,
                     content: content.into(),
+                    attachments: Vec::new(),
                     created_at: now(),
                     interrupted: true,
                 },

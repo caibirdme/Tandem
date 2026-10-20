@@ -44,6 +44,7 @@ from inference_fixture import (
 from permission_acceptance import check_permission_modes
 from model_switch_acceptance import require_wire_history
 from skill_acceptance import check_project_skills, check_stdio_skills
+from attachment_acceptance import check_attachments, check_stdio_attachments
 
 
 def private_environment(home):
@@ -122,11 +123,11 @@ class StdioServer:
             self.children.update(child_processes(self.process.pid))
         return response['value']
 
-    def turn(self, session_id, prompt, selected_skills=()):
+    def turn(self, session_id, prompt, selected_skills=(), attachments=()):
         while not self.events.empty():
             self.events.get_nowait()
         self.command('send_agent', sessionId=session_id, content=prompt,
-                     selectedSkills=list(selected_skills))
+                     selectedSkills=list(selected_skills), attachments=list(attachments))
         return self.receive_turn(session_id)
 
     def prepared_turn(self, session_id, prepared_id):
@@ -208,6 +209,16 @@ def check_stdio(binary, home, endpoint, fixture):
         require(any(event['kind'] == 'message' and event['data']['content'] == first_response
                     for event in events), 'stdio final response missing')
         check_stdio_skills(server, fixture, options)
+        check_stdio_attachments(server, fixture, options)
+        for protocol, model in (('openai-responses', 'gpt-4.1'),
+                                ('anthropic', 'claude-sonnet-4.5')):
+            attachment_options = {
+                **options,
+                'provider': {**options['provider'], 'protocol': protocol,
+                             'baseUrl': endpoint if protocol == 'anthropic' else endpoint + '/v1'},
+                'model': {**options['model'], 'id': model},
+            }
+            check_stdio_attachments(server, fixture, attachment_options)
     finally:
         server.close()
     resumed = StdioServer(binary, home)
@@ -239,7 +250,7 @@ def check_stdio(binary, home, endpoint, fixture):
     finally:
         resumed.close()
     # Invalid input must still stop a runtime that has already been initialized.
-    for malformed in ('{invalid-json}\n', 'x' * (8 * 1024 * 1024 + 1) + '\n'):
+    for malformed in ('{invalid-json}\n', 'x' * (32 * 1024 * 1024 + 1) + '\n'):
         invalid = StdioServer(binary, home)
         invalid.command('start_agent', options=session_options(str(uuid.uuid4()), endpoint), resume=False)
         try:
@@ -453,7 +464,7 @@ def check_ssh(remote_server, dev_server, root, endpoint, fixture):
         modification = deployed.stat().st_mtime_ns
         app.command('check_connection', connection=ssh.connection)
         require(deployed.stat().st_mtime_ns == modification, 'Matching server version was needlessly replaced')
-        deployed.write_text('#!/bin/sh\n[ "$1" = "--version" ] || exit 97\nprintf "tandem-server 0.1.3\\n"\n')
+        deployed.write_text('#!/bin/sh\n[ "$1" = "--version" ] || exit 97\nprintf "tandem-server 0.0.1\\n"\n')
         app.command('check_connection', connection=ssh.connection)
         require(digest(deployed) == digest(remote_server),
                 'An older server was reused instead of receiving the updated runtime configuration')
@@ -472,6 +483,7 @@ def check_ssh(remote_server, dev_server, root, endpoint, fixture):
                     'protocol': 'http/json', 'captureContent': False}, cliPath=None)
         project = app.command('create_project', name='SSH work', path=str(workspace), connection=ssh.connection)
         skill_session, _ = check_project_skills(app, fixture, project, provider, 'gpt-4.1', workspace)
+        check_attachments(app, fixture, project, provider, 'gpt-4.1')
         app.command('delete_session', sessionId=skill_session['id'])
         work = app.command('create_session', projectId=project['id'], providerId=provider['id'], modelId='gpt-4.1')
         first_work_events = app.turn(work, 'fixture:work-create Create verified.txt on the SSH host.')
@@ -561,7 +573,7 @@ def main():
         checks = []
         try:
             check_stdio(remote_server, root / 'stdio-home', endpoint_url, fixture)
-            checks.append('stdio: real SDK streaming, project skill discovery and invocation, same-session cold resume with a new provider/model and original history, EOF cleanup, malformed/oversized input, OTLP flush')
+            checks.append('stdio: real SDK streaming, image/text attachments on all protocols and PDF on Responses/Anthropic, attachment-only preparation and direct sends in Chat and Work, project skill discovery and invocation, same-session cold resume with a new provider/model and original history, EOF cleanup, malformed/oversized input, OTLP flush')
             if not arguments.skip_ssh:
                 require(os.name == 'posix', 'Use --skip-ssh on hosts without a POSIX SSH daemon')
                 check_ssh(remote_server, dev_server, root, endpoint_url, fixture)

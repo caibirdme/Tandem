@@ -1,13 +1,24 @@
-import type { Message, Permission, RuntimeEvent, SessionStatus, ToolActivity } from './types';
+import type {
+  AttachmentInput,
+  Message,
+  Permission,
+  RuntimeEvent,
+  SessionStatus,
+  ToolActivity,
+} from './types';
+
+export interface ConversationMessage extends Message {
+  pendingAttachments?: AttachmentInput[];
+}
 
 export interface Conversation {
-  messages: Message[];
+  messages: ConversationMessage[];
   stream: string;
   tools: ToolActivity[];
   permissions: Permission[];
   status: SessionStatus;
   error: string | null;
-  failedSend: Message | null;
+  failedSend: ConversationMessage | null;
 }
 export const emptyConversation: Conversation = {
   messages: [],
@@ -27,7 +38,10 @@ function confirmsPending(pending: Message | null | undefined, message: Message):
   );
 }
 
-export function mergeMessages(existing: Message[], incoming: Message[]): Message[] {
+export function mergeMessages(
+  existing: ConversationMessage[],
+  incoming: Message[],
+): ConversationMessage[] {
   const messages = new Map(existing.map((message) => [message.id, message]));
   for (const message of incoming) {
     const pendingId = `pending:${message.id}`;

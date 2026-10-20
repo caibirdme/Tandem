@@ -4,14 +4,14 @@ use std::{
     time::Duration,
 };
 
-use copilot_runtime::{ModelSettings, ProviderProtocol, ProviderSettings};
+use copilot_runtime::{ModelSettings, ProviderSettings};
 use serde_json::json;
 use tokio::{sync::Semaphore, task::JoinHandle};
 use uuid::Uuid;
 
 use crate::{
     App, Error, Result,
-    model::{Protocol, TitleModel, TitleState},
+    model::{TitleModel, TitleState},
 };
 
 const MAX_PENDING_TITLES: usize = 64;
@@ -142,11 +142,7 @@ impl App {
             })?;
         Ok((
             ProviderSettings {
-                protocol: match provider.protocol {
-                    Protocol::OpenaiCompletions => ProviderProtocol::OpenaiCompletions,
-                    Protocol::OpenaiResponses => ProviderProtocol::OpenaiResponses,
-                    Protocol::Anthropic => ProviderProtocol::Anthropic,
-                },
+                protocol: provider.protocol.into(),
                 api_key: self.get_provider_api_key(provider_id)?,
                 base_url: provider.base_url,
             },
@@ -378,6 +374,7 @@ mod tests {
             session_id: session.id.clone(),
             role,
             content: content.into(),
+            attachments: Vec::new(),
             created_at: now(),
             interrupted,
         })?)

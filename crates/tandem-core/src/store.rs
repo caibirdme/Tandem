@@ -3,7 +3,9 @@ use std::{path::Path, sync::Mutex};
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::de::DeserializeOwned;
 
-use crate::model::{Message, Preferences, Project, Provider, Session, SessionStatus};
+use crate::model::{
+    Message, MessageAttachment, Preferences, Project, Provider, Session, SessionStatus,
+};
 
 /// Local persistence failures and missing records that callers can handle by type.
 #[derive(Debug, thiserror::Error)]
@@ -25,6 +27,10 @@ pub enum StorageError {
     ProjectNotFound { id: String },
     #[error("Conversation does not exist.")]
     SessionNotFound { id: String },
+    #[error("This attachment does not exist in the selected conversation.")]
+    AttachmentNotFound { id: String, session_id: String },
+    #[error("Attachment contents do not match the message metadata.")]
+    AttachmentCountMismatch,
     #[error("Delete this provider's conversations before deleting the provider.")]
     ProviderInUse { id: String },
 }
@@ -60,6 +66,16 @@ impl Store {
                  data TEXT NOT NULL
              );
              CREATE INDEX IF NOT EXISTS messages_by_session ON messages(session_id);
+             CREATE TABLE IF NOT EXISTS attachments (
+                 id TEXT PRIMARY KEY,
+                 message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+                 session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+                 name TEXT NOT NULL,
+                 mime_type TEXT NOT NULL,
+                 data BLOB NOT NULL
+             );
+             CREATE INDEX IF NOT EXISTS attachments_by_session ON attachments(session_id);
+             CREATE INDEX IF NOT EXISTS attachments_by_message ON attachments(message_id);
              PRAGMA user_version=1;",
         )?;
         let store = Self {
@@ -260,8 +276,20 @@ impl Store {
     }
 
     pub fn append_message(&self, message: &Message) -> Result<()> {
+        self.append_message_with_attachments(message, &[])
+    }
+
+    pub fn append_message_with_attachments(
+        &self,
+        message: &Message,
+        contents: &[Vec<u8>],
+    ) -> Result<()> {
+        if message.attachments.len() != contents.len() {
+            return Err(StorageError::AttachmentCountMismatch);
+        }
         self.with(|db| {
-            db.execute(
+            let transaction = db.unchecked_transaction()?;
+            transaction.execute(
                 "INSERT INTO messages(id,session_id,data) VALUES(?1,?2,?3)",
                 params![
                     message.id,
@@ -269,7 +297,55 @@ impl Store {
                     serde_json::to_string(message)?
                 ],
             )?;
+            for (attachment, data) in message.attachments.iter().zip(contents) {
+                transaction.execute(
+                    "INSERT INTO attachments(id,message_id,session_id,name,mime_type,data)
+                     VALUES(?1,?2,?3,?4,?5,?6)",
+                    params![
+                        attachment.id,
+                        message.id,
+                        message.session_id,
+                        attachment.name,
+                        attachment.mime_type,
+                        data
+                    ],
+                )?;
+            }
+            transaction.commit()?;
             Ok(())
+        })
+    }
+
+    pub fn attachment(&self, session_id: &str, attachment_id: &str) -> Result<MessageAttachment> {
+        self.session(session_id)?;
+        self.with(|db| {
+            db.query_row(
+                "SELECT name,mime_type,data FROM attachments WHERE session_id=?1 AND id=?2",
+                params![session_id, attachment_id],
+                |row| {
+                    Ok(MessageAttachment::from_bytes(
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        &row.get::<_, Vec<u8>>(2)?,
+                    ))
+                },
+            )
+            .optional()?
+            .ok_or_else(|| StorageError::AttachmentNotFound {
+                id: attachment_id.into(),
+                session_id: session_id.into(),
+            })
+        })
+    }
+
+    pub fn attachment_types(&self, session_id: &str) -> Result<Vec<(String, String)>> {
+        self.with(|db| {
+            let mut query =
+                db.prepare("SELECT name,mime_type FROM attachments WHERE session_id=?1")?;
+            query
+                .query_map([session_id], |row| Ok((row.get(0)?, row.get(1)?)))?
+                .collect::<std::result::Result<_, _>>()
+                .map_err(Into::into)
         })
     }
 
@@ -328,6 +404,121 @@ mod tests {
     use tempfile::TempDir;
 
     use super::*;
+    use crate::model::{AttachmentMetadata, MessageRole};
+
+    fn attachment_store(path: &Path) -> Result<Store> {
+        let store = Store::open(path)?;
+        store.save_provider(&serde_json::from_value(json!({
+            "id":"provider", "name":"Provider", "protocol":"anthropic",
+            "baseUrl":"https://example.com", "models":[]
+        }))?)?;
+        store.save_project(&serde_json::from_value(json!({
+            "id":"project", "name":"Project", "path":"/workspace",
+            "connection":{"kind":"local"}, "createdAt":"2026-10-20"
+        }))?)?;
+        for id in ["session", "other-session"] {
+            store.save_session(&serde_json::from_value(json!({
+                "id":id, "title":"Session", "projectId":"project", "providerId":"provider",
+                "modelId":"model", "status":"idle", "titleState":"pending", "permissionMode":"ask",
+                "createdAt":"2026-10-20", "updatedAt":"2026-10-20"
+            }))?)?;
+        }
+        Ok(store)
+    }
+
+    fn attachment_message(id: &str, attachment_ids: &[&str]) -> Message {
+        Message {
+            id: id.into(),
+            session_id: "session".into(),
+            role: MessageRole::User,
+            content: String::new(),
+            attachments: attachment_ids
+                .iter()
+                .map(|id| AttachmentMetadata {
+                    id: (*id).into(),
+                    name: "example.png".into(),
+                    mime_type: "image/png".into(),
+                    size: 5,
+                })
+                .collect(),
+            created_at: "2026-10-20".into(),
+            interrupted: false,
+        }
+    }
+
+    #[test]
+    fn attachments_are_scoped_persisted_separately_and_cascade_on_deletion() -> Result<()> {
+        for deleted in ["message", "session", "project"] {
+            let directory = TempDir::new()?;
+            let path = directory.path().join("test.sqlite3");
+            let store = attachment_store(&path)?;
+            let message = attachment_message("message", &["attachment"]);
+            let contents = vec![vec![0, 1, 2, 253, 254]];
+            store.append_message_with_attachments(&message, &contents)?;
+            let history = serde_json::to_value(store.messages("session")?)?;
+            assert_eq!(history[0]["attachments"][0]["size"], 5);
+            assert!(history[0]["attachments"][0].get("data").is_none());
+            assert!(matches!(
+                store.attachment("other-session", "attachment"),
+                Err(StorageError::AttachmentNotFound { .. })
+            ));
+            drop(store);
+            let store = Store::open(&path)?;
+            let attachment = store.attachment("session", "attachment")?;
+            assert_eq!(
+                copilot_runtime::validate_attachments(&[attachment])?,
+                contents
+            );
+            store.with(|db| {
+                let bytes: Vec<u8> = db.query_row(
+                    "SELECT data FROM attachments WHERE id='attachment'",
+                    [],
+                    |row| row.get(0),
+                )?;
+                assert_eq!(bytes, contents[0]);
+                match deleted {
+                    "message" => db.execute("DELETE FROM messages WHERE id='message'", [])?,
+                    "session" => db.execute("DELETE FROM sessions WHERE id='session'", [])?,
+                    _ => db.execute("DELETE FROM projects WHERE id='project'", [])?,
+                };
+                let remaining: i64 =
+                    db.query_row("SELECT count(*) FROM attachments", [], |row| row.get(0))?;
+                assert_eq!(remaining, 0, "{deleted}");
+                Ok(())
+            })?;
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn attachment_insert_failures_roll_back_the_message_and_partial_contents() -> Result<()> {
+        let directory = TempDir::new()?;
+        let store = attachment_store(&directory.path().join("test.sqlite3"))?;
+        let contents = vec![vec![0, 1, 2, 253, 254]];
+        store.append_message_with_attachments(
+            &attachment_message("first", &["existing"]),
+            &contents,
+        )?;
+        assert!(matches!(
+            store.append_message_with_attachments(
+                &attachment_message("mismatched", &["missing"]),
+                &[],
+            ),
+            Err(StorageError::AttachmentCountMismatch)
+        ));
+        let error = store.append_message_with_attachments(
+            &attachment_message("second", &["new", "existing"]),
+            &[contents[0].clone(), contents[0].clone()],
+        );
+        assert!(matches!(error, Err(StorageError::Database(_))));
+        assert_eq!(store.messages("session")?.len(), 1);
+        assert!(matches!(
+            store.attachment("session", "new"),
+            Err(StorageError::AttachmentNotFound { .. })
+        ));
+        assert!(store.attachment("session", "existing").is_ok());
+        Ok(())
+    }
 
     #[test]
     fn unavailable_database_retains_its_sqlite_source() -> Result<()> {

@@ -1,9 +1,11 @@
 use std::sync::Arc;
 
+use copilot_runtime::validate_attachment_protocol;
+
 use crate::{
     App, Error, Result,
     app::now,
-    model::{Session, SessionStatus},
+    model::{Protocol, Session, SessionStatus},
 };
 
 impl App {
@@ -35,6 +37,7 @@ impl App {
                     model_id,
                 });
             }
+            self.validate_attachment_history(id, provider.protocol)?;
             if session.provider_id == provider_id && session.model_id == model_id {
                 return Ok(session);
             }
@@ -64,6 +67,18 @@ impl App {
         Ok(updated)
     }
 
+    pub(crate) fn validate_attachment_history(&self, id: &str, protocol: Protocol) -> Result<()> {
+        for (name, mime_type) in self.store.attachment_types(id)? {
+            validate_attachment_protocol(&name, &mime_type, protocol.into()).map_err(|source| {
+                Error::ConversationAttachmentProtocol {
+                    session_id: id.into(),
+                    source,
+                }
+            })?;
+        }
+        Ok(())
+    }
+
     fn editable_model_session(&self, id: &str) -> Result<Session> {
         let session = self.store.session(id)?;
         if session.status == SessionStatus::Running || self.turns.has_pending_permissions(id)? {
@@ -77,7 +92,7 @@ impl App {
 mod tests {
     use std::time::Duration;
 
-    use anyhow::Result;
+    use anyhow::{Context, Result};
     use serde_json::json;
     use tempfile::TempDir;
     use uuid::Uuid;
@@ -85,7 +100,9 @@ mod tests {
     use super::*;
     use crate::{
         AppOptions, Request,
-        model::{Connection, Message, MessageRole, PermissionMode, Project, Provider},
+        model::{
+            AttachmentMetadata, Connection, Message, MessageRole, PermissionMode, Project, Provider,
+        },
     };
 
     async fn application() -> Result<(TempDir, Arc<App>, Session, Provider)> {
@@ -116,6 +133,99 @@ mod tests {
             .create_session(None, original.id, "original".into(), PermissionMode::Ask)
             .await?;
         Ok((directory, app, session, alternate))
+    }
+
+    #[tokio::test]
+    async fn pdf_history_prevents_unsupported_model_switches_without_changing_state() -> Result<()>
+    {
+        for (mime_type, connection) in [
+            ("application/pdf", None),
+            ("application/octet-stream", Some(Connection::Local)),
+            (
+                "application/pdf",
+                Some(Connection::Ssh {
+                    host: "fixture.invalid".into(),
+                    port: 22,
+                    user: "fixture".into(),
+                    identity_file: None,
+                }),
+            ),
+        ] {
+            let (directory, app, mut session, alternate) = application().await?;
+            let completions_provider = session.provider_id.clone();
+            if let Some(connection) = connection {
+                let project = Project {
+                    id: Uuid::new_v4().to_string(),
+                    name: "Fixture work".into(),
+                    path: "/fixture".into(),
+                    connection,
+                    created_at: now(),
+                };
+                app.store.save_project(&project)?;
+                session.project_id = Some(project.id);
+                app.store.save_session(&session)?;
+            }
+            session = app
+                .set_session_model(&session.id, alternate.id.clone(), "alternate".into())
+                .await?;
+            let bytes = b"%PDF-1.7\n".to_vec();
+            let attachment_id = Uuid::new_v4().to_string();
+            app.store.append_message_with_attachments(
+                &Message {
+                    id: Uuid::new_v4().to_string(),
+                    session_id: session.id.clone(),
+                    role: MessageRole::User,
+                    content: "Read this PDF".into(),
+                    attachments: vec![AttachmentMetadata {
+                        id: attachment_id.clone(),
+                        name: "REPORT.PDF".into(),
+                        mime_type: mime_type.into(),
+                        size: bytes.len(),
+                    }],
+                    created_at: now(),
+                    interrupted: false,
+                },
+                &[bytes],
+            )?;
+            let before = serde_json::to_value(&session)?;
+            let history = serde_json::to_value(app.store.messages(&session.id)?)?;
+            let error = app
+                .set_session_model(&session.id, completions_provider, "original".into())
+                .await
+                .err()
+                .context("PDF history must block an incompatible model switch")?;
+            assert!(
+                matches!(&error, Error::ConversationAttachmentProtocol { session_id, source }
+                if session_id == &session.id
+                && matches!(source, copilot_runtime::AttachmentError::PdfUnsupportedByProvider))
+            );
+            assert_eq!(error.code(), crate::ErrorCode::InvalidInput);
+            assert_eq!(
+                serde_json::to_value(app.store.session(&session.id)?)?,
+                before
+            );
+            let mut responses = alternate;
+            responses.id.clear();
+            responses.protocol = Protocol::OpenaiResponses;
+            let responses = app.save_provider(responses, None).await?;
+            let switched = app
+                .set_session_model(&session.id, responses.id.clone(), "alternate".into())
+                .await?;
+            assert_eq!(switched.provider_id, responses.id);
+            let reopened = App::open(AppOptions::local(directory.path().into()))?;
+            assert_eq!(
+                serde_json::to_value(reopened.store.messages(&session.id)?)?,
+                history
+            );
+            assert!(
+                reopened
+                    .store
+                    .attachment(&session.id, &attachment_id)
+                    .is_ok()
+            );
+            assert!(app.runtime.lock().await.is_none());
+        }
+        Ok(())
     }
 
     #[tokio::test]
@@ -167,6 +277,7 @@ mod tests {
                     session_id: session.id.clone(),
                     role,
                     content: content.into(),
+                    attachments: Vec::new(),
                     created_at: now(),
                     interrupted: false,
                 })?;

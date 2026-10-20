@@ -44,7 +44,7 @@ pub async fn serve(app: Arc<App>, port: u16) -> Result<(), HttpError> {
             "/api/health",
             get(|| async { Json(json!({"status":"ok"})) }),
         )
-        .layer(DefaultBodyLimit::max(1024 * 1024))
+        .layer(DefaultBodyLimit::max(32 * 1024 * 1024))
         .layer(middleware::from_fn(local_requests_only))
         .with_state(state);
     let listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, port))

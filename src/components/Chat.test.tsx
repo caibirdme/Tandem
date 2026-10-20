@@ -104,6 +104,57 @@ describe('Work skill discovery entry point', () => {
   });
 });
 
+describe('composer attachments', () => {
+  it.each([
+    { name: 'Chat', project: undefined },
+    { name: 'local Work', project },
+    {
+      name: 'remote Work',
+      project: {
+        ...project,
+        connection: {
+          kind: 'ssh' as const,
+          host: 'example.test',
+          port: 22,
+          user: 'dev',
+          identityFile: null,
+        },
+      },
+    },
+  ])('offers multi-file attachments in $name', (view) => {
+    const markup = renderToStaticMarkup(<Chat {...props} project={view.project} />);
+    expect(markup).toContain('type="file"');
+    expect(markup).toContain('multiple=""');
+    expect(markup).toContain('aria-label="Add attachments"');
+    expect(markup).toContain('Paste an image or drop files');
+  });
+
+  it('renders an attachment-only message without fabricating text', () => {
+    const markup = renderToStaticMarkup(
+      <Chat
+        {...props}
+        conversation={{
+          ...emptyConversation,
+          messages: [
+            {
+              id: 'message-1',
+              sessionId: session.id,
+              role: 'user',
+              content: '',
+              createdAt: session.createdAt,
+              attachments: [
+                { id: 'attachment-1', name: 'notes.txt', mimeType: 'text/plain', size: 5 },
+              ],
+            },
+          ],
+        }}
+      />,
+    );
+    expect(markup).toContain('Download notes.txt');
+    expect(markup).not.toContain('<p></p>');
+  });
+});
+
 describe('conversation model controls', () => {
   const modelProps = {
     ...props,

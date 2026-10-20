@@ -5,8 +5,9 @@ use std::{
 };
 
 use copilot_runtime::{
-    AgentSession, ApprovalDecision, EventKind, PreparedMessage, Runtime, RuntimeEvent,
-    RuntimeOptions, SessionOptions, SkillSelection, TelemetrySettings,
+    AgentSession, ApprovalDecision, EventKind, MessageAttachment, PreparedMessage, Runtime,
+    RuntimeEvent, RuntimeOptions, SessionOptions, SkillSelection, TelemetrySettings,
+    validate_attachments,
 };
 use serde_json::{Value, json};
 use tandem_protocol::{RequestEnvelope, ServerFrame, encode_frame, read_frame};
@@ -212,22 +213,32 @@ impl AgentHost {
             }
             "send_agent" => {
                 let selected_skills = selected_skills(&payload)?;
+                let attachments = message_attachments(&payload)?;
                 let hosted = self.hosted_session(&payload)?;
                 hosted.prepared = None;
                 hosted
                     .agent
-                    .send_with_skills(required(&payload, "content")?, &selected_skills)
+                    .send_with_attachments(
+                        required(&payload, "content")?,
+                        &selected_skills,
+                        &attachments,
+                    )
                     .await?;
                 Ok(Value::Null)
             }
             "prepare_agent_message" => {
                 let id = required(&payload, "preparedId")?.to_owned();
                 let selected_skills = selected_skills(&payload)?;
+                let attachments = message_attachments(&payload)?;
                 let hosted = self.hosted_session(&payload)?;
                 hosted.prepared = None;
                 let prepared = hosted
                     .agent
-                    .prepare_message(required(&payload, "content")?, &selected_skills)
+                    .prepare_message(
+                        required(&payload, "content")?,
+                        &selected_skills,
+                        &attachments,
+                    )
                     .await?;
                 hosted.prepared = Some((id, prepared));
                 Ok(Value::Null)
@@ -362,6 +373,20 @@ fn selected_skills(payload: &Value) -> Result<Vec<SkillSelection>> {
         .map(Option::unwrap_or_default)
 }
 
+fn message_attachments(payload: &Value) -> Result<Vec<MessageAttachment>> {
+    let attachments = payload
+        .get("attachments")
+        .map(|value| serde_json::from_value::<Vec<MessageAttachment>>(value.clone()))
+        .transpose()
+        .map_err(|source| ServerError::InvalidPayload {
+            field: "attachments",
+            source: source.into(),
+        })?
+        .unwrap_or_default();
+    validate_attachments(&attachments).map_err(copilot_runtime::Error::from)?;
+    Ok(attachments)
+}
+
 fn runtime_directory(home: &Path) -> Result<PathBuf> {
     let directory = home.join(".local/share/tandem/runtime");
     validate_state_directory(&directory)?;
@@ -469,6 +494,41 @@ mod tests {
             }
             result => panic!("expected a non-directory state path error, got {result:?}"),
         }
+        Ok(())
+    }
+
+    #[test]
+    fn attachment_payloads_are_optional_and_validate_binary_contents() -> Result<()> {
+        assert_eq!(message_attachments(&json!({}))?, []);
+        let valid = MessageAttachment::from_bytes("notes.txt", "text/plain", b"content");
+        assert_eq!(
+            message_attachments(&json!({"attachments":[valid]}))?,
+            [valid]
+        );
+        for payload in [
+            json!({"attachments":null}),
+            json!({"attachments":"private-content"}),
+            json!({"attachments":[{"name":"notes.txt","mimeType":"text/plain"}]}),
+        ] {
+            let error = message_attachments(&payload)
+                .err()
+                .context("invalid attachment shape")?;
+            assert_eq!(
+                error.into_rpc().code,
+                tandem_protocol::RpcErrorCode::InvalidPayload
+            );
+        }
+        let error = message_attachments(&json!({
+            "attachments":[{"name":"notes.txt","mimeType":"text/plain","data":"invalid"}]
+        }))
+        .err()
+        .context("invalid attachment encoding")?;
+        assert!(matches!(
+            error,
+            ServerError::Runtime(copilot_runtime::Error::Attachments(
+                copilot_runtime::AttachmentError::InvalidBase64 { .. }
+            ))
+        ));
         Ok(())
     }
 

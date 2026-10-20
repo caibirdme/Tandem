@@ -37,6 +37,7 @@ from model_switch_acceptance import (
     check_model_switching,
 )
 from skill_acceptance import check_project_skills, check_skill_resume
+from attachment_acceptance import check_attachments, check_attachment_resume
 
 
 def check_custom_provider_paths(app, fixture, fixture_url, project):
@@ -293,6 +294,14 @@ def main():
                 path=str(workspace),
                 connection={"kind": "local"},
             )
+            attachment_states = []
+            for attachment_provider, attachment_model in providers.values():
+                attachment_states.extend(check_attachments(
+                    app, fixture, project, attachment_provider, attachment_model,
+                ))
+            summary.append(
+                "attachments: images and text reached all three protocols in Chat and Work; PDFs reached Responses and Anthropic; unsupported Completions PDFs and binary formats rejected before persistence; attachment-only sends, history metadata, and scoped retrieval"
+            )
             skill_state = check_project_skills(
                 app, fixture, project, provider, model, workspace,
             )
@@ -480,6 +489,12 @@ def main():
                 require_local_secret(root, cleared_provider["id"], None)
             app.close()
             app = Application(arguments.server.resolve(), root, arguments.ephemeral_secrets)
+            # The Anthropic credential was intentionally cleared above; restore it
+            # only for attachment-history continuation, then preserve that test state.
+            app.command("save_provider", provider=cleared_provider, apiKey=FIXTURE_KEY)
+            check_attachment_resume(app, fixture, attachment_states)
+            app.command("save_provider", provider=cleared_provider, apiKey="")
+            summary.append("attachments after restart: original bytes, identities, and SDK image/text context retained")
             require(app.command("snapshot")["settings"]["titleModel"] == selection,
                     "Server restart lost the chosen title model")
             require(

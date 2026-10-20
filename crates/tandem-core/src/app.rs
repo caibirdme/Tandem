@@ -137,6 +137,11 @@ impl App {
         }
     }
 
+    pub(crate) async fn install_runtime(&self) -> Result<RuntimeStatus> {
+        self.ensure_runtime().await?;
+        Ok(self.runtime_status().await)
+    }
+
     pub(crate) async fn ensure_runtime(&self) -> Result<Arc<Runtime>> {
         let mut runtime = self.runtime.lock().await;
         if let Some(runtime) = &*runtime

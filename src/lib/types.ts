@@ -53,6 +53,17 @@ export interface ContextUsage {
   currentTokens: number;
   tokenLimit: number;
 }
+export interface AttachmentInput {
+  name: string;
+  mimeType: string;
+  data: string;
+}
+export interface Attachment {
+  id: string;
+  name: string;
+  mimeType: string;
+  size: number;
+}
 export interface Session {
   titleState: 'preserved' | 'pending' | 'attempted';
   id: string;
@@ -74,6 +85,7 @@ export interface Message {
   content: string;
   createdAt: string;
   selectedSkills?: SelectedSkill[];
+  attachments: Attachment[];
 }
 export interface RuntimeStatus {
   available: boolean;
@@ -149,12 +161,17 @@ export interface Commands {
   delete_session: { payload: { sessionId: string }; result: null };
   rename_session: { payload: { sessionId: string; title: string }; result: null };
   messages: { payload: { sessionId: string }; result: Message[] };
+  get_attachment: {
+    payload: { sessionId: string; attachmentId: string };
+    result: AttachmentInput;
+  };
   send_message: {
     payload: {
       sessionId: string;
       content: string;
       messageId: string;
       selectedSkills?: SelectedSkill[];
+      attachments?: AttachmentInput[];
     };
     result: null;
   };

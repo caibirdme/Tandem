@@ -13,6 +13,7 @@ _Keep project conversations, model selection, and permission controls together i
 ## What you can do
 
 - **Chat with your models.** Connect OpenAI-compatible APIs, Anthropic, or your own model gateway. Chat can read web pages.
+- **Include images and files.** Paste an image or drop files into the composer, review the previews, and send them with your message.
 - **Work where your files are.** Open a local directory or connect to a Linux or macOS host over SSH. The agent can read and edit files and run commands.
 - **Choose how the agent works.** Approve each tool permission request or grant full access for a work session. Switch models as the conversation continues.
 
@@ -51,6 +52,8 @@ _Use your provider's model IDs and check the request URL preview before saving._
 Work starts with **Ask each time**. Use the control beside the composer to choose **Full access** if you want tool requests approved automatically. Commands run with your user account's access on the execution machine.
 
 The first message prepares the bundled runtime automatically. To use Simplified Chinese, open **Settings > General > Language**.
+
+Paste images with **Ctrl+V** (**Command+V** on macOS), drag files into the composer, or use the attachment button. Remove an attachment with its **×** before sending. Attachments also work in local and SSH project conversations. See [Images and files](docs/user-guide.md#images-and-files) for limits and history.
 
 ### 3. Connect an SSH project
 

@@ -23,7 +23,14 @@ import { useI18n } from './i18n';
 import { dispatch, errorMessage } from './lib/api';
 import { newSessionPayload } from './lib/sessionOptions';
 import { displaySessionTitle } from './lib/sessionTitles';
-import type { ModelSelection, PermissionMode, Project, SelectedSkill, Session } from './lib/types';
+import type {
+  AttachmentInput,
+  ModelSelection,
+  PermissionMode,
+  Project,
+  SelectedSkill,
+  Session,
+} from './lib/types';
 
 const Settings = lazy(async () => ({ default: (await import('./components/Settings')).Settings }));
 const ProjectDialog = lazy(async () => ({
@@ -97,7 +104,12 @@ export function App() {
     return () => window.removeEventListener('keydown', keydown);
   }, [newChat]);
 
-  async function send(content: string, permissionMode: PermissionMode, skills: SelectedSkill[]) {
+  async function send(
+    content: string,
+    permissionMode: PermissionMode,
+    skills: SelectedSkill[],
+    attachments: AttachmentInput[],
+  ) {
     if (!effectiveSelection) {
       setSettingsOpen(true);
       return;
@@ -126,7 +138,7 @@ export function App() {
         const confirmedMode = await tandem.changePermissionMode(target.id, permissionMode);
         if (confirmedMode !== permissionMode) throw new Error(t('app.permissionUnconfirmed'));
       }
-      await tandem.send(target.id, content, skills);
+      await tandem.send(target.id, content, skills, attachments);
     } finally {
       setSendingScopes((current) => {
         const next = new Set(current);

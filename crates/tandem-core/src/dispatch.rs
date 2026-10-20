@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use copilot_runtime::SkillSelection;
+use copilot_runtime::{MessageAttachment, SkillSelection};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use uuid::Uuid;
@@ -77,12 +77,18 @@ pub enum Request {
     Messages {
         session_id: String,
     },
+    GetAttachment {
+        session_id: String,
+        attachment_id: String,
+    },
     SendMessage {
         session_id: String,
         content: String,
         message_id: Uuid,
         #[serde(default)]
         selected_skills: Vec<SkillSelection>,
+        #[serde(default)]
+        attachments: Vec<MessageAttachment>,
     },
     AbortSession {
         session_id: String,
@@ -165,14 +171,25 @@ impl App {
                     .await?,
             ),
             Request::Messages { session_id } => response(self.store.messages(&session_id)?),
+            Request::GetAttachment {
+                session_id,
+                attachment_id,
+            } => response(self.store.attachment(&session_id, &attachment_id)?),
             Request::SendMessage {
                 session_id,
                 content,
                 message_id,
                 selected_skills,
+                attachments,
             } => response(
-                self.send_message(&session_id, content, message_id, &selected_skills)
-                    .await?,
+                self.send_message(
+                    &session_id,
+                    content,
+                    message_id,
+                    &selected_skills,
+                    &attachments,
+                )
+                .await?,
             ),
             Request::AbortSession { session_id } => {
                 response(self.abort_session(&session_id).await?)
@@ -191,10 +208,7 @@ impl App {
             Request::BrowseDirectory { connection, path } => {
                 response(self.browse_directory(&connection, &path).await?)
             }
-            Request::InstallRuntime {} => {
-                self.ensure_runtime().await?;
-                response(self.runtime_status().await)
-            }
+            Request::InstallRuntime {} => response(self.install_runtime().await?),
         }
     }
 }

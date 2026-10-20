@@ -3,10 +3,13 @@
 //! The SDK owns inference, tool execution, compaction, and persisted sessions.
 //! This crate configures those capabilities and translates events for the UI.
 
+mod attachments;
 mod config;
 mod error;
 mod events;
 mod lifecycle;
+#[cfg(test)]
+mod message_tests;
 mod permissions;
 mod skills;
 mod summary;
@@ -17,6 +20,10 @@ use std::{
     time::Duration,
 };
 
+pub use attachments::{
+    AttachmentError, MAX_ATTACHMENT_BYTES, MAX_ATTACHMENTS, MAX_TOTAL_ATTACHMENT_BYTES,
+    MessageAttachment, validate_attachment_protocol, validate_attachments,
+};
 pub use config::{
     ModelSettings, PermissionMode, ProviderProtocol, ProviderSettings, RuntimeOptions, SessionMode,
     SessionOptions, TelemetryProtocol, TelemetrySettings,
@@ -138,6 +145,7 @@ impl Runtime {
             permissions,
             options.model.context_window,
             skill_directory,
+            options.provider.protocol,
         ))
     }
 
@@ -161,6 +169,7 @@ impl Runtime {
             permissions,
             options.model.context_window,
             skill_directory,
+            options.provider.protocol,
         ))
     }
 
@@ -336,6 +345,7 @@ pub struct AgentSession {
     lifecycle: Arc<SessionLifecycle>,
     event_task: JoinHandle<()>,
     skill_directory: Option<PathBuf>,
+    provider_protocol: ProviderProtocol,
     submission: Arc<Mutex<()>>,
 }
 
@@ -366,6 +376,7 @@ impl AgentSession {
         permissions: Arc<Permissions>,
         context_window: i64,
         skill_directory: Option<PathBuf>,
+        provider_protocol: ProviderProtocol,
     ) -> Self {
         let mut incoming = session.subscribe();
         let session_id = session.id().to_string();
@@ -417,6 +428,7 @@ impl AgentSession {
             lifecycle,
             event_task,
             skill_directory,
+            provider_protocol,
             submission: Arc::new(Mutex::new(())),
         }
     }
@@ -455,7 +467,20 @@ impl AgentSession {
         prompt: &str,
         selected: &[SkillSelection],
     ) -> Result<String> {
-        let prepared = self.prepare_message(prompt, selected).await?;
+        self.send_with_attachments(prompt, selected, &[]).await
+    }
+
+    /// Submits one turn with selected skills and uploaded files.
+    ///
+    /// # Errors
+    /// Returns an error for invalid input, overlapping sends, or SDK failure.
+    pub async fn send_with_attachments(
+        &self,
+        prompt: &str,
+        selected: &[SkillSelection],
+        attachments: &[MessageAttachment],
+    ) -> Result<String> {
+        let prepared = self.prepare_message(prompt, selected, attachments).await?;
         self.send_prepared(prepared).await
     }
 
@@ -471,11 +496,20 @@ impl AgentSession {
         &self,
         prompt: &str,
         selected: &[SkillSelection],
+        attachments: &[MessageAttachment],
     ) -> Result<PreparedMessage> {
         if !self.is_connected() {
             return Err(Error::Disconnected);
         }
-        if prompt.trim().is_empty() {
+        validate_attachments(attachments)?;
+        for attachment in attachments {
+            validate_attachment_protocol(
+                &attachment.name,
+                &attachment.mime_type,
+                self.provider_protocol,
+            )?;
+        }
+        if prompt.trim().is_empty() && attachments.is_empty() {
             return Err(ConfigurationError::EmptyPrompt.into());
         }
         let reservation = self
@@ -486,7 +520,7 @@ impl AgentSession {
         if self.lifecycle.is_running() {
             return Err(Error::Busy);
         }
-        let message = tokio::time::timeout(
+        let mut message = tokio::time::timeout(
             Duration::from_secs(15),
             skills::prepare_message(
                 &self.session,
@@ -497,6 +531,9 @@ impl AgentSession {
         )
         .await
         .map_err(|_| SkillError::PreparationTimeout)??;
+        if !attachments.is_empty() {
+            message.attachments = Some(attachments.iter().map(MessageAttachment::to_sdk).collect());
+        }
         if !self.is_connected() {
             return Err(Error::Disconnected);
         }

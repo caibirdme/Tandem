@@ -14,6 +14,7 @@ import {
   Lightbulb,
   LockKeyhole,
   MessageSquare,
+  Paperclip,
   Plus,
   Server,
   ShieldCheck,
@@ -22,11 +23,12 @@ import {
   Terminal,
   Wrench,
 } from 'lucide-react';
-import { lazy, Suspense, useEffect, useId, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useId, useRef, useState, useSyncExternalStore } from 'react';
 
 import { useProjectSkills } from '../hooks/useProjectSkills';
 import { useI18n } from '../i18n';
 import { errorMessage } from '../lib/api';
+import { createAttachmentDraft, filesFromTransfer, hasFileTransfer } from '../lib/attachments';
 import type { Conversation } from '../lib/conversation';
 import { needsWorkPermissionConfirmation } from '../lib/sessionOptions';
 import {
@@ -39,6 +41,7 @@ import {
 } from '../lib/skillMentions';
 import type { SkillDraft, SkillInputEdit } from '../lib/skillMentions';
 import type {
+  AttachmentInput,
   ModelSelection,
   PermissionMode,
   Project,
@@ -48,6 +51,7 @@ import type {
   Session,
   SelectedSkill,
 } from '../lib/types';
+import { DraftAttachments, MessageAttachments } from './Attachments';
 import { ContextUsageIndicator } from './ContextUsageIndicator';
 import { PermissionModeSelector } from './PermissionModeSelector';
 import { SkillPicker } from './SkillPicker';
@@ -79,6 +83,7 @@ interface ChatProps {
     content: string,
     permissionMode: PermissionMode,
     skills: SelectedSkill[],
+    attachments: AttachmentInput[],
   ) => Promise<void>;
   onAbort: () => void;
   onPermission: (requestId: string, approved: boolean) => Promise<void>;
@@ -88,6 +93,17 @@ interface ChatProps {
 export function Chat(props: ChatProps) {
   const { t } = useI18n();
   const [skillDraft, setSkillDraft] = useState<SkillDraft>({ text: '', mentions: [] });
+  const [attachmentDraft] = useState(() => createAttachmentDraft());
+  const attachments = useSyncExternalStore(
+    attachmentDraft.subscribe,
+    attachmentDraft.getSnapshot,
+    attachmentDraft.getSnapshot,
+  );
+  const [dragging, setDragging] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const dragDepth = useRef(0);
+  const fileInput = useRef<HTMLInputElement>(null);
+  const composer = useRef<HTMLFormElement>(null);
   const draft = skillDraft.text;
   const [caret, setCaret] = useState({ start: 0, end: 0 });
   const [inputFocused, setInputFocused] = useState(false);
@@ -165,7 +181,9 @@ export function Chat(props: ChatProps) {
           : t('chat.modelSelectionHint');
   // Sending initializes the local or remote runtime on demand.
   const canSend = Boolean(
-    draft.trim() &&
+    (draft.trim() || attachments.items.length > 0) &&
+    attachments.items.every((item) => item.status === 'ready') &&
+    !uploading &&
     props.selection &&
     currentModel &&
     props.connected &&
@@ -190,6 +208,62 @@ export function Chat(props: ChatProps) {
   ]);
   useEffect(() => {
     textarea.current?.focus();
+  }, []);
+  useEffect(() => {
+    const form = composer.current;
+    if (!form) return;
+    function enter(event: DragEvent) {
+      if (!event.dataTransfer || !hasFileTransfer(event.dataTransfer)) return;
+      event.preventDefault();
+      dragDepth.current += 1;
+      setDragging(true);
+    }
+    function leave(event: DragEvent) {
+      if (!event.dataTransfer || !hasFileTransfer(event.dataTransfer)) return;
+      event.preventDefault();
+      dragDepth.current = Math.max(0, dragDepth.current - 1);
+      if (dragDepth.current === 0) setDragging(false);
+    }
+    function over(event: DragEvent) {
+      if (!event.dataTransfer || !hasFileTransfer(event.dataTransfer)) return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = submitting.current ? 'none' : 'copy';
+    }
+    function drop(event: DragEvent) {
+      if (!event.dataTransfer || !hasFileTransfer(event.dataTransfer)) return;
+      event.preventDefault();
+      dragDepth.current = 0;
+      setDragging(false);
+      if (!submitting.current && pendingWorkContent.current === null)
+        attachmentDraft.add(filesFromTransfer(event.dataTransfer));
+    }
+    form.addEventListener('dragenter', enter);
+    form.addEventListener('dragleave', leave);
+    form.addEventListener('dragover', over);
+    form.addEventListener('drop', drop);
+    return () => {
+      form.removeEventListener('dragenter', enter);
+      form.removeEventListener('dragleave', leave);
+      form.removeEventListener('dragover', over);
+      form.removeEventListener('drop', drop);
+    };
+  }, [attachmentDraft]);
+  useEffect(() => {
+    function preventFileNavigation(event: DragEvent) {
+      if (event.dataTransfer && hasFileTransfer(event.dataTransfer)) {
+        event.preventDefault();
+        if (event.type === 'drop') {
+          dragDepth.current = 0;
+          setDragging(false);
+        }
+      }
+    }
+    window.addEventListener('dragover', preventFileNavigation);
+    window.addEventListener('drop', preventFileNavigation);
+    return () => {
+      window.removeEventListener('dragover', preventFileNavigation);
+      window.removeEventListener('drop', preventFileNavigation);
+    };
   }, []);
   useEffect(() => {
     const input = textarea.current;
@@ -232,7 +306,11 @@ export function Chat(props: ChatProps) {
   }
   async function sendDraft(savedDraft: SkillDraft, mode: PermissionMode) {
     if (submitting.current) return;
+    const savedAttachments = attachmentDraft.getSnapshot().items;
+    if (savedAttachments.some((item) => item.status !== 'ready')) return;
+    const inputs = savedAttachments.flatMap((item) => (item.input ? [item.input] : []));
     submitting.current = true;
+    setUploading(true);
     setSkillDraft({ text: '', mentions: [] });
     setCaret({ start: 0, end: 0 });
     setLocalError(null);
@@ -242,12 +320,15 @@ export function Chat(props: ChatProps) {
         savedDraft.text.trim(),
         mode,
         props.project ? selectedSkills(savedDraft) : [],
+        inputs,
       );
+      attachmentDraft.remove(savedAttachments.map((item) => item.id));
     } catch (reason) {
       setSkillDraft((current) => (current.text ? current : savedDraft));
       setLocalError(errorMessage(reason));
     } finally {
       submitting.current = false;
+      setUploading(false);
     }
   }
   function cancelWorkPrompt() {
@@ -278,6 +359,10 @@ export function Chat(props: ChatProps) {
     setCaret({ start: value.length, end: value.length });
     setPickerDismissed(true);
     textarea.current?.focus();
+  }
+  function addFiles(files: File[]) {
+    if (submitting.current || workPermissionPromptOpen) return;
+    attachmentDraft.add(files);
   }
   function chooseSkill(skill: ProjectSkill) {
     if (!skillQuery) return;
@@ -454,7 +539,10 @@ export function Chat(props: ChatProps) {
             {props.conversation.messages.map((message) =>
               message.role === 'user' ? (
                 <div className="user-message" key={message.id}>
-                  <div>{message.content}</div>
+                  <div>
+                    <MessageAttachments message={message} />
+                    {message.content && <p>{message.content}</p>}
+                  </div>
                 </div>
               ) : message.role === 'assistant' ? (
                 <article className="assistant-message" key={message.id}>
@@ -562,14 +650,20 @@ export function Chat(props: ChatProps) {
                 {props.conversation.failedSend && (
                   <button
                     className="text-button"
-                    disabled={Boolean(draft)}
-                    title={draft ? t('chat.restoreDraftHint') : undefined}
+                    disabled={Boolean(draft) || attachments.items.length > 0}
+                    title={
+                      draft || attachments.items.length ? t('chat.restoreDraftHint') : undefined
+                    }
                     onClick={() => {
-                      if (props.conversation.failedSend)
+                      if (props.conversation.failedSend) {
                         suggestion(
                           props.conversation.failedSend.content,
                           props.conversation.failedSend.selectedSkills,
                         );
+                        attachmentDraft.restore(
+                          props.conversation.failedSend.pendingAttachments ?? [],
+                        );
+                      }
                     }}
                   >
                     {t('chat.restoreDraft')}
@@ -597,6 +691,7 @@ export function Chat(props: ChatProps) {
           </button>
         )}
         {localError && <Notice>{localError}</Notice>}
+        {attachments.error && <Notice>{attachments.error}</Notice>}
         {workHistoryUncertain && !props.historyLoading && (
           <Notice>
             <span>{t('chat.workHistoryUncertain')}</span>
@@ -693,12 +788,20 @@ export function Chat(props: ChatProps) {
           )
         )}
         <form
-          className={`composer ${running ? 'composer-running' : ''}`}
+          ref={composer}
+          className={`composer ${running ? 'composer-running' : ''} ${dragging ? 'composer-dragging' : ''}`}
           onSubmit={(event) => {
             event.preventDefault();
             void submit();
           }}
         >
+          {dragging && <div className="attachment-drop-hint">{t('chat.dropAttachments')}</div>}
+          <DraftAttachments
+            items={attachments.items}
+            disabled={uploading}
+            onRemove={(id) => attachmentDraft.remove([id])}
+            onRetry={attachmentDraft.retry}
+          />
           {skillQuery && (
             <SkillPicker
               id={skillPickerId}
@@ -729,6 +832,12 @@ export function Chat(props: ChatProps) {
                 : undefined
             }
             onFocus={() => setInputFocused(true)}
+            onPaste={(event) => {
+              const files = filesFromTransfer(event.clipboardData);
+              if (!files.length) return;
+              event.preventDefault();
+              addFiles(files);
+            }}
             onBlur={(event) => composerBlur(event.relatedTarget)}
             onSelect={(event) => {
               const input = event.currentTarget;
@@ -780,6 +889,29 @@ export function Chat(props: ChatProps) {
           />
           <div className="composer-toolbar">
             <div className="composer-options">
+              <input
+                ref={fileInput}
+                className="attachment-file-input"
+                type="file"
+                multiple
+                tabIndex={-1}
+                aria-label={t('chat.addAttachments')}
+                disabled={uploading}
+                onChange={(event) => {
+                  addFiles(Array.from(event.currentTarget.files ?? []));
+                  event.currentTarget.value = '';
+                }}
+              />
+              <button
+                className="icon-button attach-button"
+                type="button"
+                disabled={uploading}
+                aria-label={t('chat.addAttachments')}
+                title={t('chat.attachmentsHint')}
+                onClick={() => fileInput.current?.click()}
+              >
+                <Paperclip size={16} />
+              </button>
               <span
                 className="scope-pill"
                 title={props.project ? t('chat.workScopeHint') : t('chat.chatScopeHint')}
