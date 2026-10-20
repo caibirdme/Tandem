@@ -22,22 +22,35 @@ import {
   Terminal,
   Wrench,
 } from 'lucide-react';
-import { lazy, Suspense, useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useId, useRef, useState } from 'react';
 
+import { useProjectSkills } from '../hooks/useProjectSkills';
 import { useI18n } from '../i18n';
 import { errorMessage } from '../lib/api';
 import type { Conversation } from '../lib/conversation';
 import { needsWorkPermissionConfirmation } from '../lib/sessionOptions';
+import {
+  editSkillDraft,
+  findSkillQuery,
+  restoreSkillDraft,
+  selectedSkills,
+  selectSkill,
+  skillPickerKey,
+} from '../lib/skillMentions';
+import type { SkillDraft, SkillInputEdit } from '../lib/skillMentions';
 import type {
   ModelSelection,
   PermissionMode,
   Project,
+  ProjectSkill,
   Provider,
   RuntimeStatus,
   Session,
+  SelectedSkill,
 } from '../lib/types';
 import { ContextUsageIndicator } from './ContextUsageIndicator';
 import { PermissionModeSelector } from './PermissionModeSelector';
+import { SkillPicker } from './SkillPicker';
 import { Modal, Notice, Spinner } from './ui';
 
 interface ChatProps {
@@ -62,7 +75,11 @@ interface ChatProps {
   installing: boolean;
   onInstall: () => void;
   onSettings: () => void;
-  onSend: (content: string, permissionMode: PermissionMode) => Promise<void>;
+  onSend: (
+    content: string,
+    permissionMode: PermissionMode,
+    skills: SelectedSkill[],
+  ) => Promise<void>;
   onAbort: () => void;
   onPermission: (requestId: string, approved: boolean) => Promise<void>;
   connected: boolean;
@@ -70,7 +87,25 @@ interface ChatProps {
 
 export function Chat(props: ChatProps) {
   const { t } = useI18n();
-  const [draft, setDraft] = useState('');
+  const [skillDraft, setSkillDraft] = useState<SkillDraft>({ text: '', mentions: [] });
+  const draft = skillDraft.text;
+  const [caret, setCaret] = useState({ start: 0, end: 0 });
+  const [inputFocused, setInputFocused] = useState(false);
+  const [composing, setComposing] = useState(false);
+  const [pickerDismissed, setPickerDismissed] = useState(false);
+  const [skillIndex, setSkillIndex] = useState(0);
+  const skillPickerId = useId();
+  const skillQuery =
+    props.project && inputFocused && !composing && !pickerDismissed
+      ? findSkillQuery(draft, caret.start, caret.end)
+      : null;
+  const skillCatalog = useProjectSkills(props.project?.id, skillQuery !== null, props.connected);
+  const matchingSkills = skillCatalog.skills.filter((skill) =>
+    skill.name.toLocaleLowerCase().startsWith(skillQuery?.prefix.toLocaleLowerCase() ?? ''),
+  );
+  const activeSkillIndex = Math.min(skillIndex, Math.max(matchingSkills.length - 1, 0));
+  const skillsSelectable =
+    !skillCatalog.loading && !skillCatalog.error && props.connected && matchingSkills.length > 0;
   const [draftPermissionMode, setDraftPermissionMode] = useState<PermissionMode>('ask');
   const [jumpVisible, setJumpVisible] = useState(false);
   const [pendingPermission, setPendingPermission] = useState<string | null>(null);
@@ -78,8 +113,9 @@ export function Chat(props: ChatProps) {
   const [workPermissionPromptOpen, setWorkPermissionPromptOpen] = useState(false);
   const transcript = useRef<HTMLDivElement>(null);
   const textarea = useRef<HTMLTextAreaElement>(null);
+  const pendingInputEdit = useRef<SkillInputEdit | undefined>(undefined);
   const cancelWorkPermission = useRef<HTMLButtonElement>(null);
-  const pendingWorkContent = useRef<string | null>(null);
+  const pendingWorkContent = useRef<SkillDraft | null>(null);
   const submitting = useRef(false);
   const stickToBottom = useRef(true);
   const running =
@@ -156,6 +192,21 @@ export function Chat(props: ChatProps) {
     textarea.current?.focus();
   }, []);
   useEffect(() => {
+    const input = textarea.current;
+    if (!input) return;
+    function captureEdit(event: InputEvent) {
+      if (!input) return;
+      pendingInputEdit.current = {
+        text: input.value,
+        start: input.selectionStart,
+        end: input.selectionEnd,
+        inputType: event.inputType,
+      };
+    }
+    input.addEventListener('beforeinput', captureEdit);
+    return () => input.removeEventListener('beforeinput', captureEdit);
+  }, []);
+  useEffect(() => {
     if (textarea.current) {
       textarea.current.style.height = 'auto';
       textarea.current.style.height = `${Math.min(textarea.current.scrollHeight, 190)}px`;
@@ -164,7 +215,6 @@ export function Chat(props: ChatProps) {
 
   async function submit() {
     if (!canSend || submitting.current || pendingWorkContent.current !== null) return;
-    const content = draft.trim();
     if (
       needsWorkPermissionConfirmation({
         projectId: props.project?.id ?? null,
@@ -174,22 +224,27 @@ export function Chat(props: ChatProps) {
         messages: props.conversation.messages,
       })
     ) {
-      pendingWorkContent.current = content;
+      pendingWorkContent.current = skillDraft;
       setWorkPermissionPromptOpen(true);
       return;
     }
-    await sendDraft(content, permissionMode);
+    await sendDraft(skillDraft, permissionMode);
   }
-  async function sendDraft(content: string, mode: PermissionMode) {
+  async function sendDraft(savedDraft: SkillDraft, mode: PermissionMode) {
     if (submitting.current) return;
     submitting.current = true;
-    setDraft('');
+    setSkillDraft({ text: '', mentions: [] });
+    setCaret({ start: 0, end: 0 });
     setLocalError(null);
     stickToBottom.current = true;
     try {
-      await props.onSend(content, mode);
+      await props.onSend(
+        savedDraft.text.trim(),
+        mode,
+        props.project ? selectedSkills(savedDraft) : [],
+      );
     } catch (reason) {
-      setDraft((current) => current || content);
+      setSkillDraft((current) => (current.text ? current : savedDraft));
       setLocalError(errorMessage(reason));
     } finally {
       submitting.current = false;
@@ -218,9 +273,29 @@ export function Chat(props: ChatProps) {
       setPendingPermission((current) => (current === requestId ? null : current));
     }
   }
-  function suggestion(value: string) {
-    setDraft(value);
+  function suggestion(value: string, skills: SelectedSkill[] = []) {
+    setSkillDraft(restoreSkillDraft(value, props.project ? skills : []));
+    setCaret({ start: value.length, end: value.length });
+    setPickerDismissed(true);
     textarea.current?.focus();
+  }
+  function chooseSkill(skill: ProjectSkill) {
+    if (!skillQuery) return;
+    const result = selectSkill(skillDraft, skillQuery, skill);
+    setSkillDraft(result.draft);
+    setCaret({ start: result.caret, end: result.caret });
+    setPickerDismissed(true);
+    requestAnimationFrame(() => {
+      textarea.current?.focus();
+      textarea.current?.setSelectionRange(result.caret, result.caret);
+    });
+  }
+  function composerBlur(next: EventTarget | null) {
+    if (
+      next !== textarea.current &&
+      !(next instanceof HTMLElement && next.closest('.skill-picker'))
+    )
+      setInputFocused(false);
   }
 
   return (
@@ -491,7 +566,10 @@ export function Chat(props: ChatProps) {
                     title={draft ? t('chat.restoreDraftHint') : undefined}
                     onClick={() => {
                       if (props.conversation.failedSend)
-                        suggestion(props.conversation.failedSend.content);
+                        suggestion(
+                          props.conversation.failedSend.content,
+                          props.conversation.failedSend.selectedSkills,
+                        );
                     }}
                   >
                     {t('chat.restoreDraft')}
@@ -621,15 +699,80 @@ export function Chat(props: ChatProps) {
             void submit();
           }}
         >
+          {skillQuery && (
+            <SkillPicker
+              id={skillPickerId}
+              skills={matchingSkills}
+              index={activeSkillIndex}
+              loading={skillCatalog.loading}
+              error={skillCatalog.error}
+              connected={props.connected}
+              filtered={Boolean(skillQuery.prefix)}
+              onIndex={setSkillIndex}
+              onSelect={chooseSkill}
+              onReload={skillCatalog.reload}
+              onBlur={composerBlur}
+            />
+          )}
           <textarea
             ref={textarea}
             aria-label={props.project ? t('chat.taskInput') : t('chat.messageInput')}
             placeholder={props.project ? t('chat.taskPlaceholder') : t('chat.messagePlaceholder')}
             value={draft}
-            onChange={(event) => setDraft(event.target.value)}
+            role={props.project ? 'combobox' : undefined}
+            aria-autocomplete={props.project ? 'list' : undefined}
+            aria-expanded={props.project ? skillQuery !== null : undefined}
+            aria-controls={skillQuery ? skillPickerId : undefined}
+            aria-activedescendant={
+              skillQuery && skillsSelectable
+                ? `${skillPickerId}-${String(activeSkillIndex)}`
+                : undefined
+            }
+            onFocus={() => setInputFocused(true)}
+            onBlur={(event) => composerBlur(event.relatedTarget)}
+            onSelect={(event) => {
+              const input = event.currentTarget;
+              setCaret({ start: input.selectionStart, end: input.selectionEnd });
+            }}
+            onChange={(event) => {
+              const input = event.currentTarget;
+              const text = input.value;
+              const edit = pendingInputEdit.current;
+              pendingInputEdit.current = undefined;
+              setSkillDraft((current) => editSkillDraft(current, text, edit));
+              setCaret({ start: input.selectionStart, end: input.selectionEnd });
+              setPickerDismissed(false);
+              setSkillIndex(0);
+            }}
+            onCompositionStart={() => setComposing(true)}
+            onCompositionEnd={() => setComposing(false)}
             rows={2}
             onKeyDown={(event) => {
-              if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
+              const isComposing =
+                composing || event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229;
+              const action = skillPickerKey(
+                event.key,
+                event,
+                isComposing,
+                skillQuery !== null,
+                skillsSelectable ? matchingSkills.length : 0,
+              );
+              if (action) {
+                event.preventDefault();
+                if (action === 'dismiss') setPickerDismissed(true);
+                else if (action === 'previous')
+                  setSkillIndex(
+                    (activeSkillIndex - 1 + matchingSkills.length) % matchingSkills.length,
+                  );
+                else if (action === 'next')
+                  setSkillIndex((activeSkillIndex + 1) % matchingSkills.length);
+                else {
+                  const skill = matchingSkills[activeSkillIndex];
+                  if (skill) chooseSkill(skill);
+                }
+                return;
+              }
+              if (event.key === 'Enter' && !event.shiftKey && !isComposing) {
                 event.preventDefault();
                 void submit();
               }
@@ -758,7 +901,9 @@ export function Chat(props: ChatProps) {
             )}
           </span>
           <div className="composer-status">
-            <span className="composer-keyboard-hint">{t('chat.keyboardHint')}</span>
+            <span className="composer-keyboard-hint">
+              {t(props.project ? 'chat.workKeyboardHint' : 'chat.keyboardHint')}
+            </span>
             {props.project && currentModel && (
               <ContextUsageIndicator
                 usage={props.session?.contextUsage ?? null}

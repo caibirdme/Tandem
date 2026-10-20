@@ -34,6 +34,12 @@ Choose **New chat** for a conversation with web reading tools. Chat exposes only
 
 To work with files, choose **Add project**, select a local or SSH directory, and create **New work** within that project. Work gives the agent file and command tools on the execution machine. The first message prepares the bundled runtime automatically; you do not need to click **Prepare runtime** first.
 
+### Use project skills
+
+In Work, type `$` to list the selected project's skills or `$prefix` to filter them by name. Select with the mouse or use the arrow keys and Enter or Tab; Escape closes the list. Work can also choose relevant skills automatically. SSH projects discover and load skills on the remote host. Chat does not load project skills.
+
+Keep each skill's `SKILL.md` in its own subdirectory under `.agents/skills`, `.github/skills`, `.claude/skills`, or `skills` in the project. See [Project skills](skills.md) for the format and selection behavior.
+
 ### Switch models
 
 Click the model name beside the composer to select any configured model, including one from another provider. The next message uses the saved selection while keeping the conversation's history, title, and tool permissions. Unsent text stays in the composer.

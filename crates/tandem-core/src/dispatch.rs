@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use copilot_runtime::SkillSelection;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use uuid::Uuid;
@@ -47,6 +48,9 @@ pub enum Request {
     DeleteProject {
         id: String,
     },
+    ListProjectSkills {
+        project_id: String,
+    },
     CreateSession {
         project_id: Option<String>,
         provider_id: String,
@@ -77,6 +81,8 @@ pub enum Request {
         session_id: String,
         content: String,
         message_id: Uuid,
+        #[serde(default)]
+        selected_skills: Vec<SkillSelection>,
     },
     AbortSession {
         session_id: String,
@@ -125,6 +131,9 @@ impl App {
                 connection,
             } => response(self.create_project(name, path, connection).await?),
             Request::DeleteProject { id } => response(self.delete_project(&id).await?),
+            Request::ListProjectSkills { project_id } => {
+                response(self.list_project_skills(&project_id).await?)
+            }
             Request::CreateSession {
                 project_id,
                 provider_id,
@@ -160,7 +169,11 @@ impl App {
                 session_id,
                 content,
                 message_id,
-            } => response(self.send_message(&session_id, content, message_id).await?),
+                selected_skills,
+            } => response(
+                self.send_message(&session_id, content, message_id, &selected_skills)
+                    .await?,
+            ),
             Request::AbortSession { session_id } => {
                 response(self.abort_session(&session_id).await?)
             }

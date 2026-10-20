@@ -142,8 +142,9 @@ jobs:
       - run: python scripts/check_workspace.py
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - run: cargo test --workspace --locked
-      - run: cargo build -p tandem-dev-server --locked
+      - run: cargo build -p tandem-dev-server -p tandem-server --locked
       - run: python tests/runtime_e2e.py
+      - run: python tests/remote_e2e.py --skip-ssh
 
   bundle:
     name: Desktop bundle

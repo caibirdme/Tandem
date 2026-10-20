@@ -24,6 +24,8 @@ pub(crate) enum ServerError {
     },
     #[error("Session not connected; start or resume the session before sending a command")]
     SessionNotConnected,
+    #[error("The prepared message is missing or has expired. Prepare the message again.")]
+    PreparedMessageUnavailable,
     #[error("HOME is required on a remote host")]
     MissingHome,
     #[error("Runtime unavailable; start the remote runtime again")]
@@ -56,9 +58,15 @@ impl ServerError {
     const fn code(&self) -> RpcErrorCode {
         match self {
             Self::UnsupportedCommand => RpcErrorCode::UnsupportedCommand,
+            Self::Runtime(RuntimeError::Skills(error)) => match error {
+                copilot_runtime::SkillError::DiscoveryTimeout
+                | copilot_runtime::SkillError::PreparationTimeout => RpcErrorCode::RuntimeTimeout,
+                _ => RpcErrorCode::InvalidPayload,
+            },
             Self::RequiredField { .. }
             | Self::InvalidBoolean { .. }
             | Self::InvalidPayload { .. }
+            | Self::PreparedMessageUnavailable
             | Self::Runtime(RuntimeError::InvalidConfiguration(_)) => RpcErrorCode::InvalidPayload,
             Self::SessionNotConnected | Self::Runtime(RuntimeError::Disconnected) => {
                 RpcErrorCode::SessionNotConnected

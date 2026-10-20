@@ -27,6 +27,8 @@ pub enum ConfigurationError {
     WorkspaceNotDirectory,
     #[error("prompt cannot be empty")]
     EmptyPrompt,
+    #[error("prepared message belongs to a different session; prepare it again for this session")]
+    PreparedForDifferentSession,
 }
 
 /// Safe title-inference failures. Upstream failures may contain private input,
@@ -53,6 +55,27 @@ pub enum SummaryError {
     DeletionFailed,
 }
 
+/// Explicit project skill selection failures, without retaining skill contents.
+#[derive(Debug, Eq, PartialEq, thiserror::Error)]
+pub enum SkillError {
+    #[error("skills are only available in Work sessions")]
+    NotAvailableInChat,
+    #[error("select at most {limit} skills for one message")]
+    TooManySelections { limit: usize },
+    #[error("skill '{name}' was selected more than once")]
+    DuplicateSelection { name: String },
+    #[error("skill '{name}' is no longer available in this project; refresh the skill list")]
+    Unavailable { name: String },
+    #[error("skill '{name}' cannot be invoked as a message in this session")]
+    UnsupportedInvocation { name: String },
+    #[error("project skill definitions could not be loaded: {errors:?}")]
+    InvalidDefinitions { errors: Vec<String> },
+    #[error("project skill discovery did not complete within fifteen seconds")]
+    DiscoveryTimeout,
+    #[error("project skill preparation did not complete within fifteen seconds")]
+    PreparationTimeout,
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("invalid runtime configuration: {0}")]
@@ -75,6 +98,8 @@ pub enum Error {
     Shutdown(#[source] github_copilot_sdk::StopErrors),
     #[error("title summary: {0}")]
     Summary(#[from] SummaryError),
+    #[error("project skills: {0}")]
+    Skills(#[from] SkillError),
 }
 
 #[cfg(test)]

@@ -524,6 +524,7 @@ button {
   position: relative;
 }
 .composer {
+  position: relative;
   border: 1px solid #dfe3d8;
   border-radius: 17px;
   background: #fff;
@@ -555,6 +556,85 @@ button {
 }
 .composer textarea::placeholder {
   color: #787b74;
+}
+.skill-picker {
+  position: absolute;
+  z-index: 15;
+  bottom: calc(100% + 8px);
+  left: 0;
+  right: 0;
+  border: 1px solid #dfe3d8;
+  border-radius: 13px;
+  background: #fff;
+  box-shadow: 0 8px 28px #2e3e241a;
+  max-height: min(440px, 60vh);
+  overflow-y: auto;
+}
+.skill-picker-heading {
+  padding: 11px 14px 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #556346;
+}
+.skill-picker-options {
+  width: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  outline: 0;
+  background: #fff;
+  box-shadow: none;
+  max-height: min(280px, 38vh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.skill-option {
+  padding: 10px 14px;
+  border: 0;
+  background: transparent;
+  color: #424b37;
+  text-align: left;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+}
+.skill-option[aria-selected='true'] {
+  background: #eef3e9;
+}
+.skill-picker-details {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 10px 14px;
+  border-top: 1px solid #edf0e8;
+}
+.skill-option-description {
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.skill-option-path {
+  font-size: 10px;
+  color: #787b74;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+.skill-picker-status {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 14px;
+  font-size: 12px;
+  color: #68715e;
+  overflow-wrap: anywhere;
+}
+.skill-picker-hint {
+  border-top: 1px solid #edf0e8;
+  padding: 8px 14px;
+  color: #787b74;
+  font-size: 10px;
 }
 .composer-toolbar {
   display: flex;

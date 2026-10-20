@@ -1,6 +1,6 @@
 use std::sync::{Arc, Weak};
 
-use copilot_runtime::{SessionMode, SessionOptions};
+use copilot_runtime::{SessionMode, SessionOptions, SkillSelection};
 use serde_json::json;
 use tandem_remote::RemoteTransport;
 use tokio::{sync::Mutex, task::JoinHandle};
@@ -138,9 +138,13 @@ impl App {
         session_id: &str,
         content: String,
         message_id: Uuid,
+        selected_skills: &[SkillSelection],
     ) -> Result<()> {
         if content.trim().is_empty() || content.len() > 500_000 {
             return Err(Error::InvalidMessage);
+        }
+        if !selected_skills.is_empty() && self.store.session(session_id)?.project_id.is_none() {
+            return Err(Error::ChatSkillSelection);
         }
         let gate = self.session_gate(session_id).await;
         let _session_guard = gate.lock().await;
@@ -180,7 +184,14 @@ impl App {
             completion: None,
         };
         let result = self
-            .submit_turn(&session, first_turn, content, message_id, &mut submission)
+            .submit_turn(
+                &session,
+                first_turn,
+                content,
+                message_id,
+                selected_skills,
+                &mut submission,
+            )
             .await;
         if let Err(error) = result {
             if let Some(completion) = &submission.completion {
@@ -201,9 +212,11 @@ impl App {
         first_turn: bool,
         content: String,
         message_id: Uuid,
+        selected_skills: &[SkillSelection],
         submission: &mut Submission<'_>,
     ) -> Result<()> {
         let handle = self.ensure_session(session, !first_turn).await?;
+        let prepared = handle.prepare(&content, selected_skills).await?;
         let completion = self
             .sessions
             .lock()
@@ -229,7 +242,7 @@ impl App {
         })?;
         self.emit(&session.id, "message", serde_json::to_value(message)?);
         self.emit(&session.id, "status", json!({"status":"running"}));
-        handle.send(&content).await
+        handle.send(prepared).await
     }
 
     async fn cached_session(&self, id: &str) -> Option<AgentHandle> {

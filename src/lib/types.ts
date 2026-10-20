@@ -40,6 +40,13 @@ export interface Project {
   connection: Connection;
   createdAt: string;
 }
+export interface SelectedSkill {
+  name: string;
+  path: string;
+}
+export interface ProjectSkill extends SelectedSkill {
+  description: string;
+}
 export type SessionStatus = 'idle' | 'running' | 'error';
 export type PermissionMode = 'ask' | 'allow-all';
 export interface ContextUsage {
@@ -66,6 +73,7 @@ export interface Message {
   interrupted?: boolean;
   content: string;
   createdAt: string;
+  selectedSkills?: SelectedSkill[];
 }
 export interface RuntimeStatus {
   available: boolean;
@@ -120,6 +128,7 @@ export interface Commands {
     result: Project;
   };
   delete_project: { payload: { id: string }; result: null };
+  list_project_skills: { payload: { projectId: string }; result: ProjectSkill[] };
   create_session: {
     payload: {
       projectId: string | null;
@@ -141,7 +150,12 @@ export interface Commands {
   rename_session: { payload: { sessionId: string; title: string }; result: null };
   messages: { payload: { sessionId: string }; result: Message[] };
   send_message: {
-    payload: { sessionId: string; content: string; messageId: string };
+    payload: {
+      sessionId: string;
+      content: string;
+      messageId: string;
+      selectedSkills?: SelectedSkill[];
+    };
     result: null;
   };
   abort_session: { payload: { sessionId: string }; result: null };

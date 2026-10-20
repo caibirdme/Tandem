@@ -60,7 +60,7 @@ The application defaults to English, independently of the operating system langu
 
 ## Chat boundaries
 
-The runtime uses the SDK's bare configuration mode, disabling environment plugins, skills, file hooks, and automatic configuration discovery. Chat exposes only `builtin:web_fetch` to the model. All SDK tool permission requests are approved automatically, without creating pending approvals or confirmation dialogs. The tool allowlist restricts available capabilities, and the chat prompt explicitly asks the agent to call tools directly.
+The runtime uses the SDK's bare configuration mode, disabling environment plugins, file hooks, and automatic configuration discovery. Chat also disables skills and exposes only `builtin:web_fetch` to the model. All SDK tool permission requests are approved automatically, without creating pending approvals or confirmation dialogs. The tool allowlist restricts available capabilities, and the chat prompt explicitly asks the agent to call tools directly.
 
 This controls agent tool capabilities. The CLI still needs to save sessions, logs, and runtime state in the application's private directory; the application does not claim to provide an operating-system sandbox. Work is also not a directory sandbox, and commands can access content outside the project directory.
 
@@ -73,6 +73,8 @@ Both local and remote session creation/recovery receive the permission mode agai
 If the save response is lost, the UI reads the actual permission mode from the service. If that read fails, it displays a pending confirmation state, keeps sending and switching disabled, and offers **Confirm permissions again**. Actions resume only after confirmation, preventing the UI from showing an old mode while the runtime has already adopted a new one.
 
 Bare configuration removes the SDK's default environment context. Work prompts therefore include the normalized project path explicitly and require file tools to use absolute paths based on it. The SDK session configuration still provides the shell working directory. Chat prompts contain no host directory.
+
+Work explicitly enables the SDK's skill support and `builtin:skill` tool, with skill roots scoped to the selected project. Creation and recovery apply the same configuration. The `$` picker obtains metadata from the runtime on the project's execution host. Explicit selections travel as names and paths alongside message text, are validated by the runtime, and are expanded through the native skill command API before sending. Chat and title generation retain their disabled skill configuration. See [Project skills](skills.md) for directory layout, interaction, and the protocol research.
 
 ## History and API keys
 

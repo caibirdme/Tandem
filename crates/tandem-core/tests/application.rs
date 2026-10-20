@@ -54,6 +54,7 @@ async fn application_failures_remain_typed_through_dispatch() -> Result<()> {
             session_id: "missing".into(),
             content: " ".into(),
             message_id: uuid::Uuid::new_v4(),
+            selected_skills: Vec::new(),
         })
         .await;
     assert!(matches!(invalid, Err(Error::InvalidMessage)));
@@ -130,6 +131,82 @@ fn send_message_requires_valid_client_identity() -> Result<()> {
         "command":"send_message", "payload":{"sessionId":"session", "content":"hello"}
     }));
     assert!(missing_id.is_err());
+    Ok(())
+}
+
+#[test]
+fn selected_skills_require_structured_names_and_paths() -> Result<()> {
+    for (selected, valid) in [
+        (json!([]), true),
+        (
+            json!([{"name":"review","path":"/project/.agents/skills/review/SKILL.md"}]),
+            true,
+        ),
+        (json!(["review"]), false),
+        (json!([{"name":"review"}]), false),
+        (json!([{"name":42,"path":"/project/skill"}]), false),
+        (Value::Null, false),
+    ] {
+        let request = serde_json::from_value::<Request>(json!({
+            "command":"send_message",
+            "payload":{
+                "sessionId":"session", "content":"$review", "messageId":uuid::Uuid::new_v4(),
+                "selectedSkills":selected,
+            }
+        }));
+        assert_eq!(request.is_ok(), valid);
+        if valid {
+            let Request::SendMessage {
+                selected_skills, ..
+            } = request?
+            else {
+                anyhow::bail!("expected a send request");
+            };
+            assert_eq!(
+                selected_skills.len(),
+                selected.as_array().context("array")?.len()
+            );
+        }
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn chat_rejects_skill_selection_before_starting_a_runtime_or_saving_a_message() -> Result<()>
+{
+    let directory = TempDir::new()?;
+    let application = app(&directory, Arc::new(MemoryVault::default()))?;
+    let saved = call(
+        &application,
+        "save_provider",
+        json!({"provider":provider()}),
+    )
+    .await?;
+    let session = call(
+        &application,
+        "create_session",
+        json!({
+            "projectId":null, "providerId":saved["id"], "modelId":"model-one"
+        }),
+    )
+    .await?;
+    let request: Request = serde_json::from_value(json!({
+        "command":"send_message",
+        "payload":{
+            "sessionId":session["id"], "content":"$review", "messageId":uuid::Uuid::new_v4(),
+            "selectedSkills":[{"name":"review","path":"/project/.agents/skills/review/SKILL.md"}]
+        }
+    }))?;
+    let error = application
+        .dispatch(request)
+        .await
+        .err()
+        .context("Chat must reject skills")?;
+    assert!(matches!(error, tandem_core::Error::ChatSkillSelection));
+    assert_eq!(error.code(), tandem_core::ErrorCode::InvalidInput);
+    let messages = call(&application, "messages", json!({"sessionId":session["id"]})).await?;
+    assert_eq!(messages, json!([]));
+    assert!(!directory.path().join("runtime").exists());
     Ok(())
 }
 

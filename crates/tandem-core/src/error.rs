@@ -92,6 +92,12 @@ pub enum Error {
     InvalidRemoteEvent(#[source] EventDecodeError),
     #[error("The runtime returned an invalid session state: {0}")]
     InvalidRuntimeState(#[source] EventDecodeError),
+    #[error("The remote skill catalog is invalid: {0}")]
+    InvalidSkillCatalog(#[source] EventDecodeError),
+    #[error("Skills can only be selected for project work.")]
+    ChatSkillSelection,
+    #[error("The prepared message belongs to a different session. Send the message again.")]
+    PreparedTurnMismatch,
     #[error("Conversation event forwarding has stopped")]
     ForwardingStopped(#[source] tokio::sync::watch::error::RecvError),
     #[error("The conversation completion event is still being processed. Try again shortly.")]
@@ -164,6 +170,11 @@ impl Error {
                 | tandem_remote::RpcErrorCode::RuntimeTimeout
                 | tandem_remote::RpcErrorCode::StateDirectoryUnavailable => ErrorCode::Unavailable,
             },
+            Self::Runtime(copilot_runtime::Error::Skills(error)) => match error {
+                copilot_runtime::SkillError::DiscoveryTimeout
+                | copilot_runtime::SkillError::PreparationTimeout => ErrorCode::Unavailable,
+                _ => ErrorCode::InvalidInput,
+            },
             Self::Runtime(copilot_runtime::Error::InvalidConfiguration(_))
             | Self::Validation(_)
             | Self::InvalidProviderId(_)
@@ -172,6 +183,7 @@ impl Error {
             | Self::ChatPermissionMode
             | Self::WorkSessionRequired
             | Self::InvalidMessage
+            | Self::ChatSkillSelection
             | Self::TitleNotSingleLine
             | Self::InvalidTitleFormat
             | Self::TitleExchangeRequired => ErrorCode::InvalidInput,
@@ -233,6 +245,8 @@ impl Error {
             | Self::ModelConnectionCleanup(_)
             | Self::InvalidRemoteEvent(_)
             | Self::InvalidRuntimeState(_)
+            | Self::InvalidSkillCatalog(_)
+            | Self::PreparedTurnMismatch
             | Self::SessionStatePoisoned
             | Self::TitleStatePoisoned => ErrorCode::Internal,
         }

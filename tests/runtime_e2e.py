@@ -36,6 +36,7 @@ from model_switch_acceptance import (
     check_model_switch_after_restart,
     check_model_switching,
 )
+from skill_acceptance import check_project_skills, check_skill_resume
 
 
 def check_custom_provider_paths(app, fixture, fixture_url, project):
@@ -292,6 +293,12 @@ def main():
                 path=str(workspace),
                 connection={"kind": "local"},
             )
+            skill_state = check_project_skills(
+                app, fixture, project, provider, model, workspace,
+            )
+            summary.append(
+                "project skills: native discovery, automatic and explicit loading, Chat isolation, and invalid-selection rejection"
+            )
             check_custom_provider_paths(app, fixture, fixture_url, project)
             summary.append(
                 "provider paths and context: custom base paths preserved for all protocols; real SDK current-window usage forwarded and persisted for work"
@@ -499,6 +506,8 @@ def main():
                 require_local_secret(root, provider["id"], FIXTURE_KEY)
                 require_local_secret(root, cleared_provider["id"], None)
             require_provider_key(app, provider["id"], FIXTURE_KEY)
+            check_skill_resume(app, fixture, skill_state)
+            summary.append("project skills after server restart: updated instructions loaded from disk")
             restored = next(
                 session
                 for session in app.command("snapshot")["sessions"]
