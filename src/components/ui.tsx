@@ -6,6 +6,14 @@ import type { ReactNode, RefObject } from 'react';
 
 import { useI18n } from '../i18n';
 
+export function RequiredMark() {
+  return (
+    <span className="required-mark" aria-hidden="true">
+      *
+    </span>
+  );
+}
+
 export function Modal({
   open,
   onOpenChange,

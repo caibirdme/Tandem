@@ -1,83 +1,83 @@
 # Tandem
 
-An agent desktop application for chat and project work. Connect your own model provider to start a conversation, or open a local or SSH directory so the agent can read files, edit code, and complete tasks in a project.
+An agent desktop for chat, local projects, and SSH work. Bring your own model provider and API key to ask questions, explore a codebase, edit files, and run project tasks.
 
-The interface uses React and the desktop shell uses Tauri 2. Rust services drive the agent through a pinned GitHub Copilot SDK. You can use your own API key without a GitHub Copilot subscription.
+No GitHub Copilot subscription is required. Available for Windows and Apple Silicon Mac.
+
+[Download](https://github.com/caibirdme/Tandem/releases) · [Get started](#get-started) · [User guide](docs/user-guide.md) · [Development](docs/development.md)
+
+![A Tandem work session showing a project conversation, model selection, and permission controls](docs/images/work-session.jpg)
+
+_Keep project conversations, model selection, and permission controls together in one workspace. Screenshots use illustrative data._
+
+## What you can do
+
+- **Chat with your models.** Connect OpenAI-compatible APIs, Anthropic, or your own model gateway. Chat can read web pages.
+- **Work where your files are.** Open a local directory or connect to a Linux or macOS host over SSH. The agent can read and edit files and run commands.
+- **Choose how the agent works.** Approve each tool permission request or grant full access for a work session. Switch models as the conversation continues.
 
 ## Install
 
-Download an installer from [Releases](https://github.com/caibirdme/Tandem/releases): choose `.dmg` for Mac (Apple Silicon only), or `x64-setup.exe` / `.msi` for Windows.
+Download an installer from [Releases](https://github.com/caibirdme/Tandem/releases):
 
-The macOS application is not signed or notarized by Apple. After dragging Tandem into Applications, run this in a terminal before opening it for the first time:
+| System                | Installer                 |
+| --------------------- | ------------------------- |
+| macOS (Apple Silicon) | `.dmg`                    |
+| Windows (x64)         | `x64-setup.exe` or `.msi` |
+
+On macOS, drag Tandem into Applications. The app is not signed or notarized by Apple; before opening it for the first time, run:
 
 ```sh
 xattr -dr com.apple.quarantine /Applications/Tandem.app
 ```
 
-## Start from source
+## Get started
 
-Install Node.js 24, pnpm 12, Rust 1.99.1, just, and the [Tauri development prerequisites](https://v2.tauri.app/start/prerequisites/) for your system. On macOS, install Xcode Command Line Tools; on Windows, install Visual Studio C++ Build Tools and WebView2.
+### 1. Connect a model
 
-```sh
-just setup       # Install frontend dependencies and nightly rustfmt.
-just dev         # Open the desktop application.
-```
+Open **Settings > Model providers > Add provider**. Choose OpenAI Chat Completions, OpenAI Responses, or Anthropic Messages, then enter your provider's base URL and API key.
 
-The first Rust build downloads the SDK's matching Copilot CLI and verifies its checksum. At runtime, Tandem extracts the CLI from bundled resources; users do not need to install Copilot separately. The SDK is pinned to `v1.0.23-preview.5`, with CLI `1.0.100-1`.
+Add a model ID supported by that provider and its required context window in **K** (1 K = 1,000 tokens). For example, enter `256` for 256k or `1000` for 1M. Save the provider.
 
-The **Copilot CLI path** field in General settings is an optional debugging override. Leave it empty for normal use.
+![Tandem provider settings with a request URL preview, API key field, model ID, and required context window](docs/images/provider-settings.jpg)
 
-On Windows, you can build without an installer using `pnpm tauri build --no-bundle`, then open `target/release/tandem-desktop.exe`.
+_Use your provider's model IDs and check the request URL preview before saving._
 
-## First use
+### 2. Start a conversation
 
-1. Open **Settings** in the lower left and add a provider. Choose OpenAI Completions, OpenAI Responses, or Anthropic, then enter its base URL and API key.
-2. Add model IDs supported by that provider and enter each model's required context window in **K** (1 K = 1,000 tokens): enter `256` for 256k or `1000` for 1M. Display names are customizable; reasoning effort and output limits are optional advanced settings.
-3. Create a chat, select a model, and send a message. The first message prepares the bundled runtime automatically; you do not need to click **Prepare runtime** first. Chat exposes only web reading tools and automatically approves all tool permission requests.
-4. Create a project, select a local directory, and create a work session within it. Choose a permission mode beside the composer: **Ask each time** lets you allow or deny each tool permission request; **Full access** automatically approves file access, command execution, and other tool requests.
+- **For questions:** choose **New chat**, select a model, and send a message. Chat exposes web reading tools and approves their permission requests automatically.
+- **For project tasks:** choose **Add project**, select a local directory, then create **New work** in that project. Select a model, describe your task, and send it.
 
-The interface starts in English. To switch to Simplified Chinese, open **Settings > General > Language**. The change takes effect immediately and is remembered on this device after restarting the application.
+Work starts with **Ask each time**. Use the control beside the composer to choose **Full access** if you want tool requests approved automatically. Commands run with your user account's access on the execution machine.
 
-After a chat or work session starts, click the model name beside the composer to select any configured model, including one from another provider. The next message uses the saved selection while keeping the conversation's history, title, and tool permissions. Wait for generation or tool approval to finish, or click Stop, before switching. Unsent text stays in the composer. If a connection failure leaves the selection unconfirmed, click **Confirm model again** before sending another message.
+The first message prepares the bundled runtime automatically. To use Simplified Chinese, open **Settings > General > Language**.
 
-Permission mode is saved with each work session and restored when you reopen it. You can switch after a task finishes or fails, but not during execution or while approval is pending. Every new work session starts with **Ask each time**. If this mode is still selected before the first message, a reminder explains that tool approvals may interrupt frequently and offers **Confirm and continue**, **Switch to full access and continue**, or **Cancel**. Canceling or closing the dialog preserves the draft. Local and SSH work follow the same rules. Full access is not a directory sandbox: commands can access anything the current user can access on the execution machine.
+### 3. Connect an SSH project
 
-In Work, hover over or focus the circular indicator in the status bar below the input to see the percentage and compact usage on one line, such as **0.5% 5.1k / 1M**. It uses the latest model runtime reading, so usage can decrease after context compaction. Before the runtime reports usage, the indicator shows a waiting state. Readings are saved with the session and cleared when changing its model or editing its provider. Chat does not display this indicator.
+Log in once with your system terminal to confirm the host fingerprint and set up a key or ssh-agent. In **Add project**, choose **Remote project**, enter the SSH connection details, and click **Test connection**. Use the folder button (**Browse directories**) beside **Working directory** to select a remote folder, then create the project.
 
-Enter an API base URL without the request endpoint. The provider editor previews the actual request URL as you type or change protocols. Tandem trims trailing slashes and appends `/v1/messages` for Anthropic, `/responses` for OpenAI Responses, or `/chat/completions` for OpenAI Completions. For example, Anthropic base `https://example.com/x` calls `https://example.com/x/v1/messages`; an OpenAI base ending in `/v1` retains that path. Other path segments, including an Anthropic base ending in `/v1`, are preserved exactly.
+![Tandem remote project dialog with SSH connection details and a working-directory field](docs/images/ssh-project.jpg)
 
-API keys are stored directly in local configuration and remain available after restarting. In the provider editor, keys are hidden by default; the eye button reveals or hides them. Save after changing a key. An empty field keeps the existing key; use **Clear saved key** to remove it.
+_Choose a remote directory in the project dialog, then start work with the same conversation and permission controls._
 
-Chat and work titles are generated after the first completed reply. In **Settings > Conversation titles**, choose a configured provider model for title generation or follow the conversation's current model. Generation runs in the background without blocking tasks; manually edited titles are preserved. To generate another title, choose **Regenerate title** from the options menu.
+Tandem prepares the remote agent over SSH without opening an additional remote network port. See the [SSH guide](docs/user-guide.md#ssh-projects) for supported hosts and setup details.
 
-## SSH projects
+## Run from source
 
-First log in once from a system terminal to confirm the host fingerprint and configure a key or ssh-agent. Tandem uses system OpenSSH configuration and trusted host records; it does not store login passwords.
+Install Node.js 24, pnpm 12, Rust 1.99.1, just, and the [Tauri development prerequisites](https://v2.tauri.app/start/prerequisites/) for your system.
 
-In **New project**, select SSH, enter the host, port, user, and optional private key path, then test the connection and choose a remote directory. Tandem detects the remote platform, uploads the matching `tandem-server` to `~/.local/share/tandem/bin/`, and opens a bidirectional channel over SSH standard input/output. No additional remote network port is opened.
-
-Connection tests and directory browsing stay in the project dialog, including progress and errors. Choose a folder from the remote directory list, then click **Choose this directory**. On Windows, SSH runs in the background without opening a console window.
-
-Remote SDK state is stored in `~/.local/share/tandem/runtime`.
-
-The desktop supports macOS and Windows; remote hosts support Linux and macOS. Development builds use `just remote-build` to prepare a server for the local platform. To connect to another platform, place its binary at `src-tauri/remote/<Rust target>/tandem-server` before bundling, or set `TANDEM_REMOTE_ARTIFACTS` to an artifact directory. Release workflows build Linux/macOS servers and include them in desktop bundles. If a matching artifact is missing, the connection test reports the target platform.
-
-## Telemetry
-
-Enable OpenTelemetry in Settings, enter an OTLP receiver URL, and select `http/protobuf` or `http/json`. Prompt and reply content is excluded by default; enable content capture only when needed for debugging. Changes restart the runtime once active conversations stop; existing sessions can continue afterward.
-
-Remote work exports telemetry from the remote machine, so the receiver must be reachable from that host. `localhost` refers to the machine running the agent.
-
-## Development and verification
-
-Tests also require Python 3.9 or later and use only its standard library.
-
-For UI-only changes, run `just server` and `just web` in separate terminals. The former starts the local HTTP development host, `tandem-dev-server`, after building the remote agent needed for SSH. SSH uploads and desktop resources always use `tandem-server`; the development host is not distributed with the application.
+On macOS, install Xcode Command Line Tools; on Windows, install Visual Studio C++ Build Tools and WebView2. Tests also require Python 3.9 or later and use only its standard library.
 
 ```sh
-just check          # Formatting, types, lint, and unit tests.
-just integration    # End-to-end checks with the real SDK/CLI and controlled providers.
-just desktop-build  # Bundle the desktop app and local-platform remote server.
+just setup
+just dev
 ```
 
-[Architecture](docs/architecture.md) explains module boundaries, permissions, and localization. [Development](docs/development.md) covers quality gates, PR checks, releases, and adding a language. [Verification](docs/verification.md) distinguishes completed checks from those requiring real services.
+Tandem uses React, Tauri 2, and Rust services built on GitHub Copilot SDK `v1.0.23-preview.5`. The matching Copilot CLI is bundled automatically.
+
+## Learn more
+
+- [User guide](docs/user-guide.md): provider setup, model switching, permissions, context usage, SSH, and telemetry.
+- [Development](docs/development.md): checks, browser development, packaging, and releases.
+- [Architecture](docs/architecture.md): execution modes, service boundaries, and data flow.
+- [Verification](docs/verification.md): completed checks and their limits.

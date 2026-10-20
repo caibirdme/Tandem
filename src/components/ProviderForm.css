@@ -14,13 +14,15 @@
   display: flex;
   position: relative;
   align-items: center;
+  width: 180px;
+  max-width: 100%;
 }
 .context-window-input input {
-  padding-right: 48px;
+  padding-right: 32px;
 }
 .context-window-input > span {
   position: absolute;
-  right: 30px;
+  right: 12px;
   pointer-events: none;
   font-size: 12px;
   color: #787b74;
