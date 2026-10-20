@@ -8,7 +8,7 @@ import {
   Plug,
   Server,
 } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import { useI18n } from '../i18n';
 import { dispatch, errorMessage, isDesktop } from '../lib/api';
@@ -35,6 +35,9 @@ export function ProjectDialog({
   const [busy, setBusy] = useState<'save' | 'check' | 'browse' | null>(null);
   const [notice, setNotice] = useState<{ text: string; error: boolean } | null>(null);
   const [listing, setListing] = useState<DirectoryListing | null>(null);
+  const directoryBrowserRef = useRef<HTMLDivElement>(null);
+  const noticeRef = useRef<HTMLDivElement>(null);
+  const browseStatusRef = useRef<HTMLDivElement>(null);
   const connection: Connection =
     kind === 'local'
       ? { kind }
@@ -48,6 +51,17 @@ export function ProjectDialog({
   const connectionValid =
     kind === 'local' ||
     (host.trim().length > 0 && user.trim().length > 0 && Number(port) > 0 && Number(port) <= 65535);
+
+  useEffect(() => {
+    if (listing) directoryBrowserRef.current?.scrollIntoView({ block: 'nearest' });
+  }, [listing]);
+  useEffect(() => {
+    if (notice) noticeRef.current?.scrollIntoView({ block: 'nearest' });
+  }, [notice]);
+  useEffect(() => {
+    if (kind === 'ssh' && busy === 'browse')
+      browseStatusRef.current?.scrollIntoView({ block: 'nearest' });
+  }, [busy, kind]);
 
   async function check() {
     setBusy('check');
@@ -208,7 +222,7 @@ export function ProjectDialog({
               }}
             >
               {busy === 'check' ? <Spinner /> : <Plug size={14} />}
-              {t('project.testConnection')}
+              {busy === 'check' ? t('project.checkingConnection') : t('project.testConnection')}
             </button>
           </div>
         )}
@@ -246,8 +260,13 @@ export function ProjectDialog({
           </div>
           <small>{kind === 'ssh' ? t('project.remoteSetup') : t('project.directoryHint')}</small>
         </label>
+        {kind === 'ssh' && busy === 'browse' && (
+          <div ref={browseStatusRef}>
+            <Notice tone="neutral">{t('project.loadingDirectories')}</Notice>
+          </div>
+        )}
         {listing && (
-          <div className="directory-browser">
+          <div className="directory-browser" ref={directoryBrowserRef}>
             <div className="directory-heading">
               <button
                 type="button"
@@ -295,7 +314,11 @@ export function ProjectDialog({
             </div>
           </div>
         )}
-        {notice && <Notice tone={notice.error ? 'error' : 'success'}>{notice.text}</Notice>}
+        {notice && (
+          <div ref={noticeRef}>
+            <Notice tone={notice.error ? 'error' : 'success'}>{notice.text}</Notice>
+          </div>
+        )}
         <div className="form-footer">
           <button className="button" type="button" onClick={onClose} disabled={busy !== null}>
             {t('common.cancel')}
