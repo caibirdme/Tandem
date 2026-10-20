@@ -1011,22 +1011,56 @@ button {
 }
 .activity-group > summary > .activity-title {
   color: #63665f;
+  font-size: 13px;
 }
-.activity-count {
-  margin-left: auto;
+.activity-group > summary {
+  align-items: flex-start;
+  gap: 10px;
+}
+.activity-group > summary > .activity-chevron {
+  margin-top: 2px;
+}
+.activity-group-status {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
   white-space: nowrap;
-  font-size: 10px;
-  color: #878b80;
+  border: 0;
+}
+@supports (background-clip: text) or (-webkit-background-clip: text) {
+  .activity-message.running > .activity-group > summary > .activity-title {
+    background-image: linear-gradient(
+      100deg,
+      #63665f 40%,
+      #c9ccc5 46%,
+      #fff 50%,
+      #c9ccc5 54%,
+      #63665f 60%
+    );
+    background-size: 250% 100%;
+    background-position: 100% 0;
+    background-clip: text;
+    -webkit-background-clip: text;
+    color: transparent;
+    animation: activity-intent-shimmer 2.2s linear infinite;
+  }
+}
+@keyframes activity-intent-shimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: 0% 0;
+  }
 }
 .activity-status {
   white-space: nowrap;
   font-size: 10px;
   color: #878b80;
-}
-.activity-failed-count {
-  white-space: nowrap;
-  font-size: 10px;
-  color: #a15f4e;
 }
 .activity-status.error,
 .activity-failure,
@@ -2237,6 +2271,13 @@ select {
   }
   .topbar-actions {
     gap: 4px;
+  }
+}
+@media (prefers-reduced-motion: reduce), (forced-colors: active) {
+  .activity-message.running > .activity-group > summary > .activity-title {
+    animation: none;
+    background-image: none;
+    color: #63665f;
   }
 }
 @media (prefers-reduced-motion: reduce) {

@@ -9,12 +9,10 @@ interface SkillPickerProps {
   skills: ProjectSkill[];
   index: number;
   loading: boolean;
-  error: string | null;
   connected: boolean;
   filtered: boolean;
   onIndex: (index: number) => void;
   onSelect: (skill: ProjectSkill) => void;
-  onReload: () => void;
   onBlur: (next: EventTarget | null) => void;
 }
 
@@ -29,11 +27,9 @@ export function SkillPicker(props: SkillPickerProps) {
     ? t('chat.skillsDisconnected')
     : props.loading
       ? t('chat.skillsLoading')
-      : props.error
-        ? t('chat.skillsFailed', { error: props.error })
-        : props.skills.length === 0
-          ? t(props.filtered ? 'chat.skillsNoMatch' : 'chat.skillsEmpty')
-          : null;
+      : props.skills.length === 0
+        ? t(props.filtered ? 'chat.skillsNoMatch' : 'chat.skillsEmpty')
+        : null;
 
   return (
     <div className="skill-picker">
@@ -89,17 +85,6 @@ export function SkillPicker(props: SkillPickerProps) {
         <output className="skill-picker-status">
           {props.loading && props.connected && <Spinner size={14} />}
           <span>{status}</span>
-          {props.error && props.connected && (
-            <button
-              type="button"
-              className="text-button"
-              onMouseDown={(event) => event.preventDefault()}
-              onClick={props.onReload}
-              onBlur={(event) => props.onBlur(event.relatedTarget)}
-            >
-              {t('common.retry')}
-            </button>
-          )}
         </output>
       )}
       <div className="skill-picker-hint">{t('chat.skillsKeyboardHint')}</div>

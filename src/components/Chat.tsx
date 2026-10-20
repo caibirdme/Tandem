@@ -111,8 +111,7 @@ export function Chat(props: ChatProps) {
     skill.name.toLocaleLowerCase().startsWith(skillQuery?.prefix.toLocaleLowerCase() ?? ''),
   );
   const activeSkillIndex = Math.min(skillIndex, Math.max(matchingSkills.length - 1, 0));
-  const skillsSelectable =
-    !skillCatalog.loading && !skillCatalog.error && props.connected && matchingSkills.length > 0;
+  const skillsSelectable = !skillCatalog.loading && props.connected && matchingSkills.length > 0;
   const [draftPermissionMode, setDraftPermissionMode] = useState<PermissionMode>('ask');
   const [draftReasoningEffort, setDraftReasoningEffort] = useState<ReasoningEffort>(null);
   const [jumpVisible, setJumpVisible] = useState(false);
@@ -727,12 +726,10 @@ export function Chat(props: ChatProps) {
               skills={matchingSkills}
               index={activeSkillIndex}
               loading={skillCatalog.loading}
-              error={skillCatalog.error}
               connected={props.connected}
               filtered={Boolean(skillQuery.prefix)}
               onIndex={setSkillIndex}
               onSelect={chooseSkill}
-              onReload={skillCatalog.reload}
               onBlur={composerBlur}
             />
           )}

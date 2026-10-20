@@ -178,22 +178,23 @@ impl Runtime {
         ))
     }
 
-    /// Lists user-invocable skills from the selected project using SDK discovery.
+    /// Lists user-invocable skills from the project and user's agent skill roots.
+    /// Missing, invalid, or unavailable skill sources contribute no entries.
     ///
     /// # Errors
-    /// Returns an error for an inaccessible project or failed SDK discovery.
+    /// Returns an error for an inaccessible project.
     pub async fn list_project_skills(&self, directory: &Path) -> Result<Vec<ProjectSkill>> {
         let directory = self
             .directory_for(&SessionMode::Work {
                 directory: directory.to_path_buf(),
             })
             .await?;
-        tokio::time::timeout(
+        Ok(tokio::time::timeout(
             Duration::from_secs(15),
             skills::discover(&self.client, &directory),
         )
         .await
-        .map_err(|_| SkillError::DiscoveryTimeout)?
+        .unwrap_or_default())
     }
 
     /// Returns one complete text response from an isolated, tools-disabled session.
@@ -664,13 +665,16 @@ mod tests {
             let (events, _) = broadcast::channel(16);
             let permissions = Permissions::new(&options.mode, options.permission_mode, events);
             let fresh = create_config(&options, directory.clone(), permissions.clone())?;
-            let resumed = resume_config("work-1", &options, directory, permissions)?;
+            let resumed = resume_config("work-1", &options, directory.clone(), permissions)?;
             assert_eq!(fresh.enable_skills, Some(true));
             assert_eq!(resumed.enable_skills, fresh.enable_skills);
             assert_eq!(fresh.enable_config_discovery, Some(false));
             assert_eq!(resumed.enable_config_discovery, Some(false));
             assert_eq!(fresh.skill_directories, resumed.skill_directories);
-            assert_eq!(fresh.skill_directories.as_ref().map(Vec::len), Some(4));
+            assert_eq!(
+                fresh.skill_directories,
+                Some(skills::directories(&options.mode, &directory))
+            );
             assert!(
                 fresh
                     .available_tools

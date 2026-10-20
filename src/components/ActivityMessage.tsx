@@ -115,25 +115,19 @@ export function ActivityMessage({
   if (!activity) return null;
   const failedTools = activity.tools.filter((tool) => tool.status === 'error');
   return (
-    <section className={`activity-message ${activity.status}`}>
+    <section
+      className={`activity-message ${activity.status}`}
+      aria-busy={activity.status === 'running'}
+    >
       <details className="activity-group">
         <summary>
-          <StatusIcon status={activity.status} />
+          <ChevronRight className="activity-chevron" size={16} aria-hidden="true" />
           <span className="activity-title">
             {content.trim() || t(fallbackHeading(activity.tools))}
           </span>
-          <span className="activity-count">
-            {t(activity.tools.length === 1 ? 'chat.activityOneTool' : 'chat.activityTools', {
-              count: activity.tools.length,
-            })}
+          <span className="activity-group-status">
+            <ActivityStatusLabel status={activity.status} />
           </span>
-          {failedTools.length > 0 && (
-            <span className="activity-failed-count">
-              {t('chat.activityFailedTools', { count: failedTools.length })}
-            </span>
-          )}
-          <ActivityStatusLabel status={activity.status} />
-          <ChevronRight className="activity-chevron" size={13} />
         </summary>
         <div className="activity-tools">
           {activity.tools.map((tool) => (

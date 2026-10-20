@@ -56,7 +56,7 @@ from skill_acceptance import check_project_skills, check_stdio_skills
 
 def private_environment(home):
     environment = os.environ.copy()
-    environment.update(HOME=str(home), XDG_CACHE_HOME=str(home / '.cache'),
+    environment.update(HOME=str(home), USERPROFILE=str(home), XDG_CACHE_HOME=str(home / '.cache'),
                        XDG_CONFIG_HOME=str(home / '.config'), XDG_STATE_HOME=str(home / '.state'))
     for key in ('COPILOT_CLI_PATH', 'GITHUB_TOKEN', 'GH_TOKEN', 'COPILOT_GITHUB_TOKEN'):
         environment.pop(key, None)
@@ -215,7 +215,7 @@ def check_stdio(binary, home, endpoint, fixture):
         require(any(event['kind'] == 'delta' for event in events), 'stdio streaming delta missing')
         require(any(event['kind'] == 'message' and event['data']['content'] == first_response
                     for event in events), 'stdio final response missing')
-        check_stdio_skills(server, fixture, options)
+        check_stdio_skills(server, fixture, options, home)
         check_stdio_reasoning(server, fixture, endpoint)
     finally:
         server.close()
@@ -535,7 +535,7 @@ def check_ssh(remote_server, dev_server, root, endpoint, fixture):
         project = app.command('create_project', name='SSH work', path=str(workspace), connection=ssh.connection)
         grouped_session, _ = check_grouped_activity(app, project, provider, 'gpt-4.1', workspace)
         app.command('delete_session', sessionId=grouped_session['id'])
-        skill_session, _ = check_project_skills(app, fixture, project, provider, 'gpt-4.1', workspace)
+        skill_session, _ = check_project_skills(app, fixture, project, provider, 'gpt-4.1', workspace, ssh.home)
         app.command('delete_session', sessionId=skill_session['id'])
         work = app.command('create_session', projectId=project['id'], providerId=provider['id'], modelId='gpt-4.1')
         first_work_events = app.turn(work, 'fixture:work-create Create verified.txt on the SSH host.')
