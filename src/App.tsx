@@ -23,7 +23,14 @@ import { useI18n } from './i18n';
 import { dispatch, errorMessage } from './lib/api';
 import { newSessionPayload } from './lib/sessionOptions';
 import { displaySessionTitle } from './lib/sessionTitles';
-import type { ModelSelection, PermissionMode, Project, SelectedSkill, Session } from './lib/types';
+import type {
+  ModelSelection,
+  PermissionMode,
+  Project,
+  ReasoningEffort,
+  SelectedSkill,
+  Session,
+} from './lib/types';
 
 const Settings = lazy(async () => ({ default: (await import('./components/Settings')).Settings }));
 const ProjectDialog = lazy(async () => ({
@@ -97,7 +104,12 @@ export function App() {
     return () => window.removeEventListener('keydown', keydown);
   }, [newChat]);
 
-  async function send(content: string, permissionMode: PermissionMode, skills: SelectedSkill[]) {
+  async function send(
+    content: string,
+    permissionMode: PermissionMode,
+    skills: SelectedSkill[],
+    reasoningEffort: ReasoningEffort,
+  ) {
     if (!effectiveSelection) {
       setSettingsOpen(true);
       return;
@@ -110,7 +122,12 @@ export function App() {
       if (!target) {
         target = await dispatch(
           'create_session',
-          newSessionPayload(project?.id ?? null, effectiveSelection, permissionMode),
+          newSessionPayload(
+            project?.id ?? null,
+            effectiveSelection,
+            permissionMode,
+            reasoningEffort,
+          ),
         );
         const targetId = target.id;
         setSendingScopes((current) => {
@@ -388,6 +405,20 @@ export function App() {
                   .catch((reason: unknown) => tandem.setError(errorMessage(reason)));
             }}
             conversation={tandem.conversation}
+            reasoningEffortSaving={tandem.reasoningEffortSaving}
+            reasoningEffortError={tandem.reasoningEffortError}
+            onReasoningEffort={(value) => {
+              if (session)
+                void tandem
+                  .changeReasoningEffort(session.id, value)
+                  .catch((reason: unknown) => tandem.setError(errorMessage(reason)));
+            }}
+            onConfirmReasoningEffort={() => {
+              if (session)
+                void tandem
+                  .confirmReasoningEffort(session.id)
+                  .catch((reason: unknown) => tandem.setError(errorMessage(reason)));
+            }}
             historyLoading={tandem.historyLoading}
             historyLoaded={tandem.historyLoaded}
             onReloadHistory={tandem.reloadHistory}

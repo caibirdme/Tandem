@@ -4,6 +4,8 @@ Users configure a provider, then choose chat or project work. Both share history
 
 After a conversation starts, users can still change its model or provider beside the composer. The next message uses the new selection and continues the existing history. Switching and sending share a session lock. Switching is rejected while running or waiting for approval; once the selection is saved, the old connection is invalidated and cleaned up, then the same SDK session ID resumes with the new configuration. The UI displays the selection only after service confirmation and offers reconfirmation after connection failures, keeping the displayed model consistent with actual inference.
 
+Users can also choose reasoning effort beside the composer before or after starting a chat or Work session. The provider model's `reasoningEffort` is the default; nullable `Session.reasoningEffort` stores a conversation override, with `null` following that default. The override is independent of model selection and survives reopening and application restarts. Changes are allowed during generation and pending tool approval: they save the next-turn setting without interrupting the active turn. Before the next send, the core compares the resolved effort with the live connection's effort and resumes the same SDK session if it changed. Local and SSH sessions receive the resolved value through the existing runtime model configuration. The UI confirms saves and recovers uncertain results before allowing the next send.
+
 ```mermaid
 flowchart LR
   UI[React UI] --> IPC[Tauri commands and events]

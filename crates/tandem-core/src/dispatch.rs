@@ -7,8 +7,33 @@ use uuid::Uuid;
 
 use crate::{
     App, Result,
-    model::{Connection, PermissionMode, Provider, Telemetry, TitleModel},
+    model::{Connection, PermissionMode, Provider, Session, Telemetry, TitleModel},
 };
+
+/// Conversation creation settings at the application command boundary.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateSessionRequest {
+    pub project_id: Option<String>,
+    pub provider_id: String,
+    pub model_id: String,
+    #[serde(default)]
+    pub permission_mode: PermissionMode,
+    pub reasoning_effort: Option<String>,
+}
+
+impl CreateSessionRequest {
+    async fn execute(self, app: &App) -> Result<Session> {
+        app.create_session(
+            self.project_id,
+            self.provider_id,
+            self.model_id,
+            self.permission_mode,
+            self.reasoning_effort,
+        )
+        .await
+    }
+}
 
 /// Stable command contract, used by both Tauri IPC and the development server.
 #[derive(Deserialize)]
@@ -51,13 +76,7 @@ pub enum Request {
     ListProjectSkills {
         project_id: String,
     },
-    CreateSession {
-        project_id: Option<String>,
-        provider_id: String,
-        model_id: String,
-        #[serde(default)]
-        permission_mode: PermissionMode,
-    },
+    CreateSession(CreateSessionRequest),
     DeleteSession {
         session_id: String,
     },
@@ -73,6 +92,11 @@ pub enum Request {
         session_id: String,
         provider_id: String,
         model_id: String,
+    },
+    SetSessionReasoningEffort {
+        session_id: String,
+        #[serde(deserialize_with = "deserialize_reasoning_effort")]
+        reasoning_effort: Option<String>,
     },
     Messages {
         session_id: String,
@@ -134,15 +158,7 @@ impl App {
             Request::ListProjectSkills { project_id } => {
                 response(self.list_project_skills(&project_id).await?)
             }
-            Request::CreateSession {
-                project_id,
-                provider_id,
-                model_id,
-                permission_mode,
-            } => response(
-                self.create_session(project_id, provider_id, model_id, permission_mode)
-                    .await?,
-            ),
+            Request::CreateSession(request) => response(request.execute(self).await?),
             Request::DeleteSession { session_id } => {
                 response(self.delete_session(&session_id).await?)
             }
@@ -162,6 +178,13 @@ impl App {
                 model_id,
             } => response(
                 self.set_session_model(&session_id, provider_id, model_id)
+                    .await?,
+            ),
+            Request::SetSessionReasoningEffort {
+                session_id,
+                reasoning_effort,
+            } => response(
+                self.set_session_reasoning_effort(&session_id, reasoning_effort)
                     .await?,
             ),
             Request::Messages { session_id } => response(self.store.messages(&session_id)?),
@@ -191,14 +214,21 @@ impl App {
             Request::BrowseDirectory { connection, path } => {
                 response(self.browse_directory(&connection, &path).await?)
             }
-            Request::InstallRuntime {} => {
-                self.ensure_runtime().await?;
-                response(self.runtime_status().await)
-            }
+            Request::InstallRuntime {} => response(self.install_runtime().await?),
         }
     }
 }
 
 fn response(value: impl Serialize) -> Result<Value> {
     Ok(serde_json::to_value(value)?)
+}
+
+// Requiring the field distinguishes an explicit reset from an incomplete update.
+fn deserialize_reasoning_effort<'de, D>(
+    deserializer: D,
+) -> std::result::Result<Option<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Option::<String>::deserialize(deserializer)
 }

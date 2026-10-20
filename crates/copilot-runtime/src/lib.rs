@@ -151,6 +151,20 @@ impl Runtime {
         let permissions = Permissions::new(&options.mode, options.permission_mode, events.clone());
         let config = resume_config(id, options, directory.clone(), permissions.clone())?;
         let session = self.client.resume_session(config).await?;
+        if options.model.reasoning_effort.is_none() {
+            // Resume omits a None effort and therefore preserves a previous SDK
+            // override. The pinned switchTo protocol requires explicit null to
+            // restore the model default while retaining the same transcript.
+            let reset = default_reasoning_request(id, &options.model)?;
+            if let Err(error) = session
+                .client()
+                .call("session.model.switchTo", Some(reset))
+                .await
+            {
+                let _ = session.disconnect().await;
+                return Err(error.into());
+            }
+        }
         let skill_directory = match &options.mode {
             SessionMode::Chat => None,
             SessionMode::Work { .. } => Some(directory),
@@ -234,6 +248,15 @@ impl Runtime {
         }
         Ok(canonical)
     }
+}
+
+fn default_reasoning_request(id: &str, model: &ModelSettings) -> Result<serde_json::Value> {
+    Ok(json!({
+        "sessionId": id,
+        "modelId": model.id,
+        "reasoningEffort": null,
+        "modelCapabilities": model.to_sdk_capabilities()?,
+    }))
 }
 
 fn tools_for(mode: &SessionMode) -> Vec<String> {
@@ -756,6 +779,36 @@ mod tests {
     }
 
     #[test]
+    fn returning_to_the_model_default_sends_explicit_null_and_retains_token_limits() -> Result<()> {
+        let model = ModelSettings {
+            id: "configured-model".into(),
+            reasoning_effort: None,
+            context_window: 200_000,
+            max_output_tokens: Some(32_000),
+        };
+        let request = default_reasoning_request("existing-session", &model)?;
+        assert_eq!(request["sessionId"], "existing-session");
+        assert_eq!(request["modelId"], "configured-model");
+        assert_eq!(
+            request.get("reasoningEffort"),
+            Some(&serde_json::Value::Null)
+        );
+        assert_eq!(
+            request["modelCapabilities"]["limits"]["max_context_window_tokens"],
+            200_000
+        );
+        assert_eq!(
+            request["modelCapabilities"]["limits"]["max_prompt_tokens"],
+            168_000
+        );
+        assert_eq!(
+            request["modelCapabilities"]["limits"]["max_output_tokens"],
+            32_000
+        );
+        Ok(())
+    }
+
+    #[test]
     fn fresh_and_resumed_byok_sessions_preserve_model_and_token_overrides()
     -> std::result::Result<(), Box<dyn std::error::Error>> {
         for (protocol, model_id, output) in [
@@ -788,9 +841,9 @@ mod tests {
                 },
                 model: ModelSettings {
                     id: model_id.into(),
+                    reasoning_effort: Some("high".into()),
                     context_window: 1_000_000,
                     max_output_tokens: output,
-                    ..Default::default()
                 },
                 system_prompt: None,
             };
@@ -805,6 +858,8 @@ mod tests {
             )?;
             assert_eq!(fresh.model.as_deref(), Some(model_id));
             assert_eq!(resumed.model, fresh.model);
+            assert_eq!(fresh.reasoning_effort.as_deref(), Some("high"));
+            assert_eq!(resumed.reasoning_effort, fresh.reasoning_effort);
             assert_eq!(resumed.session_id.as_str(), "existing-session");
             assert_eq!(resumed.continue_pending_work, Some(false));
             assert!(fresh.providers.is_none() && resumed.providers.is_none());

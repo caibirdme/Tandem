@@ -11,6 +11,7 @@ describe('permission scope for new sessions', () => {
       ...selection,
       projectId: 'project-1',
       permissionMode: 'ask',
+      reasoningEffort: null,
     });
     expect(newSessionPayload('project-1', selection, 'allow-all').permissionMode).toBe('allow-all');
     expect(newSessionPayload('project-1', selection).permissionMode).toBe('ask');
@@ -21,7 +22,16 @@ describe('permission scope for new sessions', () => {
       ...selection,
       projectId: null,
       permissionMode: 'ask',
+      reasoningEffort: null,
     });
+  });
+});
+
+describe('reasoning effort for new sessions', () => {
+  it.each([null, 'project-1'])('includes the independent override for project %s', (projectId) => {
+    for (const effort of [null, 'low', 'medium', 'high'] as const)
+      expect(newSessionPayload(projectId, selection, 'ask', effort).reasoningEffort).toBe(effort);
+    expect(newSessionPayload(projectId, selection).reasoningEffort).toBeNull();
   });
 });
 

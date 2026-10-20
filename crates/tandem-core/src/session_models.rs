@@ -113,7 +113,13 @@ mod tests {
             )
             .await?;
         let session = app
-            .create_session(None, original.id, "original".into(), PermissionMode::Ask)
+            .create_session(
+                None,
+                original.id,
+                "original".into(),
+                PermissionMode::Ask,
+                None,
+            )
             .await?;
         Ok((directory, app, session, alternate))
     }

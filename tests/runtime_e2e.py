@@ -37,6 +37,7 @@ from model_switch_acceptance import (
     check_model_switching,
 )
 from skill_acceptance import check_project_skills, check_skill_resume
+from reasoning_acceptance import check_reasoning_after_restart, check_reasoning_efforts
 
 
 def check_custom_provider_paths(app, fixture, fixture_url, project):
@@ -408,6 +409,10 @@ def main():
             summary.append(
                 "model switching: same provider and cross-protocol providers retain the same session, ordered inference history, persisted selection, and work authorization; generation and pending-approval changes are rejected"
             )
+            reasoning_state = check_reasoning_efforts(app, fixture, root, fixture_url, project)
+            summary.append(
+                "session reasoning: provider defaults, explicit overrides, reset, Chat/Work isolation, live and pending-approval changes, model/provider changes, malformed inputs, persistence, and actual OpenAI request effort verified"
+            )
             web_chat = app.command(
                 "create_session",
                 projectId=None,
@@ -548,6 +553,8 @@ def main():
             summary.append(
                 "model switching after server restart: saved model receives the complete original conversation"
             )
+            check_reasoning_after_restart(app, fixture, root, reasoning_state, arguments.ephemeral_secrets)
+            summary.append("session reasoning after server restart: Chat and Work overrides and complete history retained")
             if os.name != "nt":
                 app.crash_runtime_during_turn(work, fixture)
                 request_count = len(fixture.conversation_requests())

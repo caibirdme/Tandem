@@ -4,6 +4,7 @@ import { displaySessionTitle } from './sessionTitles';
 import type { Session } from './types';
 
 const session: Session = {
+  reasoningEffort: null,
   contextUsage: null,
   id: 'session',
   title: 'New chat',

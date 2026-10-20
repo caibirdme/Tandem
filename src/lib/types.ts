@@ -1,8 +1,9 @@
 export type ProviderProtocol = 'openai-completions' | 'openai-responses' | 'anthropic';
+export type ReasoningEffort = 'low' | 'medium' | 'high' | null;
 export interface Model {
   id: string;
   name: string;
-  reasoningEffort: 'low' | 'medium' | 'high' | null;
+  reasoningEffort: ReasoningEffort;
   contextWindow: number;
   maxOutputTokens: number | null;
 }
@@ -64,6 +65,7 @@ export interface Session {
   updatedAt: string;
   status: SessionStatus;
   permissionMode: PermissionMode;
+  reasoningEffort: ReasoningEffort;
   contextUsage: ContextUsage | null;
 }
 export interface Message {
@@ -135,6 +137,7 @@ export interface Commands {
       providerId: string;
       modelId: string;
       permissionMode?: PermissionMode;
+      reasoningEffort?: ReasoningEffort;
     };
     result: Session;
   };
@@ -144,6 +147,10 @@ export interface Commands {
   };
   set_session_model: {
     payload: { sessionId: string; providerId: string; modelId: string };
+    result: Session;
+  };
+  set_session_reasoning_effort: {
+    payload: { sessionId: string; reasoningEffort: ReasoningEffort };
     result: Session;
   };
   delete_session: { payload: { sessionId: string }; result: null };
