@@ -19,7 +19,7 @@ import threading
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 
-from acceptance_support import Application, debug_binary, require_context_usage
+from acceptance_support import Application, activity_tools, debug_binary, require_context_usage
 from credential_checks import require_local_secret, require_provider_key, scan_for_key
 from inference_fixture import (
     FIXTURE_KEY,
@@ -38,6 +38,7 @@ from model_switch_acceptance import (
 )
 from skill_acceptance import check_project_skills, check_skill_resume
 from reasoning_acceptance import check_reasoning_after_restart, check_reasoning_efforts
+from activity_acceptance import check_grouped_activity
 
 
 def check_custom_provider_paths(app, fixture, fixture_url, project):
@@ -263,7 +264,7 @@ def main():
                         "Chat executed an unavailable shell tool",
                     )
                     require(
-                        any(event["kind"] == "tool" for event in attack),
+                        bool(activity_tools(attack)),
                         "Malicious tool calls were not exercised",
                     )
                     summary.append(
@@ -294,6 +295,10 @@ def main():
                 path=str(workspace),
                 connection={"kind": "local"},
             )
+            grouped_session, grouped_history = check_grouped_activity(
+                app, project, provider, model, workspace,
+            )
+            summary.append("grouped activity: two progress stages, parallel tools, failure visibility, preserved details, and ordered history")
             skill_state = check_project_skills(
                 app, fixture, project, provider, model, workspace,
             )
@@ -491,6 +496,8 @@ def main():
                 app.command("messages", sessionId=work["id"]) == previous_messages,
                 "Server restart changed persisted messages",
             )
+            require(app.command("messages", sessionId=grouped_session["id"]) == grouped_history,
+                    "Server restart lost activity groups or their tool details")
             restored_context = next(session["contextUsage"]
                                     for session in app.command("snapshot")["sessions"]
                                     if session["id"] == work["id"])

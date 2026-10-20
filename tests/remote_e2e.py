@@ -32,7 +32,8 @@ import uuid
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 
-from acceptance_support import Application, debug_binary, require_context_usage
+from acceptance_support import Application, activity_tools, debug_binary, require_context_usage
+from activity_acceptance import check_grouped_activity
 from credential_checks import require_local_secret, require_provider_key, scan_for_key
 from inference_fixture import (
     FIXTURE_KEY,
@@ -532,6 +533,8 @@ def check_ssh(remote_server, dev_server, root, endpoint, fixture):
         app.command('save_preferences', telemetry={'enabled': True, 'endpoint': endpoint,
                     'protocol': 'http/json', 'captureContent': False}, cliPath=None)
         project = app.command('create_project', name='SSH work', path=str(workspace), connection=ssh.connection)
+        grouped_session, _ = check_grouped_activity(app, project, provider, 'gpt-4.1', workspace)
+        app.command('delete_session', sessionId=grouped_session['id'])
         skill_session, _ = check_project_skills(app, fixture, project, provider, 'gpt-4.1', workspace)
         app.command('delete_session', sessionId=skill_session['id'])
         work = app.command('create_session', projectId=project['id'], providerId=provider['id'], modelId='gpt-4.1')
@@ -539,7 +542,7 @@ def check_ssh(remote_server, dev_server, root, endpoint, fixture):
         require(app.wait_title(work['id'], first_work_events) == 'Acceptance file operations', 'SSH work title was not summarized')
         require((workspace / 'verified.txt').read_text() == 'first version\n', 'Remote SDK tool did not create the file')
         failed_tool = app.turn(work, 'fixture:work-create Attempt to create the already existing file.')
-        require(any(event['kind'] == 'tool' and event['data']['status'] == 'error' for event in failed_tool),
+        require(any(tool['status'] == 'error' for tool in activity_tools(failed_tool)),
                 'Failed remote tool was presented as a successful completion')
         require((workspace / 'verified.txt').read_text() == 'first version\n', 'Failed create changed the existing file')
         second = app.command('create_session', projectId=project['id'], providerId=provider['id'], modelId='gpt-4.1')
@@ -627,7 +630,7 @@ def main():
             if not arguments.skip_ssh:
                 require(os.name == 'posix', 'Use --skip-ssh on hosts without a POSIX SSH daemon')
                 check_ssh(remote_server, dev_server, root, endpoint_url, fixture)
-                checks.append('OpenSSH: strict host trust, key rejection, atomic deployment, literal directories, project skills, remote tools, reconnect/resume, core session reasoning changes, pending approval, and native-default reset with complete history')
+                checks.append('OpenSSH: strict host trust, key rejection, atomic deployment, literal directories, grouped tool activity, project skills, remote tools, reconnect/resume, core session reasoning changes, pending approval, and native-default reset with complete history')
             print(json.dumps({'result': 'passed', 'checks': checks, 'inferenceRequests': len(fixture.requests),
                               'telemetryExports': len(fixture.exports)}, indent=2))
         finally:

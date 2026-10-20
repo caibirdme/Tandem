@@ -57,6 +57,7 @@ export function useTandem() {
   }, []);
 
   const revisions = useRef<Record<string, number>>({});
+  const messageRevisions = useRef<Record<string, Record<string, number>>>({});
   const pendingRequests = useRef(new Set<string>());
   // Reasoning updates configure the next turn and may overlap an active response.
   const reasoningRequests = useRef(new Set<string>());
@@ -187,6 +188,10 @@ export function useTandem() {
       });
     const handleEvent = (event: RuntimeEvent) => {
       if (disposed) return;
+      if (event.kind === 'message') {
+        const messages = (messageRevisions.current[event.sessionId] ??= {});
+        messages[event.data.id] = (messages[event.data.id] ?? 0) + 1;
+      }
       if (event.kind === 'title' || event.kind === 'title_error') {
         advanceTitle(event.sessionId);
         titleRequests.current.delete(event.sessionId);
@@ -226,10 +231,20 @@ export function useTandem() {
     const { sessionId } = historyRequest;
     if (!sessionId) return;
     let disposed = false;
+    const requestedMessages = { ...messageRevisions.current[sessionId] };
     void dispatch('messages', { sessionId })
       .then((messages) => {
         if (disposed) return;
-        update({ type: 'historyReceived', sessionId, messages });
+        update({
+          type: 'historyReceived',
+          sessionId,
+          messages,
+          protectedMessageIds: new Set(
+            Object.entries(messageRevisions.current[sessionId] ?? {})
+              .filter(([id, revision]) => revision !== (requestedMessages[id] ?? 0))
+              .map(([id]) => id),
+          ),
+        });
         setConfirmedHistoryRequest(historyRequest);
       })
       .catch((reason: unknown) => {
@@ -371,6 +386,7 @@ export function useTandem() {
     modelChanges.current?.forget(sessionId);
     reasoningChanges.current?.forget(sessionId);
     sessionProjects.current.delete(sessionId);
+    delete messageRevisions.current[sessionId];
     titleRequests.current.delete(sessionId);
     titleDispatches.current.delete(sessionId);
     update({ type: 'sessionsDeleted', sessionIds: [sessionId] });
@@ -386,6 +402,7 @@ export function useTandem() {
       modelChanges.current?.forget(sessionId);
       reasoningChanges.current?.forget(sessionId);
       sessionProjects.current.delete(sessionId);
+      delete messageRevisions.current[sessionId];
       titleRequests.current.delete(sessionId);
       titleDispatches.current.delete(sessionId);
     }

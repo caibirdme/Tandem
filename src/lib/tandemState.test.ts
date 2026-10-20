@@ -121,6 +121,75 @@ describe('context usage state', () => {
 });
 
 describe('workspace state transitions', () => {
+  it.each(['idle', 'error'] as const)(
+    'does not revive running activity from stale history after a reconnect reports %s',
+    (status) => {
+      const activity: Message = {
+        id: 'activity-1',
+        sessionId: session.id,
+        role: 'activity',
+        content: 'Checking the project',
+        createdAt: session.createdAt,
+        sequence: 2,
+        activity: {
+          status: 'running',
+          tools: [{ toolCallId: 'tool-1', name: 'read_file', status: 'running' }],
+        },
+      };
+      const sending = reduceTandem(loaded, { type: 'sendStarted', message: pending });
+      const working = reduceTandem(sending, {
+        type: 'eventReceived',
+        event: { sessionId: session.id, kind: 'message', data: activity },
+      });
+      const reconnected = reduceTandem(working, {
+        type: 'snapshotReceived',
+        snapshot: { ...snapshot, sessions: [{ ...session, status }] },
+        protectedIds: new Set(),
+      });
+      const restored = reduceTandem(reconnected, {
+        type: 'historyReceived',
+        sessionId: session.id,
+        messages: [activity],
+      });
+      expect(restored.conversations[session.id]?.status).toBe(status);
+      expect(restored.snapshot?.sessions[0]?.status).toBe(status);
+      expect(
+        restored.conversations[session.id]?.messages.find((item) => item.id === activity.id),
+      ).toMatchObject({
+        activity: { status: 'interrupted', tools: [{ status: 'interrupted' }] },
+      });
+    },
+  );
+
+  it('restores active tool activity from history when the session remains running', () => {
+    const activity: Message = {
+      id: 'activity-1',
+      sessionId: session.id,
+      role: 'activity',
+      content: 'Checking the project',
+      createdAt: session.createdAt,
+      activity: {
+        status: 'running',
+        tools: [{ toolCallId: 'tool-1', name: 'read_file', status: 'running' }],
+      },
+    };
+    const reconnected = reduceTandem(loaded, {
+      type: 'snapshotReceived',
+      snapshot: {
+        ...snapshot,
+        sessions: [{ ...session, status: 'running' }],
+        activeTurns: { [session.id]: { stream: '', permissions: [] } },
+      },
+      protectedIds: new Set(),
+    });
+    const restored = reduceTandem(reconnected, {
+      type: 'historyReceived',
+      sessionId: session.id,
+      messages: [activity],
+    });
+    expect(restored.conversations[session.id]?.messages).toEqual([activity]);
+  });
+
   it('applies background titles without touching running output, approvals or status', () => {
     const sending = reduceTandem(loaded, { type: 'sendStarted', message: pending });
     const active = reduceTandem(sending, {

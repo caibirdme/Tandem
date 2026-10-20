@@ -373,14 +373,17 @@ mod tests {
         content: &str,
         interrupted: bool,
     ) -> Result<()> {
-        Ok(app.store.append_message(&Message {
+        app.store.append_message(&Message {
             id: Uuid::new_v4().to_string(),
             session_id: session.id.clone(),
             role,
             content: content.into(),
             created_at: now(),
+            sequence: None,
+            activity: None,
             interrupted,
-        })?)
+        })?;
+        Ok(())
     }
 
     fn exchange(app: &App, session: &Session) -> Result<()> {

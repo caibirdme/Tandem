@@ -58,6 +58,7 @@ impl App {
             EventKind::Message => {
                 let content = data["content"].as_str().unwrap_or_default();
                 if content.is_empty() {
+                    self.turns.completed(&event.session_id, &data)?;
                     return Ok(None);
                 }
                 let message = Message {
@@ -66,12 +67,19 @@ impl App {
                     role: MessageRole::Assistant,
                     content: content.into(),
                     created_at: now(),
+                    sequence: None,
+                    activity: None,
                     interrupted: false,
                 };
-                self.store.append_message(&message)?;
+                let message = self.store.append_message(&message)?;
                 self.turns.completed(&event.session_id, &data)?;
+                self.turns.assistant(message.clone(), &data)?;
                 data = serde_json::to_value(message)?;
                 "message"
+            }
+            EventKind::Intent => {
+                self.turns.intent(&event.session_id, &data)?;
+                return Ok(None);
             }
             EventKind::Status => {
                 let status: SessionStatus = serde_json::from_value(data["state"].clone())
@@ -92,8 +100,12 @@ impl App {
                 "error"
             }
             EventKind::Tool => {
-                data = tool_activity(&data);
-                "tool"
+                let Some(message) = self.turns.tool(&event.session_id, &data)? else {
+                    return Ok(None);
+                };
+                let message = self.store.save_activity(&message)?;
+                data = serde_json::to_value(message)?;
+                "message"
             }
             EventKind::Delta => {
                 self.turns.delta(&event.session_id, &data)?;
@@ -140,7 +152,11 @@ impl App {
 
     pub(crate) fn persist_interrupted(&self, id: &str) -> Result<()> {
         for message in self.turns.finish(id)? {
-            self.store.append_message(&message)?;
+            let message = if message.role == MessageRole::Activity {
+                self.store.save_activity(&message)?
+            } else {
+                self.store.append_message(&message)?
+            };
             self.emit(id, "message", serde_json::to_value(message)?);
         }
         Ok(())
@@ -155,65 +171,5 @@ impl App {
     }
 }
 
-fn tool_activity(data: &Value) -> Value {
-    let details = &data["details"];
-    let event_name = data["event"].as_str().unwrap_or_default();
-    let name = details["toolName"].as_str().unwrap_or("tool");
-    let error = details.get("error").filter(|error| !error.is_null());
-    let failed = details["success"] == false || error.is_some();
-    let content = error
-        .or_else(|| details.get("result"))
-        .or_else(|| details.get("arguments"))
-        .map_or_else(String::new, Value::to_string);
-    let status = if failed {
-        "error"
-    } else if event_name.contains("complete") {
-        "completed"
-    } else {
-        "running"
-    };
-    json!({"name":name,"status":status,"content":content,"toolCallId":details["toolCallId"]})
-}
-
 #[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn tool_failures_retain_their_error_and_call_identity() {
-        for (details, status, expected_content) in [
-            (
-                json!({"success":true,"result":"written"}),
-                "completed",
-                "written",
-            ),
-            (
-                json!({"success":false,"error":{"message":"file exists"}}),
-                "error",
-                "file exists",
-            ),
-            (
-                json!({"success":true,"error":"permission denied"}),
-                "error",
-                "permission denied",
-            ),
-            (
-                json!({"success":false,"result":"tool rejected"}),
-                "error",
-                "tool rejected",
-            ),
-        ] {
-            let mut details = details;
-            details["toolCallId"] = json!("call-1");
-            details["toolName"] = json!("create");
-            let value =
-                tool_activity(&json!({"event":"tool.execution_complete","details":details}));
-            assert_eq!(value["status"], status);
-            assert_eq!(value["toolCallId"], "call-1");
-            assert!(
-                value["content"]
-                    .as_str()
-                    .is_some_and(|content| content.contains(expected_content))
-            );
-        }
-    }
-}
+mod tests;

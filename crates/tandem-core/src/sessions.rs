@@ -236,9 +236,11 @@ impl App {
             role: MessageRole::User,
             content: content.clone(),
             created_at: now(),
+            sequence: None,
+            activity: None,
             interrupted: false,
         };
-        self.store.append_message(&message)?;
+        let message = self.store.append_message(&message)?;
         self.store.update_session(&session.id, |current| {
             current.updated_at = now();
             current.status = SessionStatus::Running;
@@ -824,6 +826,8 @@ mod tests {
             role: MessageRole::Assistant,
             content: "Partial output before the failure".into(),
             created_at: now(),
+            sequence: None,
+            activity: None,
             interrupted: true,
         })?;
         app.set_status(&work.id, SessionStatus::Error)?;
@@ -860,6 +864,8 @@ mod tests {
                 role,
                 content: content.into(),
                 created_at: now(),
+                sequence: None,
+                activity: None,
                 interrupted: false,
             })?;
         }

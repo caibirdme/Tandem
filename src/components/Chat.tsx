@@ -4,7 +4,6 @@ import {
   ArrowRight,
   ArrowUp,
   Check,
-  CheckCheck,
   ChevronDown,
   Code2,
   Compass,
@@ -49,6 +48,7 @@ import type {
   Session,
   SelectedSkill,
 } from '../lib/types';
+import { ActivityMessage } from './ActivityMessage';
 import { ContextUsageIndicator } from './ContextUsageIndicator';
 import { PermissionModeSelector } from './PermissionModeSelector';
 import { ReasoningEffortSelector } from './ReasoningEffortSelector';
@@ -155,6 +155,9 @@ export function Chat(props: ChatProps) {
     props.conversation.stream ||
     props.conversation.failedSend,
   );
+  const hasActiveActivity = props.conversation.messages.some(
+    (message) => message.activity?.status === 'running',
+  );
   const currentProvider = props.providers.find(
     (provider) => provider.id === props.selection?.providerId,
   );
@@ -201,12 +204,7 @@ export function Chat(props: ChatProps) {
   useEffect(() => {
     if (stickToBottom.current && transcript.current)
       transcript.current.scrollTop = transcript.current.scrollHeight;
-  }, [
-    props.conversation.messages,
-    props.conversation.stream,
-    props.conversation.tools,
-    props.conversation.permissions,
-  ]);
+  }, [props.conversation.messages, props.conversation.stream, props.conversation.permissions]);
   useEffect(() => {
     textarea.current?.focus();
   }, []);
@@ -476,6 +474,12 @@ export function Chat(props: ChatProps) {
                 <div className="user-message" key={message.id}>
                   <div>{message.content}</div>
                 </div>
+              ) : message.role === 'activity' ? (
+                <ActivityMessage
+                  key={message.id}
+                  content={message.content}
+                  activity={message.activity}
+                />
               ) : message.role === 'assistant' ? (
                 <article className="assistant-message" key={message.id}>
                   <div className="assistant-label">
@@ -507,42 +511,20 @@ export function Chat(props: ChatProps) {
                 <Markdown content={props.conversation.stream} />
               </article>
             )}
-            {props.conversation.tools.length > 0 && (
-              <div className="tool-activities">
-                {props.conversation.tools.map((tool, index) => (
-                  <details
-                    key={tool.toolCallId ?? `${tool.name}-${String(index)}`}
-                    className="tool-activity"
-                  >
-                    <summary>
-                      {tool.status === 'running' ? <Spinner size={13} /> : <CheckCheck size={13} />}
-                      <span>{tool.name}</span>
-                      <small>
-                        {tool.status === 'running'
-                          ? t('chat.toolRunning')
-                          : tool.status === 'error'
-                            ? t('chat.toolFailed')
-                            : t('chat.toolCompleted')}
-                      </small>
-                      <ChevronDown size={13} />
-                    </summary>
-                    {tool.content && <pre>{tool.content}</pre>}
-                  </details>
-                ))}
-              </div>
-            )}
-            {running && !props.conversation.stream && (
-              <div className="thinking">
-                <span />
-                <span />
-                <span />
-                <small>
-                  {props.conversation.permissions.length
-                    ? t('chat.awaitingApproval')
-                    : t('chat.thinking')}
-                </small>
-              </div>
-            )}
+            {running &&
+              !props.conversation.stream &&
+              (!hasActiveActivity || props.conversation.permissions.length > 0) && (
+                <div className="thinking">
+                  <span />
+                  <span />
+                  <span />
+                  <small>
+                    {props.conversation.permissions.length
+                      ? t('chat.awaitingApproval')
+                      : t('chat.thinking')}
+                  </small>
+                </div>
+              )}
             {props.conversation.permissions.map((request) => (
               <div className="permission-card" key={request.requestId}>
                 <div className="permission-heading">

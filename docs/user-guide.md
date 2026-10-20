@@ -34,6 +34,12 @@ Choose **New chat** for a conversation with web reading tools. Chat exposes only
 
 To work with files, choose **Add project**, select a local or SSH directory, and create **New work** within that project. Work gives the agent file and command tools on the execution machine. The first message prepares the bundled runtime automatically; you do not need to click **Prepare runtime** first.
 
+### Inspect tool activity
+
+Click a progress heading in the conversation to expand the tools used for that stage. Each stage starts collapsed and shows its status and number of tool calls. Expand an individual tool to inspect its arguments, progress, result, or error. The final response stays visible below the activity groups.
+
+Activity groups stay in conversation order when another message is sent, when you reopen the conversation, and after restarting the application. If the model does not provide a progress description, known tool types supply a short heading such as **Reading files** or **Running commands**; other combinations show **Agent activity**. Failed and interrupted activity is labeled on the collapsed group. Permission requests remain separate approval cards, so you can respond without opening tool details.
+
 ### Use project skills
 
 In Work, type `$` to list the selected project's skills or `$prefix` to filter them by name. Select with the mouse or use the arrow keys and Enter or Tab; Escape closes the list. Work can also choose relevant skills automatically. SSH projects discover and load skills on the remote host. Chat does not load project skills.

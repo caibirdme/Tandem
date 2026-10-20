@@ -4,7 +4,8 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import { setLocale } from '../i18n';
 import { emptyConversation } from '../lib/conversation';
-import type { Project, Provider, Session } from '../lib/types';
+import { initialTandemState, reduceTandem } from '../lib/tandemState';
+import type { Message, Project, Provider, Session } from '../lib/types';
 import { Chat } from './Chat';
 
 const project: Project = {
@@ -501,5 +502,218 @@ describe('work context usage', () => {
     const markup = renderToStaticMarkup(<Chat {...contextProps} />);
     expect(markup).toContain('aria-label="上下文窗口"');
     expect(markup).toContain('已使用 15.3%');
+  });
+});
+
+describe('grouped activity timeline', () => {
+  const activity: Message = {
+    id: 'activity-1',
+    sessionId: session.id,
+    role: 'activity',
+    content: 'Inspecting the conversation layout',
+    createdAt: session.createdAt,
+    activity: {
+      status: 'completed',
+      tools: [
+        {
+          toolCallId: 'read-1',
+          name: 'read_file',
+          title: 'Read the chat component',
+          status: 'completed',
+          arguments: { path: 'src/components/Chat.tsx' },
+          result: { lines: 40 },
+          progress: 'Read 40 lines',
+        },
+        {
+          toolCallId: 'read-2',
+          name: 'read_file',
+          title: 'Read the conversation state',
+          status: 'completed',
+        },
+      ],
+    },
+  };
+  const answer: Message = {
+    id: 'answer',
+    sessionId: session.id,
+    role: 'assistant',
+    content: 'The conversation now groups related tool calls.',
+    createdAt: session.createdAt,
+  };
+
+  it('collapses each stage and its tools while keeping final replies in order', () => {
+    const nextActivity = {
+      ...activity,
+      id: 'activity-2',
+      content: 'Checking the updated layout',
+    };
+    const markup = renderToStaticMarkup(
+      <Chat
+        {...props}
+        conversation={{
+          ...emptyConversation,
+          messages: [activity, nextActivity, answer],
+          stream: 'One more detail',
+        }}
+      />,
+    );
+    expect(markup.match(/class="activity-group"/g)).toHaveLength(2);
+    expect(markup).not.toMatch(/<details[^>]*\bopen(?:=|\s|>)/);
+    const summary = markup.match(/<details class="activity-group"><summary>(.*?)<\/summary>/)?.[1];
+    expect(summary).toContain(activity.content);
+    expect(summary).toContain('2 tool calls');
+    expect(summary).not.toContain('Read the chat component');
+    expect(markup).toContain('Read the chat component');
+    expect(markup).toContain('Read the conversation state');
+    expect(markup).toContain('Arguments');
+    expect(markup).toContain('src/components/Chat.tsx');
+    expect(markup).toContain('Result');
+    expect(markup).toContain('Read 40 lines');
+    expect(markup.indexOf(nextActivity.content)).toBeGreaterThan(markup.indexOf(activity.content));
+    expect(markup.indexOf(answer.content)).toBeGreaterThan(markup.indexOf(nextActivity.content));
+    expect(markup.indexOf('One more detail')).toBeGreaterThan(markup.indexOf(answer.content));
+  });
+
+  it('keeps failures and pending approvals visible outside collapsed tool details', () => {
+    const failed: Message = {
+      ...activity,
+      activity: {
+        status: 'error',
+        tools: [
+          {
+            toolCallId: 'check-1',
+            name: 'run_check',
+            title: 'Check the layout',
+            status: 'error',
+            error: { message: 'The check failed' },
+          },
+        ],
+      },
+    };
+    const markup = renderToStaticMarkup(
+      <Chat
+        {...props}
+        conversation={{
+          ...emptyConversation,
+          messages: [failed, answer],
+          permissions: [
+            { requestId: 'approval', kind: 'shell', description: 'Run the verification command' },
+          ],
+        }}
+      />,
+    );
+    expect(markup).toContain('class="activity-status error">Failed');
+    expect(markup).toContain('Check the layout failed. Expand this step for details.');
+    expect(markup.indexOf('class="activity-failure"')).toBeGreaterThan(
+      markup.lastIndexOf('</details>'),
+    );
+    expect(markup).toContain('The check failed');
+    expect(markup).toContain('Your approval is required');
+    expect(markup).toContain('Run the verification command');
+    expect(markup).toContain('Allow once');
+    expect(markup).toContain(answer.content);
+  });
+
+  it('uses translated fallback headings and distinguishes stopped activities', () => {
+    setLocale('zh-CN');
+    const markup = renderToStaticMarkup(
+      <Chat
+        {...props}
+        conversation={{
+          ...emptyConversation,
+          messages: [
+            {
+              ...activity,
+              content: '',
+              activity: {
+                status: 'interrupted',
+                tools: [{ toolCallId: 'stopped-1', name: 'read_file', status: 'interrupted' }],
+              },
+            },
+          ],
+        }}
+      />,
+    );
+    expect(markup).toContain('Agent 活动');
+    expect(markup).toContain('1 次工具调用');
+    expect(markup).toContain('已停止');
+    expect(markup).not.toContain('已完成');
+  });
+
+  it('shows failed tool counts even while another call is still running', () => {
+    const markup = renderToStaticMarkup(
+      <Chat
+        {...props}
+        conversation={{
+          ...emptyConversation,
+          status: 'running',
+          messages: [
+            {
+              ...activity,
+              activity: {
+                status: 'running',
+                tools: [
+                  { toolCallId: 'failed-1', name: 'check_layout', status: 'error' },
+                  { toolCallId: 'running-1', name: 'read_file', status: 'running' },
+                ],
+              },
+            },
+          ],
+        }}
+      />,
+    );
+    const summary = markup.match(/<details class="activity-group"><summary>(.*?)<\/summary>/)?.[1];
+    expect(summary).toContain('1 failed');
+    expect(summary).toContain('Running');
+    expect(markup).toContain('check_layout failed. Expand this step for details.');
+    expect(markup).not.toContain('class="thinking"');
+  });
+
+  it('keeps next-turn reasoning editable through an active group and pending approval', () => {
+    const conversation = {
+      ...emptyConversation,
+      status: 'running' as const,
+      messages: [
+        {
+          ...activity,
+          activity: {
+            status: 'running' as const,
+            tools: [{ toolCallId: 'run-1', name: 'bash', status: 'running' as const }],
+          },
+        },
+      ],
+      stream: 'Reviewing the command output',
+      permissions: [
+        { requestId: 'approval-1', kind: 'shell', description: 'Run the verification command' },
+      ],
+    };
+    const saving = reduceTandem(
+      { ...initialTandemState, conversations: { [session.id]: conversation } },
+      { type: 'reasoningEffortChangeStarted', sessionId: session.id },
+    );
+    const changed = reduceTandem(saving, {
+      type: 'reasoningEffortChanged',
+      sessionId: session.id,
+      reasoningEffort: 'high',
+    });
+    expect(changed.conversations[session.id]).toBe(conversation);
+    expect(changed.reasoningEffortUpdates.has(session.id)).toBe(false);
+    const markup = renderToStaticMarkup(
+      <Chat
+        {...props}
+        session={{ ...session, status: 'running', reasoningEffort: 'high' }}
+        providers={[provider]}
+        selection={{ providerId: provider.id, modelId: session.modelId }}
+        conversation={changed.conversations[session.id] ?? emptyConversation}
+      />,
+    );
+    expect(reasoningControl(markup)).toContain('Reasoning effort: High');
+    expect(reasoningControl(markup)).not.toContain('disabled');
+    expect(modelControl(markup)).toContain('disabled');
+    expect(markup).toContain('class="activity-status running">Running');
+    expect(markup).toContain(activity.content);
+    expect(markup).toContain(conversation.stream);
+    expect(markup).toContain('Run the verification command');
+    expect(markup).toContain('Allow once');
   });
 });

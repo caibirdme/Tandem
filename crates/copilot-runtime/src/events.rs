@@ -9,6 +9,7 @@ use serde_json::{Value, json};
 pub enum EventKind {
     Delta,
     Message,
+    Intent,
     Tool,
     Permission,
     Status,
@@ -57,23 +58,46 @@ impl RuntimeEvent {
         event: SessionEvent,
         context_window: i64,
     ) -> Option<Self> {
-        let (kind, data) = match event.event_type.as_str() {
+        let (kind, mut data) = match event.event_type.as_str() {
             "assistant.message_delta" => (
                 EventKind::Delta,
                 json!({"content": event.data.get("deltaContent"), "messageId": event.data.get("messageId")}),
             ),
-            "assistant.message" => (
-                EventKind::Message,
-                json!({"content": event.data.get("content"), "id": event.data.get("messageId").unwrap_or(&json!(event.id))}),
+            "assistant.message" => {
+                let mut data = json!({
+                    "content": event.data.get("content"),
+                    "id": event.data.get("messageId").unwrap_or(&json!(event.id)),
+                });
+                for field in [
+                    "phase",
+                    "toolRequests",
+                    "turnId",
+                    "apiCallId",
+                    "chunkIndex",
+                    "chunkCount",
+                    "originatingMessageId",
+                ] {
+                    if let Some(value) = event.data.get(field) {
+                        data[field] = value.clone();
+                    }
+                }
+                (EventKind::Message, data)
+            }
+            "assistant.intent" => (
+                EventKind::Intent,
+                json!({"intent": event.data.get("intent")}),
             ),
             "session.idle" => (
                 EventKind::Status,
                 json!({"state": "idle", "event": event.event_type}),
             ),
-            "assistant.turn_start" => (
-                EventKind::Status,
-                json!({"state": "running", "event": event.event_type}),
-            ),
+            "assistant.turn_start" => {
+                let mut data = json!({"state": "running", "event": event.event_type});
+                if let Some(turn_id) = event.data.get("turnId") {
+                    data["turnId"] = turn_id.clone();
+                }
+                (EventKind::Status, data)
+            }
             "session.usage_info" => {
                 let mut usage = ContextUsage::from_data(event.data)?;
                 // The SDK reports the prompt budget after reserving output tokens.
@@ -88,6 +112,16 @@ impl RuntimeEvent {
             ),
             _ => return None,
         };
+        if matches!(
+            kind,
+            EventKind::Delta | EventKind::Message | EventKind::Intent | EventKind::Tool
+        ) {
+            data["eventId"] = json!(event.id);
+            data["timestamp"] = json!(event.timestamp);
+            if let Some(agent_id) = event.agent_id {
+                data["agentId"] = json!(agent_id);
+            }
+        }
         Some(Self {
             session_id: session_id.into(),
             kind,
@@ -110,7 +144,7 @@ mod tests {
                 Some((
                     EventKind::Delta,
                     false,
-                    json!({"content": "hello", "messageId": "message-1"}),
+                    json!({"content": "hello", "messageId": "message-1", "eventId": "event-1", "timestamp": "2026-10-17T00:00:00Z"}),
                 )),
             ),
             (
@@ -119,7 +153,16 @@ mod tests {
                 Some((
                     EventKind::Message,
                     false,
-                    json!({"content": "hello", "id": "event-1"}),
+                    json!({"content": "hello", "id": "event-1", "eventId": "event-1", "timestamp": "2026-10-17T00:00:00Z"}),
+                )),
+            ),
+            (
+                "assistant.intent",
+                json!({"intent": "Inspecting tool rendering"}),
+                Some((
+                    EventKind::Intent,
+                    false,
+                    json!({"intent": "Inspecting tool rendering", "eventId": "event-1", "timestamp": "2026-10-17T00:00:00Z"}),
                 )),
             ),
             (
@@ -128,7 +171,7 @@ mod tests {
                 Some((
                     EventKind::Tool,
                     false,
-                    json!({"event": "tool.execution_complete", "details": {"success": false}}),
+                    json!({"event": "tool.execution_complete", "details": {"success": false}, "eventId": "event-1", "timestamp": "2026-10-17T00:00:00Z"}),
                 )),
             ),
             (
@@ -160,6 +203,7 @@ mod tests {
                 None,
             ),
             ("future.sdk_event", json!({}), None),
+            ("assistant.turn_end", json!({"turnId": "turn-1"}), None),
         ] {
             let sdk = serde_json::from_value(json!({
                 "id": "event-1", "timestamp": "2026-10-17T00:00:00Z",
@@ -176,6 +220,109 @@ mod tests {
                 "{event_type}"
             );
         }
+        Ok(())
+    }
+
+    #[test]
+    fn activity_events_keep_association_metadata_without_private_model_payloads()
+    -> Result<(), serde_json::Error> {
+        let timestamp = "2026-10-20T08:00:00Z";
+        let tool_request = json!({
+            "toolCallId": "tool-1",
+            "name": "view",
+            "arguments": {"path": "/project/src/main.rs"},
+            "toolTitle": "Read source",
+            "intentionSummary": "Inspect the application entry point",
+        });
+        for (event_type, payload, expected) in [
+            (
+                "assistant.message",
+                json!({
+                    "messageId": "message-1", "content": "I will inspect the entry point.",
+                    "phase": "response", "turnId": "turn-1", "toolRequests": [tool_request],
+                    "apiCallId": "api-1", "chunkIndex": 0, "chunkCount": 2,
+                    "originatingMessageId": "user-1", "reasoningText": "private reasoning",
+                    "encryptedContent": "private encrypted state", "providerId": "private provider",
+                }),
+                json!({
+                    "id": "message-1", "content": "I will inspect the entry point.",
+                    "phase": "response", "turnId": "turn-1", "toolRequests": [tool_request],
+                    "apiCallId": "api-1", "chunkIndex": 0, "chunkCount": 2,
+                    "originatingMessageId": "user-1", "eventId": "sdk-1",
+                    "timestamp": timestamp, "agentId": "agent-1",
+                }),
+            ),
+            (
+                "assistant.message_delta",
+                json!({"messageId": "message-1", "deltaContent": "Inspecting", "reasoningText": "private reasoning"}),
+                json!({"messageId": "message-1", "content": "Inspecting", "eventId": "sdk-1", "timestamp": timestamp, "agentId": "agent-1"}),
+            ),
+            (
+                "assistant.intent",
+                json!({"intent": "Inspecting the application", "reasoningText": "private reasoning"}),
+                json!({"intent": "Inspecting the application", "eventId": "sdk-1", "timestamp": timestamp, "agentId": "agent-1"}),
+            ),
+        ] {
+            let sdk = serde_json::from_value(json!({
+                "id": "sdk-1", "timestamp": timestamp, "agentId": "agent-1",
+                "type": event_type, "data": payload,
+            }))?;
+            let adapted = RuntimeEvent::from_sdk("session-1", sdk, 200_000);
+            assert_eq!(
+                adapted.map(|event| event.data),
+                Some(expected),
+                "{event_type}"
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn tool_lifecycle_keeps_call_identity_and_iteration_end_does_not_finish_work()
+    -> Result<(), serde_json::Error> {
+        for (event_type, details) in [
+            (
+                "tool.execution_start",
+                json!({"toolCallId": "tool-1", "toolName": "view", "toolTitle": "Read source", "turnId": "turn-1", "arguments": {"path": "/project/src/main.rs"}}),
+            ),
+            (
+                "tool.execution_progress",
+                json!({"toolCallId": "tool-1", "progressMessage": "Reading source"}),
+            ),
+            (
+                "tool.execution_complete",
+                json!({"toolCallId": "tool-1", "turnId": "turn-1", "success": false, "error": {"message": "File is unavailable", "code": "not_found"}}),
+            ),
+        ] {
+            let sdk = serde_json::from_value(json!({
+                "id": "sdk-1", "timestamp": "2026-10-20T08:00:00Z", "agentId": "agent-1",
+                "type": event_type, "data": details,
+            }))?;
+            let adapted = RuntimeEvent::from_sdk("session-1", sdk, 200_000);
+            assert!(adapted.as_ref().is_some_and(|event| !event.ends_turn()));
+            assert_eq!(
+                adapted.map(|event| (event.kind, event.data)),
+                Some((
+                    EventKind::Tool,
+                    json!({
+                        "event": event_type, "details": details,
+                        "eventId": "sdk-1", "timestamp": "2026-10-20T08:00:00Z", "agentId": "agent-1",
+                    })
+                )),
+            );
+        }
+        let sdk = serde_json::from_value(json!({
+            "id": "sdk-2", "timestamp": "2026-10-20T08:00:00Z",
+            "type": "assistant.turn_start", "data": {"turnId": "turn-2"},
+        }))?;
+        let adapted = RuntimeEvent::from_sdk("session-1", sdk, 200_000);
+        assert!(adapted.as_ref().is_some_and(|event| !event.ends_turn()));
+        assert_eq!(
+            adapted.map(|event| event.data),
+            Some(json!({
+                "state": "running", "event": "assistant.turn_start", "turnId": "turn-2",
+            }))
+        );
         Ok(())
     }
 

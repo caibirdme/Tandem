@@ -6,10 +6,25 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from acceptance_support import Application, SessionEvents
+from acceptance_support import Application, SessionEvents, activity_tools
 
 
 class SessionEventsTests(unittest.TestCase):
+    def test_activity_upserts_keep_the_latest_tool_state_without_duplicates(self):
+        events = [
+            {"kind": "message", "data": {"id": "group-a", "role": "activity", "activity": {
+                "tools": [{"toolCallId": "first", "status": "running"}]}}},
+            {"kind": "message", "data": {"id": "answer", "role": "assistant", "content": "Done"}},
+            {"kind": "message", "data": {"id": "group-a", "role": "activity", "activity": {
+                "tools": [{"toolCallId": "first", "status": "error"}]}}},
+            {"kind": "message", "data": {"id": "group-b", "role": "activity", "activity": {
+                "tools": [{"toolCallId": "second", "status": "completed"}]}}},
+        ]
+        self.assertEqual(activity_tools(events), [
+            {"toolCallId": "first", "status": "error"},
+            {"toolCallId": "second", "status": "completed"},
+        ])
+
     def test_interleaved_sessions_keep_their_order(self):
         inbox = SessionEvents()
         for session, sequence in [
