@@ -9,6 +9,9 @@ use tokio::{
 
 use crate::{ConnectionValidationError, RemoteError, SshDiagnostic};
 
+#[cfg(all(test, windows))]
+mod windows_tests;
+
 pub(crate) const STDERR_LIMIT: usize = 16 * 1024;
 const OUTPUT_LIMIT: usize = 1024 * 1024;
 
@@ -70,6 +73,9 @@ impl SshConnection {
 
     pub(crate) fn command(&self, remote_command: &str) -> Command {
         let mut command = Command::new("ssh");
+        // SSH communicates through pipes; a desktop launch must not create a console.
+        #[cfg(windows)]
+        command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
         command.args([
             "-T",
             "-o",

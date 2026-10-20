@@ -117,12 +117,14 @@ export const en = {
   'project.keyHint':
     'Uses your SSH agent and local SSH configuration by default. Private keys stay on this computer.',
   'project.testConnection': 'Test connection',
+  'project.checkingConnection': 'Testing connection…',
   'project.name': 'Project name',
   'project.nameExample': 'Name your project',
   'project.directory': 'Working directory',
   'project.browse': 'Browse directories',
+  'project.loadingDirectories': 'Loading remote directories…',
   'project.remoteSetup':
-    'The remote runtime is prepared automatically when you first create the project.',
+    'Test the connection to prepare the remote runtime, then browse and choose a directory here.',
   'project.directoryHint':
     'The agent can read files, edit code, and run commands in this directory.',
   'project.parentDirectory': 'Parent directory',

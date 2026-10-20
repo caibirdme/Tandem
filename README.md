@@ -56,6 +56,8 @@ First log in once from a system terminal to confirm the host fingerprint and con
 
 In **New project**, select SSH, enter the host, port, user, and optional private key path, then test the connection and choose a remote directory. Tandem detects the remote platform, uploads the matching `tandem-server` to `~/.local/share/tandem/bin/`, and opens a bidirectional channel over SSH standard input/output. No additional remote network port is opened.
 
+Connection tests and directory browsing stay in the project dialog, including progress and errors. Choose a folder from the remote directory list, then click **Choose this directory**. On Windows, SSH runs in the background without opening a console window.
+
 Remote SDK state is stored in `~/.local/share/tandem/runtime`.
 
 The desktop supports macOS and Windows; remote hosts support Linux and macOS. Development builds use `just remote-build` to prepare a server for the local platform. To connect to another platform, place its binary at `src-tauri/remote/<Rust target>/tandem-server` before bundling, or set `TANDEM_REMOTE_ARTIFACTS` to an artifact directory. Release workflows build Linux/macOS servers and include them in desktop bundles. If a matching artifact is missing, the connection test reports the target platform.

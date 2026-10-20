@@ -1708,6 +1708,7 @@ select {
   padding: 7px 11px;
 }
 .directory-browser {
+  flex-shrink: 0;
   border: 1px solid #e3edd6;
   border-radius: 9px;
   overflow: hidden;
