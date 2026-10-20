@@ -7,6 +7,7 @@ import json
 import shlex
 import threading
 import time
+import uuid
 from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 
@@ -58,6 +59,30 @@ class Fixture:
             )
             for item in following
         )
+        if "fixture:grouped-activity" in prompt:
+            names = [
+                call.get("function", {}).get("name")
+                for item in following
+                for call in item.get("tool_calls", [])
+            ]
+            if not names:
+                return {"name": "report_intent", "arguments": {"intent": "Inspecting the project files"}}
+            if names.count("view") == 0:
+                return [
+                    {"name": "view", "arguments": {"path": str(self.workspace / name)},
+                     "preamble": "I will inspect the two project files."}
+                    for name in ("grouped-first.txt", "grouped-second.txt")
+                ]
+            if names.count("report_intent") == 1:
+                return {"name": "report_intent", "arguments": {"intent": "Verifying the result"}}
+            if "create" not in names:
+                return [
+                    {"name": "create", "arguments": {
+                        "path": str(self.workspace / "grouped-result.txt"), "file_text": "verified\n"},
+                     "preamble": "I have inspected the files. I will verify the result."},
+                    {"name": "view", "arguments": {"path": str(self.workspace / "grouped-missing.txt")}},
+                ]
+            return "TANDEM_GROUPED_ACTIVITY_OK"
         if not completed_tool and "fixture:skill-auto" in prompt:
             return {
                 "name": "skill",
@@ -318,7 +343,7 @@ def handler_for(fixture):
                     "tool_calls": [
                         {
                             "index": index,
-                            "id": f"call_fixture_{index}",
+                            "id": f"call_fixture_{uuid.uuid4().hex}_{index}",
                             "type": "function",
                             "function": {
                                 "name": call["name"],
@@ -328,6 +353,8 @@ def handler_for(fixture):
                         for index, call in enumerate(calls)
                     ],
                 }
+                if calls[0].get("preamble"):
+                    delta["content"] = calls[0]["preamble"]
                 self.event(
                     {
                         **base,

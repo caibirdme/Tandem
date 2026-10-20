@@ -948,29 +948,21 @@ button {
   color: #787b74;
   margin-left: 7px;
 }
-.tool-message,
-.tool-activity {
+.tool-message {
   font-size: 11px;
   color: #757871;
   border-radius: 8px;
   border: 1px solid #e8ece0;
   margin: 10px 0;
 }
-.tool-message summary,
-.tool-activity summary {
+.tool-message summary {
   display: flex;
   align-items: center;
   gap: 8px;
   cursor: pointer;
   padding: 10px 12px;
 }
-.tool-activity summary small {
-  margin-left: auto;
-  color: #787b74;
-  font-size: 10px;
-}
-.tool-message pre,
-.tool-activity pre {
+.tool-message pre {
   overflow: auto;
   padding: 12px;
   margin: 0;
@@ -978,6 +970,140 @@ button {
   border-top: 1px solid #e8ece0;
   font-size: 10px;
   line-height: 1.6;
+}
+.activity-message {
+  margin: 16px 0;
+  color: #757871;
+  font-size: 12px;
+  min-width: 0;
+}
+.activity-group > summary,
+.activity-tool > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 0;
+  list-style: none;
+  cursor: pointer;
+}
+.activity-group > summary::-webkit-details-marker,
+.activity-tool > summary::-webkit-details-marker {
+  display: none;
+}
+.activity-group > summary:hover,
+.activity-tool > summary:hover {
+  color: #48672c;
+}
+.activity-group > summary:focus-visible,
+.activity-tool > summary:focus-visible {
+  outline: 2px solid #9cab88;
+  outline-offset: 3px;
+  border-radius: 3px;
+}
+.activity-group > summary > svg,
+.activity-tool > summary > svg {
+  flex-shrink: 0;
+}
+.activity-title {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  line-height: 1.6;
+}
+.activity-group > summary > .activity-title {
+  color: #63665f;
+}
+.activity-count {
+  margin-left: auto;
+  white-space: nowrap;
+  font-size: 10px;
+  color: #878b80;
+}
+.activity-status {
+  white-space: nowrap;
+  font-size: 10px;
+  color: #878b80;
+}
+.activity-failed-count {
+  white-space: nowrap;
+  font-size: 10px;
+  color: #a15f4e;
+}
+.activity-status.error,
+.activity-failure,
+.activity-tool-error {
+  color: #a15f4e;
+}
+.activity-status.running {
+  color: #667c50;
+}
+.activity-status.interrupted {
+  color: #987d52;
+}
+.activity-chevron {
+  transition: transform 0.15s ease;
+}
+.activity-group[open] > summary > .activity-chevron,
+.activity-tool[open] > summary > .activity-chevron {
+  transform: rotate(90deg);
+}
+.activity-tools {
+  margin: 3px 0 4px 6px;
+  padding-left: 16px;
+  border-left: 1px solid #e3e8da;
+}
+.activity-tool {
+  min-width: 0;
+  font-size: 11px;
+}
+.activity-tool > summary > .activity-status {
+  margin-left: auto;
+}
+.activity-tool-detail {
+  padding: 3px 0 12px 21px;
+  min-width: 0;
+}
+.activity-tool-detail > code {
+  font-size: 10px;
+  overflow-wrap: anywhere;
+}
+.activity-progress,
+.activity-empty {
+  margin: 6px 0;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.activity-payload {
+  margin-top: 12px;
+}
+.activity-payload > strong {
+  display: block;
+  font-size: 10px;
+  font-weight: 500;
+  margin-bottom: 5px;
+}
+.activity-payload > pre {
+  padding: 10px 12px;
+  margin: 0;
+  max-height: 260px;
+  overflow: auto;
+  background: #f7f8f4;
+  border-radius: 6px;
+  font-size: 10px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.activity-failure {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 4px 0 0 21px;
+  font-size: 11px;
+  line-height: 1.6;
+}
+.activity-failure > svg {
+  flex-shrink: 0;
 }
 .permission-card {
   border: 1px solid #d9e1cb;

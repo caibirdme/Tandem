@@ -103,6 +103,8 @@ mod tests {
                     role,
                     content: content.into(),
                     created_at: now(),
+                    sequence: None,
+                    activity: None,
                     interrupted: false,
                 })?;
             }

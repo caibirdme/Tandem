@@ -3,7 +3,10 @@ use std::{path::Path, sync::Mutex};
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::de::DeserializeOwned;
 
-use crate::model::{Message, Preferences, Project, Provider, Session, SessionStatus};
+use crate::{
+    activities::interrupt_activity,
+    model::{Message, MessageRole, Preferences, Project, Provider, Session, SessionStatus},
+};
 
 /// Local persistence failures and missing records that callers can handle by type.
 #[derive(Debug, thiserror::Error)]
@@ -27,6 +30,8 @@ pub enum StorageError {
     SessionNotFound { id: String },
     #[error("Delete this provider's conversations before deleting the provider.")]
     ProviderInUse { id: String },
+    #[error("Cannot update activity {id}: its conversation or message role does not match.")]
+    ActivityConflict { id: String },
 }
 
 type Result<T> = std::result::Result<T, StorageError>;
@@ -69,6 +74,14 @@ impl Store {
             if session.status == SessionStatus::Running {
                 session.status = SessionStatus::Idle;
                 store.save_session(&session)?;
+            }
+        }
+        for mut message in store.list::<Message>(
+            "SELECT data FROM messages WHERE json_extract(data,'$.role')='activity'
+             AND json_extract(data,'$.activity.status')='running'",
+        )? {
+            if message.activity.as_mut().is_some_and(interrupt_activity) {
+                store.save_activity(&message)?;
             }
         }
         Ok(store)
@@ -259,7 +272,7 @@ impl Store {
         })
     }
 
-    pub fn append_message(&self, message: &Message) -> Result<()> {
+    pub fn append_message(&self, message: &Message) -> Result<Message> {
         self.with(|db| {
             db.execute(
                 "INSERT INTO messages(id,session_id,data) VALUES(?1,?2,?3)",
@@ -269,7 +282,47 @@ impl Store {
                     serde_json::to_string(message)?
                 ],
             )?;
-            Ok(())
+            let mut saved = message.clone();
+            saved.sequence = Some(db.query_row(
+                "SELECT rowid FROM messages WHERE id=?1",
+                [&message.id],
+                |row| row.get(0),
+            )?);
+            Ok(saved)
+        })
+    }
+
+    pub fn save_activity(&self, message: &Message) -> Result<Message> {
+        if message.role != MessageRole::Activity || message.activity.is_none() {
+            return Err(StorageError::ActivityConflict {
+                id: message.id.clone(),
+            });
+        }
+        self.with(|db| {
+            let changed = db.execute(
+                "INSERT INTO messages(id,session_id,data) VALUES(?1,?2,?3)
+                 ON CONFLICT(id) DO UPDATE SET data=excluded.data
+                 WHERE messages.session_id=excluded.session_id
+                 AND json_extract(messages.data,'$.role') IN ('assistant','activity')
+                 AND json_extract(excluded.data,'$.role')='activity'",
+                params![
+                    message.id,
+                    message.session_id,
+                    serde_json::to_string(message)?
+                ],
+            )?;
+            if changed == 0 {
+                return Err(StorageError::ActivityConflict {
+                    id: message.id.clone(),
+                });
+            }
+            let mut saved = message.clone();
+            saved.sequence = Some(db.query_row(
+                "SELECT rowid FROM messages WHERE id=?1 AND session_id=?2",
+                [&message.id, &message.session_id],
+                |row| row.get(0),
+            )?);
+            Ok(saved)
         })
     }
 
@@ -310,10 +363,17 @@ impl Store {
         self.session(session_id)?;
         self.with(|db| {
             let mut query =
-                db.prepare("SELECT data FROM messages WHERE session_id=?1 ORDER BY rowid")?;
+                db.prepare("SELECT rowid,data FROM messages WHERE session_id=?1 ORDER BY rowid")?;
             query
-                .query_map([session_id], |row| row.get::<_, String>(0))?
-                .map(|row| Ok(serde_json::from_str(&row?)?))
+                .query_map([session_id], |row| {
+                    Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+                })?
+                .map(|row| {
+                    let (sequence, data) = row?;
+                    let mut message: Message = serde_json::from_str(&data)?;
+                    message.sequence = Some(sequence);
+                    Ok(message)
+                })
                 .collect()
         })
     }

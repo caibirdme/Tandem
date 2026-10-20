@@ -1,5 +1,6 @@
 //! Application service shared by the desktop shell and development HTTP server.
 
+mod activities;
 mod agent;
 mod app;
 mod dispatch;

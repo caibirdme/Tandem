@@ -5,6 +5,7 @@ use uuid::Uuid;
 
 use crate::{
     Error, Result,
+    activities::Activities,
     app::now,
     model::{ActiveTurnView, Message, MessageRole},
 };
@@ -13,6 +14,7 @@ use crate::{
 struct ActiveTurn {
     messages: Vec<(String, Message)>,
     permissions: Vec<Value>,
+    activities: Activities,
 }
 
 /// Only unfinished output and live approvals belong here; durable text lives in SQLite.
@@ -41,6 +43,8 @@ impl ActiveTurns {
                     role: MessageRole::Assistant,
                     content: content.into(),
                     created_at: now(),
+                    sequence: None,
+                    activity: None,
                     interrupted: true,
                 },
             ));
@@ -62,6 +66,35 @@ impl ActiveTurns {
             });
         }
         Ok(())
+    }
+
+    pub fn assistant(&self, message: Message, data: &Value) -> Result<()> {
+        let mut turns = self.0.lock().map_err(|_| Error::SessionStatePoisoned)?;
+        turns
+            .entry(message.session_id.clone())
+            .or_default()
+            .activities
+            .assistant(message, data);
+        Ok(())
+    }
+
+    pub fn intent(&self, session_id: &str, data: &Value) -> Result<()> {
+        let mut turns = self.0.lock().map_err(|_| Error::SessionStatePoisoned)?;
+        turns
+            .entry(session_id.to_owned())
+            .or_default()
+            .activities
+            .intent(data);
+        Ok(())
+    }
+
+    pub fn tool(&self, session_id: &str, data: &Value) -> Result<Option<Message>> {
+        let mut turns = self.0.lock().map_err(|_| Error::SessionStatePoisoned)?;
+        Ok(turns
+            .entry(session_id.to_owned())
+            .or_default()
+            .activities
+            .tool(session_id, data))
     }
 
     pub fn permission(&self, session_id: &str, data: &Value) -> Result<()> {
@@ -94,6 +127,7 @@ impl ActiveTurns {
             turn.messages
                 .into_iter()
                 .map(|(_, message)| message)
+                .chain(turn.activities.finish())
                 .collect()
         }))
     }

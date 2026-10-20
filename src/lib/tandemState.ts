@@ -48,7 +48,12 @@ type TandemAction =
       titleProtectedIds?: ReadonlySet<string>;
     }
   | { type: 'eventReceived'; event: RuntimeEvent }
-  | { type: 'historyReceived'; sessionId: string; messages: Message[] }
+  | {
+      type: 'historyReceived';
+      sessionId: string;
+      messages: Message[];
+      protectedMessageIds?: ReadonlySet<string>;
+    }
   | { type: 'sessionAdded'; session: Session }
   | { type: 'sessionsDeleted'; sessionIds: string[]; projectId?: string }
   | { type: 'titleGenerationRequested'; sessionId: string }
@@ -196,7 +201,11 @@ export function reduceTandem(state: TandemState, action: TandemAction): TandemSt
     }
     case 'historyReceived':
       return updateConversation(state, action.sessionId, (conversation) =>
-        receiveMessages(conversation, action.messages),
+        reduceEvent(receiveMessages(conversation, action.messages, action.protectedMessageIds), {
+          sessionId: action.sessionId,
+          kind: 'status',
+          data: { status: conversation.status },
+        }),
       );
     case 'sessionAdded':
       if (state.deletedSessionIds.has(action.session.id)) return state;
@@ -298,7 +307,6 @@ export function reduceTandem(state: TandemState, action: TandemAction): TandemSt
         messages: [...conversation.messages, action.message],
         status: 'running',
         stream: '',
-        tools: [],
         permissions: [],
         error: null,
         failedSend: null,

@@ -2,6 +2,7 @@
 
 import uuid
 
+from acceptance_support import activity_tools
 from inference_fixture import require
 
 
@@ -14,8 +15,7 @@ def auto_turn(app, session, prompt):
     )
     require(
         not any(
-            event["kind"] == "tool" and event["data"].get("status") == "error"
-            for event in events
+            tool["status"] == "error" for tool in activity_tools(events)
         ),
         "Automatically authorized tool execution failed",
     )
@@ -28,7 +28,7 @@ def check_chat_permissions(app, fixture, session):
         app, session, "fixture:chat-fetch Read the web page using web_fetch."
     )
     require(
-        any(event["kind"] == "tool" for event in events),
+        bool(activity_tools(events)),
         "Chat did not execute its web tool",
     )
     requests = fixture.conversation_requests()[before:]

@@ -287,6 +287,9 @@ fn system_message(options: &SessionOptions, directory: &Path) -> SystemMessageCo
             )
         }
     };
+    content.push_str(
+        "\n\nBefore a meaningful group of tool calls, briefly tell the user what you are doing. Give another brief progress update only when the work moves to a new stage or a material finding changes the plan. Keep updates concise, use the same language as your response, and avoid narrating individual tool calls.",
+    );
     if let Some(prompt) = &options.system_prompt {
         content.push_str("\n\n");
         content.push_str(prompt);
@@ -690,6 +693,8 @@ mod tests {
                     content.contains("without asking for permission"),
                     mode == PermissionMode::AllowAll
                 );
+                assert!(content.contains("Before a meaningful group of tool calls"));
+                assert!(content.contains("only when the work moves to a new stage"));
                 let handler = handler.ok_or("missing permission handler")?;
                 let result = handler
                     .handle(
@@ -931,6 +936,8 @@ mod tests {
                 .unwrap_or_default();
             assert_ne!(content, "");
             assert!(content.contains("execute them without asking for permission"));
+            assert!(content.contains("Before a meaningful group of tool calls"));
+            assert!(content.contains("use the same language as your response"));
             assert!(!content.contains("/private/chat"));
             assert!(!content.contains("Project directory"));
         }

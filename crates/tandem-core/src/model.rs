@@ -287,6 +287,41 @@ pub enum MessageRole {
     Assistant,
     Tool,
     System,
+    Activity,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ActivityStatus {
+    Running,
+    Completed,
+    Error,
+    Interrupted,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ToolActivity {
+    pub tool_call_id: String,
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    pub status: ActivityStatus,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub arguments: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub result: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub progress: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Activity {
+    pub status: ActivityStatus,
+    pub tools: Vec<ToolActivity>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -297,6 +332,10 @@ pub struct Message {
     pub role: MessageRole,
     pub content: String,
     pub created_at: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sequence: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub activity: Option<Activity>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub interrupted: bool,
 }
