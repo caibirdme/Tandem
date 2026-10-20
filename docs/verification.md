@@ -1,5 +1,13 @@
 # Verification record
 
+## First public release version
+
+Release run [39259700564](https://github.com/caibirdme/Tandem/actions/runs/39259700564) stopped at `Check version`: tag `v0.0.1` pointed to commit `0487441`, whose frontend, desktop, and Rust workspace manifests all declared `0.1.4`. Packaging and publication were skipped, and the published Release had no installer assets when inspected. The fix was developed from `main` in `.worktrees/fix-v0.0.1-release` and sets those manifests and all seven workspace lockfile entries to `0.0.1`. Third-party versions, dependency relationships, sources, and checksums are unchanged.
+
+`just check` (including workspace dependency checks) and `just build` passed on macOS / Apple Silicon. The exact Python version-check block from the Release workflow passed for `TAG=v0.0.1` and rejected `TAG=v9.9.9`, reporting all three mismatched files. Locked, offline Cargo metadata reported all seven workspace crates at `0.0.1`.
+
+`CI=true just desktop-build` passed and generated `Tandem.app` and `Tandem_0.0.1_aarch64.dmg`, including the local-platform remote agent. The application bundle metadata and both the release and bundled remote binaries reported `0.0.1`. Strict signature integrity and the DMG checksum passed. This change did not run provider/SSH integration, install the application, exercise its native UI, or build Windows/Linux artifacts. This fix does not modify release tags or published Releases; rerunning the original release job still uses the original commit. Release publication and asset upload require a matching tag on the corrected commit.
+
 ## Work context usage and provider setup (2026-10-19)
 
 Developed from `main` in `.worktrees/work-context-meter`. Work now shows a circular context meter below the composer. Hover or focus it to see the percentage and compact usage on one line. Chat omits it. Model context capacity is required and entered in decimal K units. The provider editor previews the actual protocol-specific request URL while preserving the configured base path.

@@ -595,7 +595,7 @@ dependencies = [
 
 [[package]]
 name = "copilot-runtime"
-version = "0.1.4"
+version = "0.0.1"
 dependencies = [
  "async-trait",
  "github-copilot-sdk",
@@ -3981,7 +3981,7 @@ dependencies = [
 
 [[package]]
 name = "tandem-core"
-version = "0.1.4"
+version = "0.0.1"
 dependencies = [
  "anyhow",
  "chrono",
@@ -4001,7 +4001,7 @@ dependencies = [
 
 [[package]]
 name = "tandem-desktop"
-version = "0.1.4"
+version = "0.0.1"
 dependencies = [
  "serde_json",
  "tandem-core",
@@ -4015,7 +4015,7 @@ dependencies = [
 
 [[package]]
 name = "tandem-dev-server"
-version = "0.1.4"
+version = "0.0.1"
 dependencies = [
  "axum",
  "futures-util",
@@ -4030,7 +4030,7 @@ dependencies = [
 
 [[package]]
 name = "tandem-protocol"
-version = "0.1.4"
+version = "0.0.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -4040,7 +4040,7 @@ dependencies = [
 
 [[package]]
 name = "tandem-remote"
-version = "0.1.4"
+version = "0.0.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -4051,7 +4051,7 @@ dependencies = [
 
 [[package]]
 name = "tandem-server"
-version = "0.1.4"
+version = "0.0.1"
 dependencies = [
  "anyhow",
  "copilot-runtime",
