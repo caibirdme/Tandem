@@ -1,5 +1,21 @@
 # Verification record
 
+## Project skills in Work (2026-10-20)
+
+Developed from `main` in `.worktrees/project-skills`. Local and SSH Work discover project skills under `.agents/skills`, `.github/skills`, `.claude/skills`, and `skills`, in that order. Work enables the pinned Copilot SDK's skill catalog and tool; Chat and title generation retain their existing restrictions. The composer supports `$` discovery, `$prefix` filtering, keyboard and mouse selection, and explicit name/path references. The runtime validates those references and expands them with the SDK's native skill command before confirming the user message. SSH preparation stays on the remote host and uses a single-use, session-bound identifier.
+
+All 262 frontend tests, 126 Rust workspace tests, and 29 Python tests passed, together with formatting, strict frontend lint, TypeScript checks, strict workspace Clippy, and workspace dependency checks. The production frontend, development server, remote server, and release remote server builds passed. `just` is unavailable on this machine, so its recipe commands were invoked directly.
+
+Windows desktop packaging passed after the final frontend changes, producing both MSI and NSIS installers. The desktop executable was checked for the final frontend asset identifier. The installers were not installed and the native application was not launched. Windows resource preparation does not produce Linux/macOS remote-agent artifacts; release packaging supplies those separately.
+
+The complete local integration suite passed with 84 inference requests, including 16 title requests, and 15 telemetry exports. The remote stdio suite passed with 5 inference requests and 4 telemetry exports. Both used production services and the real pinned SDK/CLI with isolated project/state directories, local inference and OTLP test services, and test credentials. Chat's web-fetch case contacted `https://example.com`. Coverage includes all four skill roots, duplicate-name precedence, automatic tool invocation, explicit and multiple selection, native expansion without duplicated instructions or user text, rejected missing/forged/deleted skills, no history/confirmation on rejected preparation, retry after a rejected first send, changed instructions after restart, and Chat restrictions. Remote preparation was checked for no inference, rejection of an incorrect identifier without consuming the valid one, successful single use, and rejection of reuse.
+
+Browser verification used the actual React UI with an isolated test API at desktop and narrow viewport sizes. It covered local/SSH project list isolation, filtering, keyboard and mouse selection, empty/error states, failed-send draft restoration, mention removal, and Chat omission. Composition input, escaped dollars, currency text, and editing repeated skill names have frontend regressions. Browser screenshots and request evidence are ignored local artifacts under `artifacts/skills-ui/`; integration logs are under `artifacts/`.
+
+Full OpenSSH authentication, deployment, and remote filesystem access were not exercised: this Windows environment has no available POSIX SSH daemon or WSL distribution. The remote suite used `--skip-ssh`, and the existing POSIX process-crash case was skipped on Windows. No real provider credentials or paid inference were used.
+
+No dependency was added and the SDK remains pinned to `v1.0.23-preview.5`. Context7 was not exposed by the available tools; interfaces were checked against the exact cached SDK source and official documentation. [Project skills](skills.md) records the invocation research and source links. CI now builds both service binaries and runs the remote stdio regression alongside local integration on its Rust matrix.
+
 ## PR-only CI (2026-10-20)
 
 The workflow change was developed from the latest `origin/main` in `.worktrees/pr-only-ci`. CI now runs only for pull requests targeting `main`, on `opened`, `synchronize`, and `reopened` events. Merging a PR, pushing directly to `main`, and pushing other branches or tags do not trigger this workflow. Per-PR concurrency cancels superseded runs. The existing **Required checks** merge gate, macOS/Windows test matrices, and web/Rust/packaging path rules are retained.

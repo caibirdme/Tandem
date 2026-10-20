@@ -5,8 +5,8 @@ use std::{
 };
 
 use copilot_runtime::{
-    AgentSession, ApprovalDecision, EventKind, Runtime, RuntimeEvent, RuntimeOptions,
-    SessionOptions, TelemetrySettings,
+    AgentSession, ApprovalDecision, EventKind, PreparedMessage, Runtime, RuntimeEvent,
+    RuntimeOptions, SessionOptions, SkillSelection, TelemetrySettings,
 };
 use serde_json::{Value, json};
 use tandem_protocol::{RequestEnvelope, ServerFrame, encode_frame, read_frame};
@@ -25,6 +25,7 @@ const OUTPUT_DRAIN_TIMEOUT: Duration = Duration::from_secs(5);
 struct HostedSession {
     agent: AgentSession,
     event_task: JoinHandle<()>,
+    prepared: Option<(String, PreparedMessage)>,
 }
 
 impl HostedSession {
@@ -200,13 +201,58 @@ impl AgentHost {
     async fn dispatch(&mut self, command: &str, payload: Value) -> Result<Value> {
         match command {
             "start_agent" => self.start(payload).await,
+            "list_project_skills" => {
+                let directory = PathBuf::from(required(&payload, "directory")?);
+                let skills = self
+                    .ensure_runtime(None)
+                    .await?
+                    .list_project_skills(&directory)
+                    .await?;
+                Ok(json!(skills))
+            }
             "send_agent" => {
-                let agent = self.session(&payload)?;
-                agent.send(required(&payload, "content")?).await?;
+                let selected_skills = selected_skills(&payload)?;
+                let hosted = self.hosted_session(&payload)?;
+                hosted.prepared = None;
+                hosted
+                    .agent
+                    .send_with_skills(required(&payload, "content")?, &selected_skills)
+                    .await?;
+                Ok(Value::Null)
+            }
+            "prepare_agent_message" => {
+                let id = required(&payload, "preparedId")?.to_owned();
+                let selected_skills = selected_skills(&payload)?;
+                let hosted = self.hosted_session(&payload)?;
+                hosted.prepared = None;
+                let prepared = hosted
+                    .agent
+                    .prepare_message(required(&payload, "content")?, &selected_skills)
+                    .await?;
+                hosted.prepared = Some((id, prepared));
+                Ok(Value::Null)
+            }
+            "send_prepared_agent_message" => {
+                let id = required(&payload, "preparedId")?;
+                let hosted = self.hosted_session(&payload)?;
+                if hosted
+                    .prepared
+                    .as_ref()
+                    .is_none_or(|(prepared_id, _)| prepared_id != id)
+                {
+                    return Err(ServerError::PreparedMessageUnavailable);
+                }
+                let (_, prepared) = hosted
+                    .prepared
+                    .take()
+                    .ok_or(ServerError::PreparedMessageUnavailable)?;
+                hosted.agent.send_prepared(prepared).await?;
                 Ok(Value::Null)
             }
             "abort_agent" => {
-                self.session(&payload)?.abort().await?;
+                let hosted = self.hosted_session(&payload)?;
+                hosted.prepared = None;
+                hosted.agent.abort().await?;
                 Ok(Value::Null)
             }
             "approve_agent" => {
@@ -279,8 +325,14 @@ impl AgentHost {
             self.output.clone(),
             id.clone(),
         ));
-        self.sessions
-            .insert(id.clone(), HostedSession { agent, event_task });
+        self.sessions.insert(
+            id.clone(),
+            HostedSession {
+                agent,
+                event_task,
+                prepared: None,
+            },
+        );
         Ok(json!({"sessionId":id}))
     }
 
@@ -290,6 +342,24 @@ impl AgentHost {
             .map(|session| &session.agent)
             .ok_or(ServerError::SessionNotConnected)
     }
+
+    fn hosted_session(&mut self, payload: &Value) -> Result<&mut HostedSession> {
+        self.sessions
+            .get_mut(required(payload, "sessionId")?)
+            .ok_or(ServerError::SessionNotConnected)
+    }
+}
+
+fn selected_skills(payload: &Value) -> Result<Vec<SkillSelection>> {
+    payload
+        .get("selectedSkills")
+        .map(|value| serde_json::from_value(value.clone()))
+        .transpose()
+        .map_err(|source| ServerError::InvalidPayload {
+            field: "selectedSkills",
+            source: source.into(),
+        })
+        .map(Option::unwrap_or_default)
 }
 
 fn runtime_directory(home: &Path) -> Result<PathBuf> {

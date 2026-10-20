@@ -185,13 +185,14 @@ class Application:
         require(saved["title"] == title, "Title event and persisted title disagree")
         return title
 
-    def turn(self, session, prompt, approved=True):
+    def turn(self, session, prompt, approved=True, selected_skills=()):
         message_id = str(uuid.uuid4())
         self.command(
             "send_message",
             sessionId=session["id"],
             content=prompt,
             messageId=message_id,
+            selectedSkills=list(selected_skills),
         )
         events = []
         replied = False

@@ -58,6 +58,11 @@ class Fixture:
             )
             for item in following
         )
+        if not completed_tool and "fixture:skill-auto" in prompt:
+            return {
+                "name": "skill",
+                "arguments": {"skill": "tandem-fixture-auto"},
+            }
         if not completed_tool and "fixture:chat-fetch" in prompt:
             return {
                 "name": "web_fetch",

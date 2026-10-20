@@ -10,6 +10,7 @@ mod projects;
 mod providers;
 mod session_models;
 mod sessions;
+mod skills;
 mod store;
 mod titles;
 mod turns;

@@ -8,6 +8,7 @@ mod error;
 mod events;
 mod lifecycle;
 mod permissions;
+mod skills;
 mod summary;
 
 use std::{
@@ -20,7 +21,7 @@ pub use config::{
     ModelSettings, PermissionMode, ProviderProtocol, ProviderSettings, RuntimeOptions, SessionMode,
     SessionOptions, TelemetryProtocol, TelemetrySettings,
 };
-pub use error::{ConfigurationError, Error, SummaryError};
+pub use error::{ConfigurationError, Error, SkillError, SummaryError};
 pub use events::{ContextUsage, EventKind, RuntimeEvent};
 use github_copilot_sdk::{
     CliProgram, Client, ClientInfo, ClientMode, ClientOptions, MessageOptions, ResumeSessionConfig,
@@ -30,7 +31,11 @@ use lifecycle::SessionLifecycle;
 pub use permissions::ApprovalDecision;
 use permissions::Permissions;
 use serde_json::json;
-use tokio::{sync::broadcast, task::JoinHandle};
+pub use skills::{ProjectSkill, SkillSelection};
+use tokio::{
+    sync::{Mutex, OwnedMutexGuard, broadcast},
+    task::JoinHandle,
+};
 
 /// Pinned official SDK release; its bundled native runtime is a separate version.
 pub const SDK_VERSION: &str = "1.0.23-preview.5";
@@ -57,6 +62,7 @@ const WORK_TOOLS: &[&str] = &[
     "builtin:web_fetch",
     "builtin:report_intent",
     "builtin:task_complete",
+    "builtin:skill",
 ];
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -120,13 +126,18 @@ impl Runtime {
         let directory = self.directory_for(&options.mode).await?;
         let (events, _) = broadcast::channel(EVENT_CAPACITY);
         let permissions = Permissions::new(&options.mode, options.permission_mode, events.clone());
-        let config = create_config(&options, directory, permissions.clone())?;
+        let config = create_config(&options, directory.clone(), permissions.clone())?;
         let session = self.client.create_session(config).await?;
+        let skill_directory = match &options.mode {
+            SessionMode::Chat => None,
+            SessionMode::Work { .. } => Some(directory),
+        };
         Ok(AgentSession::new(
             session,
             events,
             permissions,
             options.model.context_window,
+            skill_directory,
         ))
     }
 
@@ -138,14 +149,37 @@ impl Runtime {
         let directory = self.directory_for(&options.mode).await?;
         let (events, _) = broadcast::channel(EVENT_CAPACITY);
         let permissions = Permissions::new(&options.mode, options.permission_mode, events.clone());
-        let config = resume_config(id, options, directory, permissions.clone())?;
+        let config = resume_config(id, options, directory.clone(), permissions.clone())?;
         let session = self.client.resume_session(config).await?;
+        let skill_directory = match &options.mode {
+            SessionMode::Chat => None,
+            SessionMode::Work { .. } => Some(directory),
+        };
         Ok(AgentSession::new(
             session,
             events,
             permissions,
             options.model.context_window,
+            skill_directory,
         ))
+    }
+
+    /// Lists user-invocable skills from the selected project using SDK discovery.
+    ///
+    /// # Errors
+    /// Returns an error for an inaccessible project or failed SDK discovery.
+    pub async fn list_project_skills(&self, directory: &Path) -> Result<Vec<ProjectSkill>> {
+        let directory = self
+            .directory_for(&SessionMode::Work {
+                directory: directory.to_path_buf(),
+            })
+            .await?;
+        tokio::time::timeout(
+            Duration::from_secs(15),
+            skills::discover(&self.client, &directory),
+        )
+        .await
+        .map_err(|_| SkillError::DiscoveryTimeout)?
     }
 
     /// Returns one complete text response from an isolated, tools-disabled session.
@@ -253,10 +287,11 @@ fn create_config(
     config.streaming = Some(true);
     config.available_tools = Some(tools_for(&options.mode));
     config.system_message = Some(system_message(options, &directory));
+    config.skill_directories = Some(skills::directories(&options.mode, &directory));
     config.working_directory = Some(directory);
     config.enable_config_discovery = Some(false);
     config.enable_file_hooks = Some(false);
-    config.enable_skills = Some(false);
+    config.enable_skills = Some(matches!(options.mode, SessionMode::Work { .. }));
     config.enable_host_git_operations = Some(false);
     config.enable_on_demand_instruction_discovery = Some(false);
     config.enable_session_telemetry = Some(false);
@@ -281,10 +316,11 @@ fn resume_config(
     config.streaming = Some(true);
     config.available_tools = Some(tools_for(&options.mode));
     config.system_message = Some(system_message(options, &directory));
+    config.skill_directories = Some(skills::directories(&options.mode, &directory));
     config.working_directory = Some(directory);
     config.enable_config_discovery = Some(false);
     config.enable_file_hooks = Some(false);
-    config.enable_skills = Some(false);
+    config.enable_skills = Some(matches!(options.mode, SessionMode::Work { .. }));
     config.enable_host_git_operations = Some(false);
     config.enable_on_demand_instruction_discovery = Some(false);
     config.enable_session_telemetry = Some(false);
@@ -299,6 +335,28 @@ pub struct AgentSession {
     permissions: Arc<Permissions>,
     lifecycle: Arc<SessionLifecycle>,
     event_task: JoinHandle<()>,
+    skill_directory: Option<PathBuf>,
+    submission: Arc<Mutex<()>>,
+}
+
+/// A validated message reserved for exactly one live session instance.
+///
+/// Preparing a message does not start inference. Dropping it releases the
+/// submission reservation without creating a user message or an active turn.
+pub struct PreparedMessage {
+    message: MessageOptions,
+    owner: Arc<SessionLifecycle>,
+    reservation: OwnedMutexGuard<()>,
+}
+
+impl PreparedMessage {
+    fn validate_owner(&self, owner: &Arc<SessionLifecycle>) -> Result<()> {
+        if Arc::ptr_eq(&self.owner, owner) {
+            Ok(())
+        } else {
+            Err(ConfigurationError::PreparedForDifferentSession.into())
+        }
+    }
 }
 
 impl AgentSession {
@@ -307,6 +365,7 @@ impl AgentSession {
         events: broadcast::Sender<RuntimeEvent>,
         permissions: Arc<Permissions>,
         context_window: i64,
+        skill_directory: Option<PathBuf>,
     ) -> Self {
         let mut incoming = session.subscribe();
         let session_id = session.id().to_string();
@@ -357,6 +416,8 @@ impl AgentSession {
             permissions,
             lifecycle,
             event_task,
+            skill_directory,
+            submission: Arc::new(Mutex::new(())),
         }
     }
 
@@ -382,14 +443,84 @@ impl AgentSession {
     /// # Errors
     /// Returns `Busy` for overlapping sends, or the SDK's submission error.
     pub async fn send(&self, prompt: &str) -> Result<String> {
+        self.send_with_skills(prompt, &[]).await
+    }
+
+    /// Submits one turn with explicitly selected project skills.
+    ///
+    /// # Errors
+    /// Returns an error for invalid selections, overlapping sends, or SDK failure.
+    pub async fn send_with_skills(
+        &self,
+        prompt: &str,
+        selected: &[SkillSelection],
+    ) -> Result<String> {
+        let prepared = self.prepare_message(prompt, selected).await?;
+        self.send_prepared(prepared).await
+    }
+
+    /// Validates and expands a message without starting inference.
+    ///
+    /// The returned value reserves this session until it is submitted or dropped,
+    /// allowing callers to persist the user message only after validation succeeds.
+    ///
+    /// # Errors
+    /// Returns an error for invalid selections, a busy/disconnected session, or
+    /// failed SDK skill discovery or expansion.
+    pub async fn prepare_message(
+        &self,
+        prompt: &str,
+        selected: &[SkillSelection],
+    ) -> Result<PreparedMessage> {
         if !self.is_connected() {
             return Err(Error::Disconnected);
         }
         if prompt.trim().is_empty() {
             return Err(ConfigurationError::EmptyPrompt.into());
         }
+        let reservation = self
+            .submission
+            .clone()
+            .try_lock_owned()
+            .map_err(|_| Error::Busy)?;
+        if self.lifecycle.is_running() {
+            return Err(Error::Busy);
+        }
+        let message = tokio::time::timeout(
+            Duration::from_secs(15),
+            skills::prepare_message(
+                &self.session,
+                self.skill_directory.as_deref(),
+                prompt,
+                selected,
+            ),
+        )
+        .await
+        .map_err(|_| SkillError::PreparationTimeout)??;
+        if !self.is_connected() {
+            return Err(Error::Disconnected);
+        }
+        Ok(PreparedMessage {
+            message,
+            owner: self.lifecycle.clone(),
+            reservation,
+        })
+    }
+
+    /// Submits a previously validated message to its originating session.
+    ///
+    /// # Errors
+    /// Returns an error for a different session instance, a disconnected session,
+    /// overlapping inference, or failed SDK submission.
+    pub async fn send_prepared(&self, prepared: PreparedMessage) -> Result<String> {
+        prepared.validate_owner(&self.lifecycle)?;
+        let PreparedMessage {
+            message,
+            owner: _,
+            reservation: _reservation,
+        } = prepared;
         self.lifecycle.begin_turn()?;
-        match self.session.send(MessageOptions::new(prompt)).await {
+        match self.session.send(message).await {
             Ok(id) => Ok(id),
             Err(error) => {
                 self.lifecycle.finish_turn();
@@ -453,6 +584,34 @@ mod tests {
 
     use super::*;
 
+    #[test]
+    fn prepared_messages_reserve_one_session_without_starting_a_turn() -> Result<()> {
+        let owner = Arc::new(SessionLifecycle::new());
+        let other = Arc::new(SessionLifecycle::new());
+        let submission = Arc::new(Mutex::new(()));
+        let prepared = PreparedMessage {
+            message: MessageOptions::new("Test message"),
+            owner: owner.clone(),
+            reservation: submission
+                .clone()
+                .try_lock_owned()
+                .map_err(|_| Error::Busy)?,
+        };
+        prepared.validate_owner(&owner)?;
+        assert!(matches!(
+            prepared.validate_owner(&other),
+            Err(Error::InvalidConfiguration(
+                ConfigurationError::PreparedForDifferentSession
+            ))
+        ));
+        assert!(!owner.is_running());
+        assert!(submission.try_lock().is_err());
+        drop(prepared);
+        assert!(submission.try_lock().is_ok());
+        owner.begin_turn()?;
+        Ok(())
+    }
+
     #[tokio::test]
     async fn create_and_resume_keep_work_permission_mode_and_prompt()
     -> std::result::Result<(), Box<dyn std::error::Error>> {
@@ -480,6 +639,19 @@ mod tests {
             let permissions = Permissions::new(&options.mode, options.permission_mode, events);
             let fresh = create_config(&options, directory.clone(), permissions.clone())?;
             let resumed = resume_config("work-1", &options, directory, permissions)?;
+            assert_eq!(fresh.enable_skills, Some(true));
+            assert_eq!(resumed.enable_skills, fresh.enable_skills);
+            assert_eq!(fresh.enable_config_discovery, Some(false));
+            assert_eq!(resumed.enable_config_discovery, Some(false));
+            assert_eq!(fresh.skill_directories, resumed.skill_directories);
+            assert_eq!(fresh.skill_directories.as_ref().map(Vec::len), Some(4));
+            assert!(
+                fresh
+                    .available_tools
+                    .as_ref()
+                    .is_some_and(|tools| tools.iter().any(|tool| tool == "builtin:skill"))
+            );
+            assert_eq!(fresh.available_tools, resumed.available_tools);
             for (prompt, handler) in [
                 (fresh.system_message, fresh.permission_handler),
                 (resumed.system_message, resumed.permission_handler),

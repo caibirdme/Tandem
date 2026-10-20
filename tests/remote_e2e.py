@@ -43,6 +43,7 @@ from inference_fixture import (
 )
 from permission_acceptance import check_permission_modes
 from model_switch_acceptance import require_wire_history
+from skill_acceptance import check_project_skills, check_stdio_skills
 
 
 def private_environment(home):
@@ -121,10 +122,20 @@ class StdioServer:
             self.children.update(child_processes(self.process.pid))
         return response['value']
 
-    def turn(self, session_id, prompt):
+    def turn(self, session_id, prompt, selected_skills=()):
         while not self.events.empty():
             self.events.get_nowait()
-        self.command('send_agent', sessionId=session_id, content=prompt)
+        self.command('send_agent', sessionId=session_id, content=prompt,
+                     selectedSkills=list(selected_skills))
+        return self.receive_turn(session_id)
+
+    def prepared_turn(self, session_id, prepared_id):
+        while not self.events.empty():
+            self.events.get_nowait()
+        self.command('send_prepared_agent_message', sessionId=session_id, preparedId=prepared_id)
+        return self.receive_turn(session_id)
+
+    def receive_turn(self, session_id):
         received = []
         deadline = time.monotonic() + 45
         while time.monotonic() < deadline:
@@ -196,6 +207,7 @@ def check_stdio(binary, home, endpoint, fixture):
         require(any(event['kind'] == 'delta' for event in events), 'stdio streaming delta missing')
         require(any(event['kind'] == 'message' and event['data']['content'] == first_response
                     for event in events), 'stdio final response missing')
+        check_stdio_skills(server, fixture, options)
     finally:
         server.close()
     resumed = StdioServer(binary, home)
@@ -459,6 +471,8 @@ def check_ssh(remote_server, dev_server, root, endpoint, fixture):
         app.command('save_preferences', telemetry={'enabled': True, 'endpoint': endpoint,
                     'protocol': 'http/json', 'captureContent': False}, cliPath=None)
         project = app.command('create_project', name='SSH work', path=str(workspace), connection=ssh.connection)
+        skill_session, _ = check_project_skills(app, fixture, project, provider, 'gpt-4.1', workspace)
+        app.command('delete_session', sessionId=skill_session['id'])
         work = app.command('create_session', projectId=project['id'], providerId=provider['id'], modelId='gpt-4.1')
         first_work_events = app.turn(work, 'fixture:work-create Create verified.txt on the SSH host.')
         require(app.wait_title(work['id'], first_work_events) == 'Acceptance file operations', 'SSH work title was not summarized')
@@ -547,11 +561,11 @@ def main():
         checks = []
         try:
             check_stdio(remote_server, root / 'stdio-home', endpoint_url, fixture)
-            checks.append('stdio: real SDK streaming, same-session cold resume with a new provider/model and original history, EOF cleanup, malformed/oversized input, OTLP flush')
+            checks.append('stdio: real SDK streaming, project skill discovery and invocation, same-session cold resume with a new provider/model and original history, EOF cleanup, malformed/oversized input, OTLP flush')
             if not arguments.skip_ssh:
                 require(os.name == 'posix', 'Use --skip-ssh on hosts without a POSIX SSH daemon')
                 check_ssh(remote_server, dev_server, root, endpoint_url, fixture)
-                checks.append('OpenSSH: strict host trust, key rejection, atomic deployment, literal directories, remote tools, reconnect/resume')
+                checks.append('OpenSSH: strict host trust, key rejection, atomic deployment, literal directories, project skills, remote tools, reconnect/resume')
             print(json.dumps({'result': 'passed', 'checks': checks, 'inferenceRequests': len(fixture.requests),
                               'telemetryExports': len(fixture.exports)}, indent=2))
         finally:

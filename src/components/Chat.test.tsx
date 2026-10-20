@@ -81,6 +81,29 @@ afterEach(() => {
   setLocale('en');
 });
 
+describe('Work skill discovery entry point', () => {
+  it.each(['local', 'ssh'] as const)('offers skills in a new %s Work composer', (kind) => {
+    const currentProject: Project = {
+      ...project,
+      connection:
+        kind === 'local'
+          ? { kind }
+          : { kind, host: 'example.test', port: 22, user: 'dev', identityFile: null },
+    };
+    const markup = renderToStaticMarkup(<Chat {...props} project={currentProject} />);
+    expect(markup).toContain('role="combobox"');
+    expect(markup).toContain('aria-autocomplete="list"');
+    expect(markup).toContain('$ for skills');
+  });
+
+  it('keeps Chat as a plain message input without project skill controls', () => {
+    const markup = renderToStaticMarkup(<Chat {...props} project={undefined} />);
+    expect(markup).not.toContain('role="combobox"');
+    expect(markup).not.toContain('$ for skills');
+    expect(markup).toContain('Enter to send · Shift Enter for a new line');
+  });
+});
+
 describe('conversation model controls', () => {
   const modelProps = {
     ...props,

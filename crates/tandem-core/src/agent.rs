@@ -1,12 +1,15 @@
 use std::{sync::Arc, time::Duration};
 
-use copilot_runtime::{AgentSession, ApprovalDecision, RuntimeEvent};
+use copilot_runtime::{
+    AgentSession, ApprovalDecision, PreparedMessage, RuntimeEvent, SkillSelection,
+};
 use serde_json::{Value, json};
 use tandem_remote::RemoteTransport;
 use tokio::{
     sync::{broadcast, watch},
     task::JoinHandle,
 };
+use uuid::Uuid;
 
 use crate::{Error, Result, events::EventOutcome};
 
@@ -18,6 +21,11 @@ pub(crate) enum AgentHandle {
         session_id: String,
         transport: Arc<RemoteTransport>,
     },
+}
+
+pub(crate) enum PreparedTurn {
+    Local(Box<PreparedMessage>),
+    Remote { session_id: String, id: String },
 }
 
 impl AgentHandle {
@@ -35,22 +43,57 @@ impl AgentHandle {
         }
     }
 
-    pub async fn send(&self, content: &str) -> Result<()> {
+    pub async fn prepare(
+        &self,
+        content: &str,
+        selected_skills: &[SkillSelection],
+    ) -> Result<PreparedTurn> {
         match self {
-            Self::Local(agent) => {
-                agent.send(content).await?;
-            }
+            Self::Local(agent) => Ok(PreparedTurn::Local(Box::new(
+                agent.prepare_message(content, selected_skills).await?,
+            ))),
             Self::Remote {
                 session_id,
                 transport,
             } => {
+                let id = Uuid::new_v4().to_string();
                 transport
                     .request(
-                        "send_agent",
-                        json!({"sessionId":session_id,"content":content}),
+                        "prepare_agent_message",
+                        json!({"sessionId":session_id,"preparedId":id,"content":content,"selectedSkills":selected_skills}),
+                    )
+                    .await?;
+                Ok(PreparedTurn::Remote {
+                    session_id: session_id.clone(),
+                    id,
+                })
+            }
+        }
+    }
+
+    pub async fn send(&self, prepared: PreparedTurn) -> Result<()> {
+        match (self, prepared) {
+            (Self::Local(agent), PreparedTurn::Local(message)) => {
+                agent.send_prepared(*message).await?;
+            }
+            (
+                Self::Remote {
+                    session_id,
+                    transport,
+                },
+                PreparedTurn::Remote {
+                    session_id: prepared_session,
+                    id,
+                },
+            ) if session_id == &prepared_session => {
+                transport
+                    .request(
+                        "send_prepared_agent_message",
+                        json!({"sessionId": session_id, "preparedId": id}),
                     )
                     .await?;
             }
+            _ => return Err(Error::PreparedTurnMismatch),
         }
         Ok(())
     }

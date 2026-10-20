@@ -7,7 +7,14 @@ import { createModelChanges } from '../lib/modelChanges';
 import { createPermissionModeChanges } from '../lib/permissionModeChanges';
 import { protectedSessionIds } from '../lib/reconcile';
 import { initialTandemState, reduceTandem } from '../lib/tandemState';
-import type { Message, ModelSelection, PermissionMode, RuntimeEvent, Session } from '../lib/types';
+import type {
+  Message,
+  ModelSelection,
+  PermissionMode,
+  RuntimeEvent,
+  SelectedSkill,
+  Session,
+} from '../lib/types';
 
 export function useTandem() {
   const [
@@ -220,7 +227,7 @@ export function useTandem() {
   );
 
   const send = useCallback(
-    async (sessionId: string, content: string) => {
+    async (sessionId: string, content: string, skills: SelectedSkill[] = []) => {
       const changes = permissionChanges.current;
       const models = modelChanges.current;
       if (!changes || !models) throw new Error(t('error.initializing'));
@@ -235,10 +242,11 @@ export function useTandem() {
         content,
         role: 'user',
         createdAt: new Date().toISOString(),
+        selectedSkills: skills,
       };
       update({ type: 'sendStarted', message: pending });
       try {
-        await dispatch('send_message', { sessionId, content, messageId });
+        await dispatch('send_message', { sessionId, content, messageId, selectedSkills: skills });
       } catch (reason) {
         update({
           type: 'sendFailed',
