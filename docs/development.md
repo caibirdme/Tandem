@@ -40,21 +40,20 @@ Keep UI strings in the typed catalogs under `src/i18n/`. To add a language, crea
 
 ## PR checks
 
-When a PR targets `main`, CI selects checks from the changed paths and combines their results into `Required checks`. That gate must pass before merging. If a check fails, open it on the PR page to inspect the failed command's output.
+When a PR targets `main`, CI runs when the PR is opened, reopened, or updated with new commits. It selects checks from the changed paths and combines their results into `Required checks`. That gate must pass before merging. Merging a PR or pushing directly to `main` does not start CI. If a check fails, open it on the PR page to inspect the failed command's output.
 
-| Check                  | Environment                     | Skip condition                                                            | Coverage                                                                                |
-| ---------------------- | ------------------------------- | ------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
-| `Format`               | Linux                           | Always runs; skips rustfmt when Rust is unchanged                         | oxfmt and nightly rustfmt                                                               |
-| `Web`                  | macOS, Windows                  | Only Rust, Python verification, or documentation changed                  | Frontend tests and production build on both platforms; oxlint and type checks on macOS  |
-| `Rust`                 | macOS, Windows                  | Only frontend or documentation changed                                    | Python unit tests, dependency boundaries, Clippy, Rust tests, and local SDK integration |
-| `Remote Agent (Linux)` | Linux, on `main` pushes only    | All PRs; frontend-only, documentation-only, or desktop-shell-only changes | SSH deployment and remote work against an isolated sshd                                 |
-| `Desktop bundle`       | Linux container, macOS, Windows | No packaging configuration, icons, dependencies, or toolchain changes     | The release packaging procedure, with downloadable artifacts                            |
+| Check            | Environment                     | Skip condition                                                        | Coverage                                                                                |
+| ---------------- | ------------------------------- | --------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| `Format`         | Linux                           | Always runs; skips rustfmt when Rust is unchanged                     | oxfmt and nightly rustfmt                                                               |
+| `Web`            | macOS, Windows                  | Only Rust, Python verification, or documentation changed              | Frontend tests and production build on both platforms; oxlint and type checks on macOS  |
+| `Rust`           | macOS, Windows                  | Only frontend or documentation changed                                | Python unit tests, dependency boundaries, Clippy, Rust tests, and local SDK integration |
+| `Desktop bundle` | Linux container, macOS, Windows | No packaging configuration, icons, dependencies, or toolchain changes | The release packaging procedure, with downloadable artifacts                            |
 
-PR tests run only on macOS and Windows. Linux still handles change detection, formatting, the aggregate gate, and Linux remote binary builds when packaging inputs change. Linux SSH integration runs after changes reach `main`.
+PR tests run only on macOS and Windows. Linux still handles change detection, formatting, the aggregate gate, and Linux remote binary builds when packaging inputs change. Run `just integration-ssh` manually when changing SSH transport, deployment, or the remote protocol.
 
-Skipped checks count as successful. The `changes` job in `.github/workflows/ci.yml` defines the path rules. Format, web, Rust, and remote checks default to relevant changes unless all modified paths match their exclusions; the remote check additionally requires a push to `main`. New directories therefore trigger the relevant checks automatically. Packaging runs only when listed inputs change. Update these rules when adding build inputs or check commands.
+Skipped checks count as successful. The `changes` job in `.github/workflows/ci.yml` defines the path rules. Format, web, and Rust checks default to relevant changes unless all modified paths match their exclusions. New directories therefore trigger the relevant checks automatically. Packaging runs only when listed inputs change. Update these rules when adding build inputs or check commands.
 
-CI runs again after merging into `main` and saves Rust build caches; PRs only read those caches.
+Rust build caches are saved within the PR's scope and reused by later updates to the same PR. GitHub also allows PRs to restore eligible caches from their base branch. New commits cancel any earlier CI run for the same PR.
 
 A repository rule enforces the merge gate and requires one-time administrator setup. In GitHub **Settings > Rules > Rulesets**, create a branch rule for the default branch, enable **Require a pull request before merging** and **Require status checks to pass**, and add **Required checks** from GitHub Actions.
 
