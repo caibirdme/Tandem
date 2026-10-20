@@ -6,6 +6,7 @@ import { protectedSessionIds, reconcileConversations, reconcileSessions } from '
 import type { Session } from './types';
 
 const session: Session = {
+  contextUsage: null,
   titleState: 'preserved',
   id: 'session-1',
   title: 'A task',

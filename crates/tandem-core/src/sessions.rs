@@ -85,6 +85,7 @@ impl App {
             created_at: now(),
             updated_at: now(),
             status: SessionStatus::Idle,
+            context_usage: None,
         };
         self.store.save_session(&session)?;
         Ok(session)
@@ -483,7 +484,7 @@ mod tests {
         let provider = app.save_provider(
             serde_json::from_value(json!({
                 "id":"", "name":"Fixture", "protocol":"openai-completions",
-                "baseUrl":"http://127.0.0.1:9999/v1", "models":[{"id":"fixture", "name":"Fixture"}]
+                "baseUrl":"http://127.0.0.1:9999/v1", "models":[{"id":"fixture", "name":"Fixture", "contextWindow":200_000}]
             }))?,
             None,
         ).await?;
@@ -513,6 +514,132 @@ mod tests {
                 PermissionMode::Ask,
             )
             .await?)
+    }
+
+    #[tokio::test]
+    async fn context_usage_tracks_the_latest_work_reading_across_reopen() -> Result<()> {
+        for work in [false, true] {
+            let (directory, app) = application()?;
+            let session = if work {
+                work_session(&app).await?
+            } else {
+                session(&app).await?
+            };
+            let mut events = app.subscribe();
+            for current_tokens in [153_000, 20_000] {
+                // Round-trip the same event frame used by the remote server.
+                let event: RuntimeEvent = serde_json::from_value(json!({
+                    "sessionId":session.id,"kind":"context_usage",
+                    "data":{"currentTokens":current_tokens,"tokenLimit":200_000},
+                }))?;
+                assert!(matches!(app.receive_event(&event), EventOutcome::Continue));
+                if work {
+                    let emitted = events.try_recv()?;
+                    assert_eq!(emitted.kind, "context_usage");
+                    assert_eq!(emitted.data, event.data);
+                    assert_eq!(
+                        app.store.session(&session.id)?.context_usage,
+                        Some(copilot_runtime::ContextUsage {
+                            current_tokens,
+                            token_limit: 200_000,
+                        })
+                    );
+                } else {
+                    assert!(events.try_recv().is_err());
+                    assert!(app.store.session(&session.id)?.context_usage.is_none());
+                }
+            }
+            let before_invalid = app.store.session(&session.id)?.context_usage;
+            for data in [json!({}), json!({"currentTokens":-1,"tokenLimit":200_000})] {
+                app.receive_event(&RuntimeEvent {
+                    session_id: session.id.clone(),
+                    kind: EventKind::ContextUsage,
+                    data,
+                });
+                assert_eq!(
+                    app.store.session(&session.id)?.context_usage,
+                    before_invalid
+                );
+                assert!(events.try_recv().is_err());
+            }
+            let reopened = App::open(AppOptions::local(directory.path().into()))?;
+            let snapshot = reopened.snapshot().await?;
+            let restored = snapshot
+                .sessions
+                .iter()
+                .find(|item| item.id == session.id)
+                .context("session missing from snapshot")?;
+            assert_eq!(restored.context_usage, before_invalid);
+            assert_eq!(restored.updated_at, session.updated_at);
+        }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn provider_updates_clear_obsolete_context_capacity() -> Result<()> {
+        let (_directory, app) = application()?;
+        let session = work_session(&app).await?;
+        app.receive_event(&RuntimeEvent {
+            session_id: session.id.clone(),
+            kind: EventKind::ContextUsage,
+            data: json!({"currentTokens":153_000,"tokenLimit":200_000}),
+        });
+        let mut events = app.subscribe();
+        let mut provider = app.store.provider(&session.provider_id)?;
+        provider.models[0].context_window = 1_000_000;
+        app.save_provider(provider, None).await?;
+        assert!(app.store.session(&session.id)?.context_usage.is_none());
+        let cleared = events.try_recv()?;
+        assert_eq!(cleared.session_id, session.id);
+        assert_eq!(cleared.kind, "context_usage");
+        assert!(cleared.data.is_null());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn context_readings_after_idle_are_kept_until_the_connection_is_invalidated() -> Result<()>
+    {
+        let (_directory, app) = application()?;
+        let session = work_session(&app).await?;
+        let completion = TurnCompletion::new();
+        completion.begin().await?;
+        let mut events = app.subscribe();
+        let (outgoing, incoming) = tokio::sync::broadcast::channel(16);
+        let frame = |kind, data| json!({"sessionId":session.id,"kind":kind,"data":data});
+        outgoing.send(frame("status", json!({"state":"idle"})))?;
+        outgoing.send(frame(
+            "context_usage",
+            json!({"currentTokens":153_000,"tokenLimit":200_000}),
+        ))?;
+        let event_task = app.forward_events(
+            session.id.clone(),
+            AgentEvents::Remote(incoming),
+            completion.clone(),
+        );
+        tokio::time::timeout(std::time::Duration::from_secs(1), async {
+            loop {
+                if events.recv().await?.kind == "context_usage" {
+                    return Ok::<_, tokio::sync::broadcast::error::RecvError>(());
+                }
+            }
+        })
+        .await??;
+        completion.wait().await?;
+        assert_eq!(app.store.session(&session.id)?.status, SessionStatus::Idle);
+        completion.fail();
+        outgoing.send(frame(
+            "context_usage",
+            json!({"currentTokens":199_000,"tokenLimit":200_000}),
+        ))?;
+        tokio::time::timeout(std::time::Duration::from_secs(1), event_task).await??;
+        assert_eq!(
+            app.store
+                .session(&session.id)?
+                .context_usage
+                .map(|usage| usage.current_tokens),
+            Some(153_000)
+        );
+        Ok(())
     }
 
     #[tokio::test]

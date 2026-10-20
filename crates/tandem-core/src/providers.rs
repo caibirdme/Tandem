@@ -44,6 +44,12 @@ impl App {
             .filter(|session| session.provider_id == provider.id)
         {
             self.disconnect_session(&session.id).await;
+            if session.project_id.is_some() {
+                self.store.update_session(&session.id, |session| {
+                    session.context_usage = None;
+                })?;
+                self.emit(&session.id, "context_usage", serde_json::Value::Null);
+            }
         }
         Ok(provider)
     }
@@ -144,7 +150,7 @@ mod tests {
         Ok(serde_json::from_value(json!({
             "id":Uuid::new_v4(), "name":"Fixture", "protocol":"anthropic",
             "baseUrl":"https://example.com", "hasApiKey":true,
-            "models":[{"id":"fixture","name":"Fixture"}]
+            "models":[{"id":"fixture","name":"Fixture","contextWindow":200_000}]
         }))?)
     }
 

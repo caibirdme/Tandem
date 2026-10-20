@@ -36,6 +36,7 @@ import type {
   RuntimeStatus,
   Session,
 } from '../lib/types';
+import { ContextUsageIndicator } from './ContextUsageIndicator';
 import { PermissionModeSelector } from './PermissionModeSelector';
 import { Modal, Notice, Spinner } from './ui';
 
@@ -756,7 +757,15 @@ export function Chat(props: ChatProps) {
               </>
             )}
           </span>
-          <span>{t('chat.keyboardHint')}</span>
+          <div className="composer-status">
+            <span className="composer-keyboard-hint">{t('chat.keyboardHint')}</span>
+            {props.project && currentModel && (
+              <ContextUsageIndicator
+                usage={props.session?.contextUsage ?? null}
+                contextWindow={currentModel.contextWindow}
+              />
+            )}
+          </div>
         </div>
       </div>
     </div>
