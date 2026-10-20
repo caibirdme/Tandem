@@ -1,5 +1,13 @@
 # Verification record
 
+## PR-only CI (2026-10-20)
+
+The workflow change was developed from the latest `origin/main` in `.worktrees/pr-only-ci`. CI now runs only for pull requests targeting `main`, on `opened`, `synchronize`, and `reopened` events. Merging a PR, pushing directly to `main`, and pushing other branches or tags do not trigger this workflow. Per-PR concurrency cancels superseded runs. The existing **Required checks** merge gate, macOS/Windows test matrices, and web/Rust/packaging path rules are retained.
+
+The push-only Linux SSH job, its path filter/output, its obsolete change-detection checkout, and its dependency in the aggregate gate were removed. SSH integration remains available through `just integration-ssh`. Rust caching now saves within each PR's scope instead of requiring a `main` run. The reusable desktop bundle workflow and `v*` tag Release workflow are unchanged. The cache defaults were checked against the [rust-cache action definition](https://github.com/Swatinem/rust-cache/blob/v2/action.yml), and scope behavior against [GitHub's cache reference](https://docs.github.com/en/actions/reference/workflows-and-actions/dependency-caching#restrictions-for-accessing-a-cache).
+
+Actionlint 1.7.12 passed for all three workflows; its downloaded Windows archive matched the official release checksum. Local policy checks passed nine trigger cases and assertions for job dependencies, the required gate, unchanged path filters and runner matrices, cache policy, and byte-equivalent release/bundle configuration. The changed YAML/Markdown files passed formatting and whitespace checks. All 29 Python tests and workspace dependency checks passed. No application code or dependencies changed, so frontend/Rust tests, inference/SSH integration, and desktop builds were not repeated for this workflow-only change. Hosted workflow dispatch and cache reuse were not exercised locally.
+
 ## Provider and SSH form usability (2026-10-20)
 
 The change was developed from `main` in `.worktrees/form-usability`, carrying forward the README introduction and screenshots. Context limits use a compact 180-pixel input with a K suffix; context and port fields retain native numeric validation while hiding stepper arrows. Required labels use a red asterisk, with native `required` semantics retained for assistive technology. Saving incomplete provider or project forms focuses the first missing field and displays the browser's validation prompt. The project submit button remains available when idle so missing SSH fields can be validated before any command is sent.

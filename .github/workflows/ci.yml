@@ -3,15 +3,14 @@ name: CI
 on:
   pull_request:
     branches: [main]
-  push:
-    branches: [main]
+    types: [opened, synchronize, reopened]
 
 permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: ci-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
 
 env:
   CARGO_TERM_COLOR: always
@@ -26,12 +25,9 @@ jobs:
     outputs:
       web: ${{ steps.filter.outputs.web }}
       rust: ${{ steps.filter.outputs.rust }}
-      remote: ${{ steps.filter.outputs.remote }}
       bundle: ${{ steps.filter.outputs.bundle }}
     steps:
-      - uses: actions/checkout@v7
-        if: github.event_name == 'push'
-      # Run web, rust, and remote unless all changes are excluded; bundle only when its inputs change.
+      # Run web and Rust unless all changes are excluded; bundle only when its inputs change.
       # User guides and README screenshots live under docs/**, so documentation-only edits run Format.
       - uses: dorny/paths-filter@v4
         id: filter
@@ -54,7 +50,7 @@ jobs:
               - '!.oxfmtrc.json'
               - '!.github/workflows/bundle.yml'
               - '!.github/workflows/release.yml'
-            rust: &rust
+            rust:
               - '**'
               - '!src/**'
               - '!public/**'
@@ -71,9 +67,6 @@ jobs:
               - '!justfile'
               - '!.github/workflows/bundle.yml'
               - '!.github/workflows/release.yml'
-            remote:
-              - *rust
-              - '!src-tauri/**'
             bundle:
               - '.github/workflows/bundle.yml'
               - 'src-tauri/tauri.conf.json'
@@ -144,35 +137,13 @@ jobs:
           python-version: '3.14'
       - run: python -m unittest discover -s tests -p 'test_*.py'
       - run: rustup toolchain install
-      # PRs only restore caches saved by main to avoid saving a cache for every PR.
+      # Reuse PR-scoped caches on later commits without requiring a main-branch CI run.
       - uses: Swatinem/rust-cache@v2
-        with:
-          save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: python scripts/check_workspace.py
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - run: cargo test --workspace --locked
       - run: cargo build -p tandem-dev-server --locked
       - run: python tests/runtime_e2e.py
-
-  remote:
-    name: Remote Agent (Linux)
-    needs: changes
-    # Keep Linux SSH coverage after merge without running Linux tests on PRs.
-    if: github.event_name == 'push' && needs.changes.outputs.remote == 'true'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 60
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
-        with:
-          python-version: '3.14'
-      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends openssh-server
-      - run: rustup toolchain install
-      - uses: Swatinem/rust-cache@v2
-        with:
-          save-if: ${{ github.ref == 'refs/heads/main' }}
-      - run: cargo build -p tandem-dev-server -p tandem-server --locked
-      - run: python tests/remote_e2e.py
 
   bundle:
     name: Desktop bundle
@@ -184,7 +155,7 @@ jobs:
   required:
     name: Required checks
     if: always()
-    needs: [changes, format, web, rust, remote, bundle]
+    needs: [changes, format, web, rust, bundle]
     runs-on: ubuntu-24.04
     steps:
       - env:
