@@ -36,7 +36,7 @@ import { BrowserLink } from './BrowserLink';
 import { LanguageSettings } from './LanguageSettings';
 import { ProviderKeyInput } from './ProviderKeyInput';
 import { TitlePreferences } from './TitlePreferences';
-import { Modal, Notice, Spinner, Toggle } from './ui';
+import { Modal, Notice, RequiredMark, Spinner, Toggle } from './ui';
 
 import './ProviderForm.css';
 
@@ -301,7 +301,10 @@ export function ProviderEditor({
       <h3>{provider ? t('settings.editProvider') : t('settings.addProvider')}</h3>
       <div className="form-grid">
         <label>
-          {t('settings.name')}
+          <span>
+            {t('settings.name')}
+            <RequiredMark />
+          </span>
           <input
             required
             value={draft.name}
@@ -326,7 +329,10 @@ export function ProviderEditor({
         </label>
       </div>
       <label>
-        {t('settings.baseUrl')}
+        <span>
+          {t('settings.baseUrl')}
+          <RequiredMark />
+        </span>
         <input
           required
           type="url"
@@ -388,7 +394,10 @@ export function ProviderEditor({
           )}
           <div className="form-grid">
             <label>
-              {t('settings.modelId')}
+              <span>
+                {t('settings.modelId')}
+                <RequiredMark />
+              </span>
               <input
                 required
                 value={model.id}
@@ -406,10 +415,14 @@ export function ProviderEditor({
             </label>
           </div>
           <label className="model-context-field">
-            {t('settings.contextWindow')}
+            <span>
+              {t('settings.contextWindow')}
+              <RequiredMark />
+            </span>
             <span className="context-window-input">
               <input
                 required
+                className="number-input"
                 type="number"
                 min="0.001"
                 step="0.001"
@@ -538,7 +551,10 @@ function Preferences({
             description={t('settings.telemetryHint')}
           />
           <label>
-            {t('settings.endpoint')}
+            <span>
+              {t('settings.endpoint')}
+              {telemetry.enabled && <RequiredMark />}
+            </span>
             <input
               type="url"
               required={telemetry.enabled}

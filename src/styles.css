@@ -1410,6 +1410,19 @@ select:focus {
 input[type='number'] {
   min-width: 0;
 }
+input.number-input {
+  appearance: textfield;
+}
+input.number-input::-webkit-inner-spin-button,
+input.number-input::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.required-mark {
+  margin-inline-start: 4px;
+  color: #c13d36;
+  font-weight: 600;
+}
 input[type='password'] {
   font-family: inherit;
 }

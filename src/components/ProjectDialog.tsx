@@ -13,7 +13,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useI18n } from '../i18n';
 import { dispatch, errorMessage, isDesktop } from '../lib/api';
 import type { Connection, DirectoryListing, Project } from '../lib/types';
-import { Modal, Notice, Spinner } from './ui';
+import { Modal, Notice, RequiredMark, Spinner } from './ui';
 
 export function ProjectDialog({
   open,
@@ -34,9 +34,15 @@ export function ProjectDialog({
   const [identityFile, setIdentityFile] = useState('');
   const [busy, setBusy] = useState<'save' | 'check' | 'browse' | null>(null);
   const [notice, setNotice] = useState<{ text: string; error: boolean } | null>(null);
+  const [connectionNotice, setConnectionNotice] = useState<{
+    text: string;
+    error: boolean;
+    connectionKey: string;
+  } | null>(null);
   const [listing, setListing] = useState<DirectoryListing | null>(null);
   const directoryBrowserRef = useRef<HTMLDivElement>(null);
   const noticeRef = useRef<HTMLDivElement>(null);
+  const connectionNoticeRef = useRef<HTMLDivElement>(null);
   const browseStatusRef = useRef<HTMLDivElement>(null);
   const connection: Connection =
     kind === 'local'
@@ -48,9 +54,16 @@ export function ProjectDialog({
           port: Number(port),
           identityFile: identityFile.trim() || null,
         };
+  const connectionKey = JSON.stringify(connection);
+  const visibleConnectionNotice =
+    connectionNotice?.connectionKey === connectionKey ? connectionNotice : null;
   const connectionValid =
     kind === 'local' ||
-    (host.trim().length > 0 && user.trim().length > 0 && Number(port) > 0 && Number(port) <= 65535);
+    (host.trim().length > 0 &&
+      user.trim().length > 0 &&
+      Number.isInteger(Number(port)) &&
+      Number(port) > 0 &&
+      Number(port) <= 65535);
 
   useEffect(() => {
     if (listing) directoryBrowserRef.current?.scrollIntoView({ block: 'nearest' });
@@ -59,6 +72,9 @@ export function ProjectDialog({
     if (notice) noticeRef.current?.scrollIntoView({ block: 'nearest' });
   }, [notice]);
   useEffect(() => {
+    if (visibleConnectionNotice) connectionNoticeRef.current?.scrollIntoView({ block: 'nearest' });
+  }, [visibleConnectionNotice]);
+  useEffect(() => {
     if (kind === 'ssh' && busy === 'browse')
       browseStatusRef.current?.scrollIntoView({ block: 'nearest' });
   }, [busy, kind]);
@@ -66,11 +82,12 @@ export function ProjectDialog({
   async function check() {
     setBusy('check');
     setNotice(null);
+    setConnectionNotice(null);
     try {
       const result = await dispatch('check_connection', { connection });
-      setNotice({ text: result.message, error: false });
+      setConnectionNotice({ text: result.message, error: false, connectionKey });
     } catch (reason) {
-      setNotice({ text: errorMessage(reason), error: true });
+      setConnectionNotice({ text: errorMessage(reason), error: true, connectionKey });
     } finally {
       setBusy(null);
     }
@@ -144,6 +161,7 @@ export function ProjectDialog({
               setKind('local');
               setListing(null);
               setNotice(null);
+              setConnectionNotice(null);
             }}
           >
             <Laptop size={20} />
@@ -158,6 +176,7 @@ export function ProjectDialog({
               setKind('ssh');
               setListing(null);
               setNotice(null);
+              setConnectionNotice(null);
             }}
           >
             <Server size={20} />
@@ -170,33 +189,49 @@ export function ProjectDialog({
           <div className="ssh-fields">
             <div className="form-grid host-port">
               <label>
-                {t('project.host')}
+                <span>
+                  {t('project.host')} <RequiredMark />
+                </span>
                 <input
                   required
                   value={host}
-                  onChange={(event) => setHost(event.target.value)}
+                  onChange={(event) => {
+                    setHost(event.target.value);
+                    setConnectionNotice(null);
+                  }}
                   placeholder={t('project.hostExample')}
                   autoComplete="off"
                 />
               </label>
               <label>
-                {t('project.port')}
+                <span>
+                  {t('project.port')} <RequiredMark />
+                </span>
                 <input
+                  className="number-input"
                   type="number"
                   required
                   min="1"
                   max="65535"
                   value={port}
-                  onChange={(event) => setPort(event.target.value)}
+                  onChange={(event) => {
+                    setPort(event.target.value);
+                    setConnectionNotice(null);
+                  }}
                 />
               </label>
             </div>
             <label>
-              {t('project.user')}
+              <span>
+                {t('project.user')} <RequiredMark />
+              </span>
               <input
                 required
                 value={user}
-                onChange={(event) => setUser(event.target.value)}
+                onChange={(event) => {
+                  setUser(event.target.value);
+                  setConnectionNotice(null);
+                }}
                 placeholder={t('project.userExample')}
                 autoComplete="username"
               />
@@ -207,7 +242,10 @@ export function ProjectDialog({
                 {t('project.keyPath')}
                 <input
                   value={identityFile}
-                  onChange={(event) => setIdentityFile(event.target.value)}
+                  onChange={(event) => {
+                    setIdentityFile(event.target.value);
+                    setConnectionNotice(null);
+                  }}
                   placeholder="~/.ssh/id_ed25519"
                 />
                 <small>{t('project.keyHint')}</small>
@@ -224,10 +262,19 @@ export function ProjectDialog({
               {busy === 'check' ? <Spinner /> : <Plug size={14} />}
               {busy === 'check' ? t('project.checkingConnection') : t('project.testConnection')}
             </button>
+            {visibleConnectionNotice && (
+              <div ref={connectionNoticeRef}>
+                <Notice tone={visibleConnectionNotice.error ? 'error' : 'success'}>
+                  {visibleConnectionNotice.text}
+                </Notice>
+              </div>
+            )}
           </div>
         )}
         <label>
-          {t('project.name')}
+          <span>
+            {t('project.name')} <RequiredMark />
+          </span>
           <input
             value={name}
             onChange={(event) => setName(event.target.value)}
@@ -236,7 +283,9 @@ export function ProjectDialog({
           />
         </label>
         <label>
-          {t('project.directory')}
+          <span>
+            {t('project.directory')} <RequiredMark />
+          </span>
           <div className="input-with-button">
             <input
               required
@@ -323,11 +372,7 @@ export function ProjectDialog({
           <button className="button" type="button" onClick={onClose} disabled={busy !== null}>
             {t('common.cancel')}
           </button>
-          <button
-            className="button primary"
-            type="submit"
-            disabled={!connectionValid || busy !== null}
-          >
+          <button className="button primary" type="submit" disabled={busy !== null}>
             {busy === 'save' ? <Spinner /> : <Folder size={15} />}
             {busy === 'save' ? t('project.preparing') : t('common.createProject')}
           </button>

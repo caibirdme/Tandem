@@ -72,7 +72,7 @@ export const en = {
   'settings.low': 'Low',
   'settings.medium': 'Medium',
   'settings.high': 'High',
-  'settings.contextWindow': 'Context window (required)',
+  'settings.contextWindow': 'Context window',
   'settings.contextWindowHint': 'Enter the context limit in K tokens. 1 K = 1,000 tokens.',
   'settings.default': 'Default',
   'settings.maxOutputTokens': 'Maximum output tokens',

@@ -33,6 +33,8 @@ describe('provider editor fields', () => {
     const context = rendered.match(/<input[^>]*value="131\.072"[^>]*>/)?.[0];
     expect(context).toBeDefined();
     expect(context).toContain('required=""');
+    expect(context).toContain('class="number-input"');
+    expect(context).toContain('type="number"');
     expect(context).toContain('min="0.001"');
     expect(context).toContain('step="0.001"');
     expect(context).toContain('aria-describedby="context-window-hint-');
@@ -41,9 +43,23 @@ describe('provider editor fields', () => {
     expect(rendered.indexOf('value="131.072"')).toBeLessThan(rendered.indexOf('<details'));
   });
 
-  it('requires users to specify a context limit for a new provider', () => {
+  it('marks required fields and preserves native validation for a new provider', () => {
     const rendered = markup(null);
-    expect(rendered).toMatch(/<input required="" type="number"[^>]*value=""/);
+    const labels = [...rendered.matchAll(/<label(?: [^>]*)?>(.*?)<\/label>/g)].map(
+      ([, label]) => label ?? '',
+    );
+    for (const name of ['Name', 'Base URL', 'Model ID', 'Context window']) {
+      const field = labels.find((label) => label.startsWith(`<span>${name}<`));
+      expect(field).toBeDefined();
+      expect(field).toContain('class="required-mark" aria-hidden="true">*</span>');
+      expect(field).toContain('required=""');
+    }
+    const displayName = labels.find((label) => label.startsWith('Display name<'));
+    expect(displayName).toBeDefined();
+    expect(displayName).not.toContain('required');
+    expect(rendered).toContain('type="submit"');
+    expect(rendered).not.toContain('novalidate');
+    expect(rendered).not.toContain('(required)');
     expect(rendered).not.toContain('provider-request-url');
   });
 
