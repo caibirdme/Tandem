@@ -2,7 +2,7 @@
 
 ## Project overview
 
-Tandem is an agent desktop application for local directories and SSH projects. Chat exposes only web tools and automatically approves every tool permission request without prompting the user. Work runs in a selected directory and asks for each permission by default; users can also grant full access for that session. A pinned GitHub Copilot SDK provides the agent loop.
+Tandem is an agent desktop application for local directories and SSH projects. Chat exposes only web tools and automatically approves every tool permission request without prompting the user. Work runs in a selected directory and asks for each permission by default; users can also grant full access for that session. GitHub Copilot SDK provides the agent loop.
 
 Stack: Tauri 2, Rust 1.99.1 / edition 2024, React, TypeScript 7, Vite 8, and pnpm. All backend business logic is written in Rust.
 
@@ -37,7 +37,7 @@ Stack: Tauri 2, Rust 1.99.1 / edition 2024, React, TypeScript 7, Vite 8, and pnp
 - Use English for all project documentation and project information, including code comments, commit message titles and bodies, PR titles and descriptions, issue text, release notes, logs, diagnostics, and default application messages. UI translations may use their target language inside locale catalogs. English is the default UI language; users can select another supported language in Settings. Keep UI text in typed catalogs so additional languages can be added consistently.
 - Check official documentation before adding dependencies. Verify library and tool interfaces using the agreed Context7 `library` and `docs` steps.
 - The project is at an early stage. Use current names, data schemas, and interfaces directly. Do not add backward-compatibility aliases, legacy data or configuration fallbacks, migration logic, or user upgrade instructions.
-- Pin the Copilot SDK to `v1.0.23-preview.5`. Use compatible major version ranges for other Rust dependencies; for 0.x dependencies, use the current compatible minor version without pinning the patch. Commit `Cargo.lock`.
+- Use `github-copilot-sdk = "1"` from crates.io. Use compatible major version ranges for other Rust dependencies; for 0.x dependencies, use the current compatible minor version without pinning the patch. Commit `Cargo.lock`.
 - Core services must not depend on a window framework. Store API keys as requested in a separate configuration table in local SQLite, in plaintext. Read them on demand in the provider editor, hide them by default, and allow manual reveal. Ordinary snapshots must not contain keys. Never write keys to logs, browser storage, or command-line arguments. Do not use system credential stores.
 - `tandem-protocol` contains only the shared protocol and must not depend on application services, SSH, or the SDK. The only permitted workspace dependencies of `tandem-server` are `copilot-runtime` and `tandem-protocol`; it must not include `tandem-core`, `tandem-remote`, HTTP services, SQLite, or system credential stores.
 - `tandem-dev-server` is for local development and calls application services through `tandem-core`. Remote builds, SSH uploads, and desktop resources use only `tandem-server`; do not bundle the development host.

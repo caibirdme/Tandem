@@ -90,7 +90,7 @@ Each retry creates new isolated sessions and reruns chat and work for the select
 
 ## Dependencies and the first build
 
-`rust-toolchain.toml` pins the compiler. Cargo dependencies use compatible major version ranges, or the current minor range for 0.x libraries. The SDK is an exception and uses the required Git tag. Commit `Cargo.lock` and `pnpm-lock.yaml`, and rerun quality gates after upgrades.
+`rust-toolchain.toml` pins the compiler. Cargo dependencies use compatible major version ranges, or the current minor range for 0.x libraries. The Copilot SDK uses `github-copilot-sdk = "1"` from crates.io; `Cargo.lock` currently resolves `1.0.24`, which bundles Copilot CLI `1.0.101`. Commit `Cargo.lock` and `pnpm-lock.yaml`, and rerun quality gates after upgrades.
 
 The SDK's first build downloads the platform CLI; prepare a build cache before working offline. If Cargo reports mirror TLS or DNS failures, inspect local Cargo source configuration first. Do not weaken certificate verification.
 

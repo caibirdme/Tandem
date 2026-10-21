@@ -1,5 +1,19 @@
 # Verification record
 
+## Copilot SDK 1.x dependency range (2026-10-21)
+
+Continued PR #15 in `.worktrees/conversation-attachments`. The SDK dependency now uses `github-copilot-sdk = "1"` from crates.io, with `Cargo.lock` resolving `1.0.24`; no unrelated package was updated. The published crate bundles Copilot CLI `1.0.101`. Settings, runtime version reporting, dependency instructions, and current documentation reflect these versions. The obsolete `enable_github_cache_store` title-session setting was removed because SDK 1.0.24 no longer exposes it; the existing tool, discovery, session-store, and telemetry restrictions remain in place.
+
+Context7 was unavailable. Version and interface checks used the [official 1.0.24 release](https://github.com/github/copilot-sdk/releases/tag/v1.0.24), the published crate, its CLI version snapshots, and the corresponding Rust SDK source. Historical verification sections below retain the versions they actually tested.
+
+All 356 frontend tests, 157 Rust workspace tests, and 34 Python tests passed. Formatting, frontend lint and type checks, strict workspace Clippy, workspace dependency checks, and production frontend/development/remote builds passed. The existing regression suite covers the title-session restrictions retained after removal of the obsolete setting.
+
+Remote stdio integration passed with 24 inference requests and six telemetry exports using the rebuilt binary, SDK 1.0.24, and isolated local test services. It covered attachment delivery, skill discovery and invocation, reasoning changes, cold resume, protocol input failures, and telemetry. Full SSH remains untested on this Windows host. The log is `artifacts/sdk-1-upgrade-remote.log`.
+
+The full local integration suite passed on its first run with 142 inference requests, 29 title requests, and 20 telemetry exports. Production services and the actual bundled CLI used normal OS temporary directories and local test inference/telemetry endpoints. Attachment delivery and restoration, title generation, skills, reasoning, permissions, grouped activity, model changes, restart persistence, and credential privacy all passed without changing fixture assertions. The log is `artifacts/sdk-1-upgrade-local.log`.
+
+Windows release compilation, remote resource preparation, and desktop packaging passed with the new SDK. Both `Tandem_0.0.2_x64_en-US.msi` and `Tandem_0.0.2_x64-setup.exe` were generated. The installers were not installed and the native application was not launched. Build logs are `artifacts/sdk-1-upgrade-release.log` and `artifacts/sdk-1-upgrade-desktop.log`.
+
 ## Compact attachment drafts and main refresh (2026-10-21)
 
 Continued the attachment feature in `.worktrees/conversation-attachments`. Updated local `main` from `d0fda1a` to remote `04d2204` and integrated it into the feature branch. Merge resolution retains per-session reasoning, grouped activity, and the project/home `.agents/skills` policy. Attachment inserts now return the database sequence assigned to their saved message, preserving the upstream activity timeline and history ordering. Both existing provider guards and new reasoning controls remain active.

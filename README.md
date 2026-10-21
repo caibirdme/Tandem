@@ -76,7 +76,7 @@ just setup
 just dev
 ```
 
-Tandem uses React, Tauri 2, and Rust services built on GitHub Copilot SDK `v1.0.23-preview.5`. The matching Copilot CLI is bundled automatically.
+Tandem uses React, Tauri 2, and Rust services built on GitHub Copilot SDK 1.x from crates.io. `Cargo.lock` currently resolves SDK `1.0.24`, and its matching Copilot CLI `1.0.101` is bundled automatically.
 
 ## Learn more
 

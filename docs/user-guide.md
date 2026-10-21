@@ -127,7 +127,7 @@ Changes restart the runtime once active conversations stop; existing sessions ca
 
 ## Bundled runtime
 
-Tandem bundles the matching Copilot CLI, so you do not need to install Copilot separately. The SDK is pinned to `v1.0.23-preview.5`, with CLI `1.0.100-1`.
+Tandem bundles the matching Copilot CLI, so you do not need to install Copilot separately. The current build uses SDK `1.0.24` with CLI `1.0.101`.
 
 For source builds, the first Rust build downloads that CLI and verifies its checksum. At runtime, Tandem extracts it from bundled resources. The **Copilot CLI path** field in **Settings > General** is an optional debugging override; leave it empty for normal use.
 

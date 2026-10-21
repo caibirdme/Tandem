@@ -33,11 +33,11 @@ Skill selection is an application/runtime protocol, rather than a model-provider
 
 The implementations reviewed for this change use the following mechanisms:
 
-| Application             | Selection and runtime behavior                                                                                                                                                                                                         |
-| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Codex                   | `skills/list` provides metadata for a working directory. `turn/start` accepts the text containing `$name` and a separate `{type: "skill", name, path}` input item. The server loads the full instructions.                             |
-| Claude Code             | A skill's description is available for automatic matching. An explicit `/name` invocation loads the skill instructions into the conversation.                                                                                          |
-| Tandem with Copilot SDK | `list_project_skills` provides project metadata. `send_message` carries `selectedSkills: [{name, path}]` alongside the original text. The runtime validates these references and uses the pinned SDK's native skill command expansion. |
+| Application             | Selection and runtime behavior                                                                                                                                                                                                  |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Codex                   | `skills/list` provides metadata for a working directory. `turn/start` accepts the text containing `$name` and a separate `{type: "skill", name, path}` input item. The server loads the full instructions.                      |
+| Claude Code             | A skill's description is available for automatic matching. An explicit `/name` invocation loads the skill instructions into the conversation.                                                                                   |
+| Tandem with Copilot SDK | `list_project_skills` provides project metadata. `send_message` carries `selectedSkills: [{name, path}]` alongside the original text. The runtime validates these references and uses the SDK's native skill command expansion. |
 
 Sending only `$name` leaves resolution to the agent. Tandem's picker sends an exact identity as well, so explicitly selected skills do not depend on the model guessing which file the user meant. The frontend does not read skill files or insert their bodies into system instructions.
 
@@ -50,6 +50,9 @@ Sources checked on October 20, 2026:
 - [Codex app-server: skill inputs and listing](https://learn.chatgpt.com/docs/app-server#skills)
 - [Codex: skill discovery and invocation](https://learn.chatgpt.com/docs/build-skills)
 - [Claude Code: skills](https://code.claude.com/docs/en/skills)
-- [Copilot SDK v1.0.23-preview.5: skills](https://github.com/github/copilot-sdk/blob/v1.0.23-preview.5/docs/features/skills.md)
-- [Pinned Rust SDK configuration and message types](https://github.com/github/copilot-sdk/blob/v1.0.23-preview.5/rust/src/types.rs)
-- [Pinned SDK RPC types](https://github.com/github/copilot-sdk/blob/v1.0.23-preview.5/rust/src/generated/api_types.rs)
+
+Copilot SDK sources checked against the resolved `1.0.24` release on October 21, 2026:
+
+- [Copilot SDK v1.0.24: skills](https://github.com/github/copilot-sdk/blob/v1.0.24/docs/features/skills.md)
+- [Rust SDK v1.0.24 configuration and message types](https://github.com/github/copilot-sdk/blob/v1.0.24/rust/src/types.rs)
+- [SDK v1.0.24 RPC types](https://github.com/github/copilot-sdk/blob/v1.0.24/rust/src/generated/api_types.rs)

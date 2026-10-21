@@ -93,7 +93,7 @@ export const zhCN = {
   'settings.cliHint':
     '应用已内置匹配版本，无需额外安装；仅在调试自定义 CLI 时填写可执行文件的完整路径。',
   'settings.tagline': '让想法与行动相连。',
-  'settings.sdkVersion': '基于 GitHub Copilot SDK · v1.0.23-preview.5',
+  'settings.sdkVersion': '基于 GitHub Copilot SDK · v1.0.24',
   'settings.sdkDocs': 'Copilot SDK 文档',
   'settings.save': '保存设置',
   'project.selectDirectory': '选择项目目录',
