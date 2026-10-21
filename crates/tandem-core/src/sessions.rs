@@ -1,6 +1,9 @@
 use std::sync::{Arc, Weak};
 
-use copilot_runtime::{SessionMode, SessionOptions, SkillSelection};
+use copilot_runtime::{
+    MessageAttachment, SessionMode, SessionOptions, SkillSelection, validate_attachment_protocol,
+    validate_attachments,
+};
 use serde_json::json;
 use tandem_remote::RemoteTransport;
 use tokio::{sync::Mutex, task::JoinHandle};
@@ -12,8 +15,8 @@ use crate::{
     app::now,
     events::EventOutcome,
     model::{
-        Connection, Message, MessageRole, NameField, PermissionMode, Session, SessionStatus,
-        TitleState, validate_name, validate_reasoning_effort,
+        AttachmentMetadata, Connection, Message, MessageRole, NameField, PermissionMode, Session,
+        SessionStatus, TitleState, validate_name, validate_reasoning_effort,
     },
 };
 
@@ -22,6 +25,14 @@ struct Submission<'a> {
     session_id: &'a str,
     settled: bool,
     completion: Option<TurnCompletion>,
+}
+
+struct UserMessage<'a> {
+    content: String,
+    message_id: Uuid,
+    selected_skills: &'a [SkillSelection],
+    attachments: &'a [MessageAttachment],
+    attachment_bytes: Vec<Vec<u8>>,
 }
 
 impl Drop for Submission<'_> {
@@ -142,10 +153,12 @@ impl App {
         content: String,
         message_id: Uuid,
         selected_skills: &[SkillSelection],
+        attachments: &[MessageAttachment],
     ) -> Result<()> {
-        if content.trim().is_empty() || content.len() > 500_000 {
+        if (content.trim().is_empty() && attachments.is_empty()) || content.len() > 500_000 {
             return Err(Error::InvalidMessage);
         }
+        let attachment_bytes = validate_attachments(attachments)?;
         if !selected_skills.is_empty() && self.store.session(session_id)?.project_id.is_none() {
             return Err(Error::ChatSkillSelection);
         }
@@ -171,6 +184,14 @@ impl App {
             if session.status == SessionStatus::Running {
                 return Err(Error::ConversationRunning);
             }
+            let provider = self.store.provider(&session.provider_id)?;
+            for attachment in attachments {
+                validate_attachment_protocol(
+                    &attachment.name,
+                    &attachment.mime_type,
+                    provider.protocol.into(),
+                )?;
+            }
             self.titles.mark_interrupted(session_id, false)?;
             let first_turn = !self.store.has_messages(session_id)?;
             let session = self.store.update_session(session_id, |session| {
@@ -190,9 +211,13 @@ impl App {
             .submit_turn(
                 &session,
                 first_turn,
-                content,
-                message_id,
-                selected_skills,
+                UserMessage {
+                    content,
+                    message_id,
+                    selected_skills,
+                    attachments,
+                    attachment_bytes,
+                },
                 &mut submission,
             )
             .await;
@@ -213,13 +238,17 @@ impl App {
         self: &Arc<Self>,
         session: &Session,
         first_turn: bool,
-        content: String,
-        message_id: Uuid,
-        selected_skills: &[SkillSelection],
+        request: UserMessage<'_>,
         submission: &mut Submission<'_>,
     ) -> Result<()> {
         let handle = self.ensure_session(session, !first_turn).await?;
-        let prepared = handle.prepare(&content, selected_skills).await?;
+        let prepared = handle
+            .prepare(
+                &request.content,
+                request.selected_skills,
+                request.attachments,
+            )
+            .await?;
         let completion = self
             .sessions
             .lock()
@@ -231,16 +260,29 @@ impl App {
         completion.begin().await?;
         submission.completion = Some(completion);
         let message = Message {
-            id: message_id.to_string(),
+            id: request.message_id.to_string(),
             session_id: session.id.clone(),
             role: MessageRole::User,
-            content: content.clone(),
+            content: request.content,
+            attachments: request
+                .attachments
+                .iter()
+                .zip(&request.attachment_bytes)
+                .map(|(attachment, bytes)| AttachmentMetadata {
+                    id: Uuid::new_v4().to_string(),
+                    name: attachment.name.clone(),
+                    mime_type: attachment.mime_type.clone(),
+                    size: bytes.len(),
+                })
+                .collect(),
             created_at: now(),
             sequence: None,
             activity: None,
             interrupted: false,
         };
-        let message = self.store.append_message(&message)?;
+        let message = self
+            .store
+            .append_message_with_attachments(&message, &request.attachment_bytes)?;
         self.store.update_session(&session.id, |current| {
             current.updated_at = now();
             current.status = SessionStatus::Running;
@@ -825,6 +867,7 @@ mod tests {
             session_id: work.id.clone(),
             role: MessageRole::Assistant,
             content: "Partial output before the failure".into(),
+            attachments: Vec::new(),
             created_at: now(),
             sequence: None,
             activity: None,
@@ -863,6 +906,7 @@ mod tests {
                 session_id: work.id.clone(),
                 role,
                 content: content.into(),
+                attachments: Vec::new(),
                 created_at: now(),
                 sequence: None,
                 activity: None,

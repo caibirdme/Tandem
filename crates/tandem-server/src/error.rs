@@ -66,7 +66,9 @@ impl ServerError {
             | Self::InvalidBoolean { .. }
             | Self::InvalidPayload { .. }
             | Self::PreparedMessageUnavailable
-            | Self::Runtime(RuntimeError::InvalidConfiguration(_)) => RpcErrorCode::InvalidPayload,
+            | Self::Runtime(RuntimeError::Attachments(_) | RuntimeError::InvalidConfiguration(_)) => {
+                RpcErrorCode::InvalidPayload
+            }
             Self::SessionNotConnected | Self::Runtime(RuntimeError::Disconnected) => {
                 RpcErrorCode::SessionNotConnected
             }
@@ -142,6 +144,12 @@ mod tests {
             (
                 ServerError::Runtime(RuntimeError::InvalidConfiguration(
                     copilot_runtime::ConfigurationError::EmptyPrompt,
+                )),
+                RpcErrorCode::InvalidPayload,
+            ),
+            (
+                ServerError::Runtime(RuntimeError::Attachments(
+                    copilot_runtime::AttachmentError::TooMany { limit: 10 },
                 )),
                 RpcErrorCode::InvalidPayload,
             ),

@@ -37,6 +37,7 @@ describe('reconnecting to a running or completed session', () => {
               sessionId: session.id,
               role: 'activity',
               content: 'Creating a file',
+              attachments: [],
               createdAt: session.createdAt,
               activity: {
                 status: 'running',

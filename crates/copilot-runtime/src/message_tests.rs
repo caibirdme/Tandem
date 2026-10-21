@@ -1,0 +1,265 @@
+use std::{
+    path::PathBuf,
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
+
+use github_copilot_sdk::Client;
+use serde_json::{Value, json};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader, DuplexStream, duplex};
+
+use crate::{
+    AttachmentError, Error, MessageAttachment, ModelSettings, PermissionMode, ProviderProtocol,
+    ProviderSettings, Runtime, SessionMode, SessionOptions, SkillSelection,
+};
+
+type TestResult<T = ()> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
+
+struct SdkServer {
+    reader: BufReader<DuplexStream>,
+    writer: DuplexStream,
+}
+
+impl SdkServer {
+    async fn request(&mut self, method: &str) -> TestResult<Value> {
+        let request: Value = tokio::time::timeout(Duration::from_secs(10), async {
+            let mut header = String::new();
+            self.reader.read_line(&mut header).await?;
+            let length: usize = header
+                .trim()
+                .strip_prefix("Content-Length: ")
+                .ok_or("missing SDK frame length")?
+                .parse()?;
+            let mut separator = String::new();
+            self.reader.read_line(&mut separator).await?;
+            assert_eq!(separator, "\r\n");
+            let mut body = vec![0; length];
+            self.reader.read_exact(&mut body).await?;
+            Ok::<Value, Box<dyn std::error::Error + Send + Sync>>(serde_json::from_slice(&body)?)
+        })
+        .await??;
+        assert_eq!(request["method"], method);
+        Ok(request)
+    }
+
+    async fn respond(&mut self, request: &Value, result: Value) -> TestResult {
+        let body =
+            serde_json::to_vec(&json!({"jsonrpc":"2.0", "id":request["id"], "result":result}))?;
+        let header = format!("Content-Length: {}\r\n\r\n", body.len());
+        self.writer.write_all(header.as_bytes()).await?;
+        self.writer.write_all(&body).await?;
+        self.writer.flush().await?;
+        Ok(())
+    }
+
+    async fn reply(&mut self, method: &str, response: Value) -> TestResult<Value> {
+        let request = self.request(method).await?;
+        self.respond(&request, response).await?;
+        Ok(request)
+    }
+}
+
+struct TestDirectory(PathBuf);
+
+impl TestDirectory {
+    fn new() -> TestResult<Self> {
+        let timestamp = SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos();
+        let directory = std::env::temp_dir().join(format!(
+            "tandem-message-test-{}-{timestamp}",
+            std::process::id()
+        ));
+        std::fs::create_dir(&directory)?;
+        Ok(Self(directory))
+    }
+}
+
+impl Drop for TestDirectory {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+fn session_options(directory: PathBuf, work: bool) -> SessionOptions {
+    SessionOptions {
+        session_id: Some("attachment-session".into()),
+        mode: if work {
+            SessionMode::Work { directory }
+        } else {
+            SessionMode::Chat
+        },
+        permission_mode: PermissionMode::Ask,
+        provider: ProviderSettings {
+            protocol: ProviderProtocol::OpenaiResponses,
+            base_url: "http://127.0.0.1:1/v1".into(),
+            api_key: None,
+        },
+        model: ModelSettings {
+            id: "fixture-model".into(),
+            context_window: 200_000,
+            ..Default::default()
+        },
+        system_prompt: None,
+    }
+}
+
+async fn serve_skill(server: &mut SdkServer, skill_path: &str) -> TestResult {
+    server
+        .reply("session.skills.reload", json!({"warnings":[],"errors":[]}))
+        .await?;
+    server
+        .reply("session.skills.ensureLoaded", json!({}))
+        .await?;
+    server
+        .reply(
+            "session.skills.list",
+            json!({"skills":[{
+                "name":"review","description":"Review","enabled":true,
+                "path":skill_path,"source":"project","userInvocable":true,
+            }]}),
+        )
+        .await?;
+    server
+        .reply(
+            "session.commands.list",
+            json!({"commands":[{
+                "name":"review","description":"Review","kind":"skill",
+                "allowDuringAgentExecution":false,
+            }]}),
+        )
+        .await?;
+    let invocation = server
+        .reply(
+            "session.commands.invoke",
+            json!({
+                "kind":"agent-prompt","displayPrompt":"Review",
+                "prompt":"Expanded skill instructions",
+            }),
+        )
+        .await?;
+    assert_eq!(invocation["params"]["name"], "review");
+    Ok(())
+}
+
+#[tokio::test]
+async fn attachment_only_and_skill_messages_reach_sdk_with_original_blobs() -> TestResult {
+    for work in [false, true] {
+        let directory = TestDirectory::new()?;
+        let canonical = std::fs::canonicalize(&directory.0)?;
+        let skill = canonical.join(".agents/skills/review/SKILL.md");
+        std::fs::create_dir_all(skill.parent().ok_or("skill directory")?)?;
+        std::fs::write(&skill, "Review the attached file.")?;
+        let skill_path = skill.to_string_lossy().into_owned();
+        let selected = if work {
+            vec![SkillSelection {
+                name: "review".into(),
+                path: skill_path.clone(),
+            }]
+        } else {
+            Vec::new()
+        };
+        let attachments = vec![
+            MessageAttachment::from_bytes("图像.png", "image/png", &[0, 1, 128, 255]),
+            MessageAttachment::from_bytes("notes.txt", "text/plain", b"attached text"),
+        ];
+        let expected_attachments: Vec<Value> = attachments
+            .iter()
+            .map(|attachment| {
+                json!({
+                    "type":"blob",
+                    "data":attachment.data,
+                    "mimeType":attachment.mime_type,
+                    "displayName":attachment.name,
+                })
+            })
+            .collect();
+        let (client_writer, reader) = duplex(65_536);
+        let (writer, client_reader) = duplex(65_536);
+        let client = Client::from_streams(client_reader, client_writer, canonical.clone())?;
+        let runtime = Runtime {
+            client,
+            chat_directory: canonical.clone(),
+        };
+        let mut server = SdkServer {
+            reader: BufReader::new(reader),
+            writer,
+        };
+        let submit = tokio::spawn(async move {
+            let session = runtime
+                .create_session(session_options(canonical, work))
+                .await?;
+            let prompt = if work { "Review this" } else { "" };
+            let prepared = session
+                .prepare_message(prompt, &selected, &attachments)
+                .await?;
+            assert!(!session.lifecycle.is_running());
+            let id = session.send_prepared(prepared).await?;
+            session.disconnect().await?;
+            Ok::<_, Error>(id)
+        });
+        server
+            .reply("session.create", json!({"sessionId":"attachment-session"}))
+            .await?;
+        if work {
+            serve_skill(&mut server, &skill_path).await?;
+        }
+        let send = server
+            .reply("session.send", json!({"messageId":"attachment-message"}))
+            .await?;
+        assert_eq!(send["params"]["attachments"], json!(expected_attachments));
+        assert_eq!(
+            send["params"]["prompt"],
+            if work {
+                "Expanded skill instructions\n\nReview this"
+            } else {
+                ""
+            }
+        );
+        if work {
+            assert_eq!(send["params"]["displayPrompt"], "Review this");
+        }
+        server
+            .reply("session.detach", json!({"success":true}))
+            .await?;
+        assert_eq!(submit.await??, "attachment-message");
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn unsupported_pdf_is_rejected_before_the_sdk_receives_a_message() -> TestResult {
+    let directory = TestDirectory::new()?;
+    let (client_writer, reader) = duplex(65_536);
+    let (writer, client_reader) = duplex(65_536);
+    let client = Client::from_streams(client_reader, client_writer, directory.0.clone())?;
+    let runtime = Runtime {
+        client,
+        chat_directory: directory.0.clone(),
+    };
+    let mut options = session_options(directory.0.clone(), false);
+    options.provider.protocol = ProviderProtocol::OpenaiCompletions;
+    let submit = tokio::spawn(async move {
+        let session = runtime.create_session(options).await?;
+        let attachment =
+            MessageAttachment::from_bytes("report.pdf", "application/octet-stream", b"%PDF-1.4");
+        assert!(matches!(
+            session.prepare_message("", &[], &[attachment]).await,
+            Err(Error::Attachments(
+                AttachmentError::PdfUnsupportedByProvider
+            ))
+        ));
+        assert!(!session.lifecycle.is_running());
+        session.disconnect().await
+    });
+    let mut server = SdkServer {
+        reader: BufReader::new(reader),
+        writer,
+    };
+    server
+        .reply("session.create", json!({"sessionId":"attachment-session"}))
+        .await?;
+    // No session.send may occur between creation and disconnect.
+    server
+        .reply("session.detach", json!({"success":true}))
+        .await?;
+    submit.await??;
+    Ok(())
+}

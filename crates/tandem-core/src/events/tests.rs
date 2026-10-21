@@ -266,10 +266,19 @@ async fn empty_intents_and_internal_tools_never_hide_the_final_answer_or_approva
 async fn duplicate_message_ids_cannot_overwrite_users_or_other_conversations() -> Result<()> {
     let (_directory, app, id) = application().await?;
     let mut user: Message = serde_json::from_value(json!({
-        "id":"user", "sessionId":id, "role":"user", "content":"Original", "createdAt":"same time"
+        "id":"user", "sessionId":id, "role":"user", "content":"Original", "createdAt":"same time",
+        "attachments":[{"id":"attachment","name":"notes.txt","mimeType":"text/plain","size":8}]
     }))?;
-    app.store.append_message(&user)?;
-    assert!(app.store.append_message(&user).is_err());
+    let contents = [b"Original".to_vec()];
+    let saved = app
+        .store
+        .append_message_with_attachments(&user, &contents)?;
+    assert!(saved.sequence.is_some());
+    assert!(
+        app.store
+            .append_message_with_attachments(&user, &contents)
+            .is_err()
+    );
     user.role = MessageRole::Activity;
     user.activity = Some(crate::model::Activity {
         status: crate::model::ActivityStatus::Running,
@@ -308,6 +317,12 @@ async fn duplicate_message_ids_cannot_overwrite_users_or_other_conversations() -
     let messages = app.store.messages(&id)?;
     assert_eq!(messages[0].role, MessageRole::User);
     assert_eq!(messages[0].content, "Original");
+    assert_eq!(messages[0].sequence, saved.sequence);
+    assert_eq!(messages[0].attachments.len(), 1);
+    assert_eq!(
+        app.store.attachment(&id, "attachment")?,
+        copilot_runtime::MessageAttachment::from_bytes("notes.txt", "text/plain", b"Original")
+    );
     assert_eq!(messages[1].role, MessageRole::Assistant);
     Ok(())
 }

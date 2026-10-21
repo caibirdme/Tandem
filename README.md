@@ -13,6 +13,7 @@ _Keep project conversations, model selection, and permission controls together i
 ## What you can do
 
 - **Chat with your models.** Connect OpenAI-compatible APIs, Anthropic, or your own model gateway. Chat can read web pages.
+- **Include images and files.** Paste an image or drop files into the composer, review the previews, and send them with your message.
 - **Work where your files are.** Open a local directory or connect to a Linux or macOS host over SSH. The agent can read and edit files and run commands.
 - **Choose how the agent works.** Approve each tool permission request or grant full access for a work session. Switch models and choose reasoning effort for each conversation.
 
@@ -52,6 +53,8 @@ Work starts with **Ask each time**. Use the control beside the composer to choos
 
 The first message prepares the bundled runtime automatically. To use Simplified Chinese, open **Settings > General > Language**.
 
+Paste images with **Ctrl+V** (**Command+V** on macOS), drag files into the composer, or use the attachment button. Remove an attachment with its **×** before sending. Attachments also work in local and SSH project conversations. See [Images and files](docs/user-guide.md#images-and-files) for limits and history.
+
 ### 3. Connect an SSH project
 
 Log in once with your system terminal to confirm the host fingerprint and set up a key or ssh-agent. In **Add project**, choose **Remote project**, enter the SSH connection details, and click **Test connection**. Use the folder button (**Browse directories**) beside **Working directory** to select a remote folder, then create the project.
@@ -73,7 +76,7 @@ just setup
 just dev
 ```
 
-Tandem uses React, Tauri 2, and Rust services built on GitHub Copilot SDK `v1.0.23-preview.5`. The matching Copilot CLI is bundled automatically.
+Tandem uses React, Tauri 2, and Rust services built on GitHub Copilot SDK 1.x from crates.io. `Cargo.lock` currently resolves SDK `1.0.24`, and its matching Copilot CLI `1.0.101` is bundled automatically.
 
 ## Learn more
 

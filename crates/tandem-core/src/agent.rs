@@ -1,7 +1,8 @@
 use std::{sync::Arc, time::Duration};
 
 use copilot_runtime::{
-    AgentSession, ApprovalDecision, PreparedMessage, RuntimeEvent, SkillSelection,
+    AgentSession, ApprovalDecision, MessageAttachment, PreparedMessage, RuntimeEvent,
+    SkillSelection,
 };
 use serde_json::{Value, json};
 use tandem_remote::RemoteTransport;
@@ -47,10 +48,13 @@ impl AgentHandle {
         &self,
         content: &str,
         selected_skills: &[SkillSelection],
+        attachments: &[MessageAttachment],
     ) -> Result<PreparedTurn> {
         match self {
             Self::Local(agent) => Ok(PreparedTurn::Local(Box::new(
-                agent.prepare_message(content, selected_skills).await?,
+                agent
+                    .prepare_message(content, selected_skills, attachments)
+                    .await?,
             ))),
             Self::Remote {
                 session_id,
@@ -60,7 +64,7 @@ impl AgentHandle {
                 transport
                     .request(
                         "prepare_agent_message",
-                        json!({"sessionId":session_id,"preparedId":id,"content":content,"selectedSkills":selected_skills}),
+                        json!({"sessionId":session_id,"preparedId":id,"content":content,"selectedSkills":selected_skills,"attachments":attachments}),
                     )
                     .await?;
                 Ok(PreparedTurn::Remote {

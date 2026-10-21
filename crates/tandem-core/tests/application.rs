@@ -55,6 +55,7 @@ async fn application_failures_remain_typed_through_dispatch() -> Result<()> {
             content: " ".into(),
             message_id: uuid::Uuid::new_v4(),
             selected_skills: Vec::new(),
+            attachments: Vec::new(),
         })
         .await;
     assert!(matches!(invalid, Err(Error::InvalidMessage)));
@@ -168,6 +169,120 @@ fn selected_skills_require_structured_names_and_paths() -> Result<()> {
             );
         }
     }
+    Ok(())
+}
+
+#[tokio::test]
+async fn attachments_are_validated_before_runtime_or_session_changes() -> Result<()> {
+    let directory = TempDir::new()?;
+    let application = app(&directory, Arc::new(MemoryVault::default()))?;
+    let saved = call(
+        &application,
+        "save_provider",
+        json!({"provider":provider()}),
+    )
+    .await?;
+    let session = call(
+        &application,
+        "create_session",
+        json!({
+            "projectId":null, "providerId":saved["id"], "modelId":"model-one"
+        }),
+    )
+    .await?;
+    let attachment = json!({"name":"example.txt","mimeType":"text/plain","data":"aGVsbG8="});
+    for attachments in [
+        json!([{"name":"example.png","mimeType":"image/png","data":"!"}]),
+        json!(vec![attachment.clone(); 11]),
+    ] {
+        let request = serde_json::from_value(json!({
+            "command":"send_message",
+            "payload":{
+                "sessionId":session["id"], "content":"", "messageId":uuid::Uuid::new_v4(),
+                "attachments":attachments,
+            }
+        }))?;
+        let error = application
+            .dispatch(request)
+            .await
+            .err()
+            .context("invalid attachment must fail")?;
+        assert!(matches!(error, tandem_core::Error::Attachment(_)));
+        assert_eq!(error.code(), tandem_core::ErrorCode::InvalidInput);
+    }
+    let snapshot = call(&application, "snapshot", json!({})).await?;
+    assert_eq!(snapshot["sessions"][0]["status"], "idle");
+    assert_eq!(
+        call(&application, "messages", json!({"sessionId":session["id"]})).await?,
+        json!([])
+    );
+    assert!(!directory.path().join("runtime").exists());
+    let attachment_only = serde_json::from_value(json!({
+        "command":"send_message",
+        "payload":{
+            "sessionId":"missing", "content":"", "messageId":uuid::Uuid::new_v4(),
+            "attachments":[attachment],
+        }
+    }))?;
+    let error = application
+        .dispatch(attachment_only)
+        .await
+        .err()
+        .context("missing session must fail after attachment-only validation")?;
+    assert!(matches!(
+        error,
+        tandem_core::Error::Storage(tandem_core::StorageError::SessionNotFound { .. })
+    ));
+    Ok(())
+}
+
+#[tokio::test]
+async fn pdf_send_rejects_completions_before_runtime_or_state_changes() -> Result<()> {
+    let directory = TempDir::new()?;
+    let application = app(&directory, Arc::new(MemoryVault::default()))?;
+    let saved = call(
+        &application,
+        "save_provider",
+        json!({"provider":provider()}),
+    )
+    .await?;
+    let session = call(
+        &application,
+        "create_session",
+        json!({"projectId":null,"providerId":saved["id"],"modelId":"model-one"}),
+    )
+    .await?;
+    for (content, mime_type) in [
+        ("Read this PDF", "application/pdf"),
+        ("", "application/octet-stream"),
+    ] {
+        let request = serde_json::from_value(json!({
+            "command":"send_message",
+            "payload":{
+                "sessionId":session["id"], "content":content, "messageId":uuid::Uuid::new_v4(),
+                "attachments":[{"name":"REPORT.PDF","mimeType":mime_type,"data":"JVBERi0xLjcK"}],
+            }
+        }))?;
+        let error = application
+            .dispatch(request)
+            .await
+            .err()
+            .context("unsupported PDF must fail")?;
+        assert!(matches!(
+            error,
+            tandem_core::Error::Attachment(
+                copilot_runtime::AttachmentError::PdfUnsupportedByProvider
+            )
+        ));
+        assert_eq!(error.code(), tandem_core::ErrorCode::InvalidInput);
+    }
+    assert_eq!(
+        call(&application, "messages", json!({"sessionId":session["id"]})).await?,
+        json!([])
+    );
+    let snapshot = call(&application, "snapshot", json!({})).await?;
+    assert_eq!(snapshot["sessions"][0], session);
+    assert!(!directory.path().join("runtime").exists());
     Ok(())
 }
 

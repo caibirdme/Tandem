@@ -36,15 +36,15 @@ To work with files, choose **Add project**, select a local or SSH directory, and
 
 ### Inspect tool activity
 
-Click a progress heading in the conversation to expand the tools used for that stage. Each stage starts collapsed and shows its status and number of tool calls. Expand an individual tool to inspect its arguments, progress, result, or error. The final response stays visible below the activity groups.
+Click a progress heading or its left chevron in the conversation to expand the tools used for that stage. Each stage starts collapsed. Running headings show a moving highlight; completed headings remain static. Expand an individual tool to inspect its arguments, progress, result, or error. The final response stays visible below the activity groups.
 
-Activity groups stay in conversation order when another message is sent, when you reopen the conversation, and after restarting the application. If the model does not provide a progress description, known tool types supply a short heading such as **Reading files** or **Running commands**; other combinations show **Agent activity**. Failed and interrupted activity is labeled on the collapsed group. Permission requests remain separate approval cards, so you can respond without opening tool details.
+Activity groups stay in conversation order when another message is sent, when you reopen the conversation, and after restarting the application. If the model does not provide a progress description, known tool types supply a short heading such as **Reading files** or **Running commands**; other combinations show **Agent activity**. Tool failures and interruption details remain available inside the group, with status also exposed to assistive technology. Permission requests remain separate approval cards, so you can respond without opening tool details.
 
 ### Use project skills
 
 In Work, type `$` to list the selected project's skills or `$prefix` to filter them by name. Select with the mouse or use the arrow keys and Enter or Tab; Escape closes the list. Work can also choose relevant skills automatically. SSH projects discover and load skills on the remote host. Chat does not load project skills.
 
-Keep each skill's `SKILL.md` in its own subdirectory under `.agents/skills`, `.github/skills`, `.claude/skills`, or `skills` in the project. See [Project skills](skills.md) for the format and selection behavior.
+Keep each skill's `SKILL.md` in its own subdirectory under the project's `.agents/skills` or the execution user's `~/.agents/skills`. Project definitions take precedence when names match. See [Project skills](skills.md) for the format and selection behavior.
 
 ### Switch models
 
@@ -107,6 +107,14 @@ Tandem detects the remote platform, uploads the matching `tandem-server` to `~/.
 
 Development builds use `just remote-build` to prepare a server for the local platform. To connect to another platform, place its binary at `src-tauri/remote/<Rust target>/tandem-server` before bundling, or set `TANDEM_REMOTE_ARTIFACTS` to an artifact directory. See [Packaging and remote artifacts](development.md#packaging-and-remote-artifacts) for build instructions and supported targets.
 
+## Images and files
+
+Focus the message box and press **Ctrl+V** (**Command+V** on macOS) to paste an image from the clipboard. You can also drag files onto the composer or click its attachment button to choose files. Attachments appear as compact horizontal cards with a small image thumbnail or file icon beside the name and size. The attachment area scrolls when several rows are needed. Click an attachment's **×** to remove it before sending.
+
+Add an optional message and send. An attachment can be sent on its own. Chat, local work, and SSH work use the same controls. For SSH work, Tandem transfers the attachment contents to the remote runtime, so the file does not need to exist on the remote machine. The selected model and provider must support the attached content.
+
+Supported content includes PNG, JPEG, GIF, WebP, and UTF-8 text or source files. PDF documents require an OpenAI Responses or Anthropic provider; OpenAI Completions cannot deliver their contents through the pinned runtime. Each message accepts up to 10 files, at most 10 MiB per file and 20 MiB in total. Directories and unsupported binary formats are rejected with an actionable error. Failed submissions retain their attachments for retry. Sent attachments remain associated with the conversation and appear when its history is reopened; deleting the conversation deletes its stored attachment copies.
+
 ## Language
 
 The interface starts in English. To switch to Simplified Chinese, open **Settings > General > Language**. The change takes effect immediately and is remembered on this device after restarting the application.
@@ -119,7 +127,7 @@ Changes restart the runtime once active conversations stop; existing sessions ca
 
 ## Bundled runtime
 
-Tandem bundles the matching Copilot CLI, so you do not need to install Copilot separately. The SDK is pinned to `v1.0.23-preview.5`, with CLI `1.0.100-1`.
+Tandem bundles the matching Copilot CLI, so you do not need to install Copilot separately. The current build uses SDK `1.0.24` with CLI `1.0.101`.
 
 For source builds, the first Rust build downloads that CLI and verifies its checksum. At runtime, Tandem extracts it from bundled resources. The **Copilot CLI path** field in **Settings > General** is an optional debugging override; leave it empty for normal use.
 

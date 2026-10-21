@@ -2,14 +2,16 @@ import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'r
 
 import { translate as t } from '../i18n';
 import { dispatch, errorMessage, subscribe } from '../lib/api';
+import { attachmentSize } from '../lib/attachments';
 import { emptyConversation } from '../lib/conversation';
+import type { ConversationMessage } from '../lib/conversation';
 import { createModelChanges } from '../lib/modelChanges';
 import { createPermissionModeChanges } from '../lib/permissionModeChanges';
 import { createReasoningEffortChanges } from '../lib/reasoningEffortChanges';
 import { protectedSessionIds } from '../lib/reconcile';
 import { initialTandemState, reduceTandem } from '../lib/tandemState';
 import type {
-  Message,
+  AttachmentInput,
   ModelSelection,
   PermissionMode,
   ReasoningEffort,
@@ -275,7 +277,12 @@ export function useTandem() {
   );
 
   const send = useCallback(
-    async (sessionId: string, content: string, skills: SelectedSkill[] = []) => {
+    async (
+      sessionId: string,
+      content: string,
+      skills: SelectedSkill[] = [],
+      attachments: AttachmentInput[] = [],
+    ) => {
       const changes = permissionChanges.current;
       const models = modelChanges.current;
       const reasoning = reasoningChanges.current;
@@ -286,17 +293,30 @@ export function useTandem() {
       advance(sessionId);
       pendingRequests.current.add(sessionId);
       const messageId = crypto.randomUUID();
-      const pending: Message = {
+      const pending: ConversationMessage = {
         id: `pending:${messageId}`,
         sessionId,
         content,
         role: 'user',
         createdAt: new Date().toISOString(),
         selectedSkills: skills,
+        attachments: attachments.map((attachment, index) => ({
+          id: `pending:${messageId}:${String(index)}`,
+          name: attachment.name,
+          mimeType: attachment.mimeType,
+          size: attachmentSize(attachment.data),
+        })),
+        pendingAttachments: attachments,
       };
       update({ type: 'sendStarted', message: pending });
       try {
-        await dispatch('send_message', { sessionId, content, messageId, selectedSkills: skills });
+        await dispatch('send_message', {
+          sessionId,
+          content,
+          messageId,
+          selectedSkills: skills,
+          attachments,
+        });
       } catch (reason) {
         update({
           type: 'sendFailed',

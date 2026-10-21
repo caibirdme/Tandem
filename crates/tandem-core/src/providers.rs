@@ -20,7 +20,21 @@ impl App {
             Uuid::parse_str(&provider.id).map_err(Error::InvalidProviderId)?;
         }
         let _guard = self.mutation_gate.lock().await;
-        self.require_provider_idle(&provider.id)?;
+        let sessions = self
+            .store
+            .sessions()?
+            .into_iter()
+            .filter(|session| session.provider_id == provider.id)
+            .collect::<Vec<_>>();
+        if sessions
+            .iter()
+            .any(|session| session.status == SessionStatus::Running)
+        {
+            return Err(Error::ProviderRunning);
+        }
+        for session in &sessions {
+            self.validate_attachment_history(&session.id, provider.protocol)?;
+        }
         self.update_title_configuration(|| {
             let existing = self.store.optional_provider(&provider.id)?;
             if let Some(key) = api_key {
@@ -37,12 +51,7 @@ impl App {
             self.store.save_provider(&provider)?;
             self.clear_invalid_title_model()
         })?;
-        for session in self
-            .store
-            .sessions()?
-            .iter()
-            .filter(|session| session.provider_id == provider.id)
-        {
+        for session in sessions {
             self.disconnect_session(&session.id).await;
             if session.project_id.is_some() {
                 self.store.update_session(&session.id, |session| {
@@ -80,18 +89,6 @@ impl App {
         }
         Ok(self.options.secrets.get(id)?)
     }
-
-    fn require_provider_idle(&self, id: &str) -> Result<()> {
-        if self
-            .store
-            .sessions()?
-            .iter()
-            .any(|session| session.provider_id == id && session.status == SessionStatus::Running)
-        {
-            return Err(Error::ProviderRunning);
-        }
-        Ok(())
-    }
 }
 
 #[cfg(test)]
@@ -101,13 +98,17 @@ mod tests {
         time::Duration,
     };
 
-    use anyhow::Result;
+    use anyhow::{Context, Result};
     use serde_json::json;
     use tempfile::TempDir;
     use tokio::sync::oneshot;
 
     use super::*;
-    use crate::{AppOptions, MemoryVault, SecretError, SecretStore};
+    use crate::{
+        AppOptions, MemoryVault, SecretError, SecretStore,
+        app::now,
+        model::{AttachmentMetadata, Message, MessageRole, PermissionMode, Protocol, Session},
+    };
 
     struct WaitingVault {
         keys: MemoryVault,
@@ -152,6 +153,132 @@ mod tests {
             "baseUrl":"https://example.com", "hasApiKey":true,
             "models":[{"id":"fixture","name":"Fixture","contextWindow":200_000}]
         }))?)
+    }
+
+    async fn conversation_with_attachment(
+        app: &App,
+        provider: &Provider,
+        pdf: bool,
+    ) -> Result<Session> {
+        let session = app
+            .create_session(
+                None,
+                provider.id.clone(),
+                "fixture".into(),
+                PermissionMode::Ask,
+                None,
+            )
+            .await?;
+        let bytes = if pdf {
+            b"%PDF-1.7\n".as_slice()
+        } else {
+            b"text".as_slice()
+        };
+        app.store.append_message_with_attachments(
+            &Message {
+                id: Uuid::new_v4().to_string(),
+                session_id: session.id.clone(),
+                role: MessageRole::User,
+                content: "Read this file".into(),
+                attachments: vec![AttachmentMetadata {
+                    id: Uuid::new_v4().to_string(),
+                    name: if pdf { "report.pdf" } else { "notes.txt" }.into(),
+                    mime_type: "application/octet-stream".into(),
+                    size: bytes.len(),
+                }],
+                created_at: now(),
+                sequence: None,
+                activity: None,
+                interrupted: false,
+            },
+            &[bytes.to_vec()],
+        )?;
+        Ok(session)
+    }
+
+    #[tokio::test]
+    async fn provider_edits_preserve_attachment_compatibility_and_credentials() -> Result<()> {
+        for (protocol, pdf, status, allowed) in [
+            (
+                Protocol::OpenaiCompletions,
+                true,
+                SessionStatus::Idle,
+                false,
+            ),
+            (
+                Protocol::OpenaiCompletions,
+                true,
+                SessionStatus::Error,
+                false,
+            ),
+            (
+                Protocol::OpenaiCompletions,
+                true,
+                SessionStatus::Running,
+                false,
+            ),
+            (Protocol::OpenaiResponses, true, SessionStatus::Idle, true),
+            (
+                Protocol::OpenaiCompletions,
+                false,
+                SessionStatus::Idle,
+                true,
+            ),
+        ] {
+            let directory = TempDir::new()?;
+            let app = App::open(AppOptions::local(directory.path().into()))?;
+            let original = app
+                .save_provider(provider()?, Some("original-key".into()))
+                .await?;
+            let session = conversation_with_attachment(&app, &original, pdf).await?;
+            // Reopen before editing so saved conversations are checked without live agents.
+            let app = App::open(AppOptions::local(directory.path().into()))?;
+            app.set_status(&session.id, status)?;
+            let history = serde_json::to_value(app.store.messages(&session.id)?)?;
+            let mut edited = original.clone();
+            edited.protocol = protocol;
+            edited.name = "Edited provider".into();
+            let result = app
+                .save_provider(edited, Some("replacement-key".into()))
+                .await;
+            if allowed {
+                let saved = result?;
+                assert_eq!(saved.name, "Edited provider");
+                assert_eq!(
+                    app.get_provider_api_key(&original.id)?.as_deref(),
+                    Some("replacement-key")
+                );
+            } else {
+                let error = result
+                    .err()
+                    .context("incompatible provider edit must fail")?;
+                if status == SessionStatus::Running {
+                    assert!(matches!(error, Error::ProviderRunning));
+                } else {
+                    assert!(
+                        matches!(&error, Error::ConversationAttachmentProtocol { session_id, source }
+                        if session_id == &session.id
+                        && matches!(source, copilot_runtime::AttachmentError::PdfUnsupportedByProvider))
+                    );
+                    assert_eq!(error.code(), crate::ErrorCode::InvalidInput);
+                }
+                assert_eq!(
+                    serde_json::to_value(app.store.provider(&original.id)?)?,
+                    serde_json::to_value(&original)?
+                );
+                assert_eq!(
+                    app.get_provider_api_key(&original.id)?.as_deref(),
+                    Some("original-key")
+                );
+            }
+            assert_eq!(
+                serde_json::to_value(app.store.messages(&session.id)?)?,
+                history
+            );
+            assert_eq!(app.store.session(&session.id)?.status, status);
+            assert!(app.runtime.lock().await.is_none());
+        }
+        Ok(())
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

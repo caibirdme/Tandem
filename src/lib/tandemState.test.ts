@@ -32,6 +32,7 @@ const snapshot: Snapshot = {
   activeTurns: {},
 };
 const pending: Message = {
+  attachments: [],
   id: 'pending:1',
   sessionId: session.id,
   role: 'user',
@@ -125,6 +126,7 @@ describe('workspace state transitions', () => {
     'does not revive running activity from stale history after a reconnect reports %s',
     (status) => {
       const activity: Message = {
+        attachments: [],
         id: 'activity-1',
         sessionId: session.id,
         role: 'activity',
@@ -163,6 +165,7 @@ describe('workspace state transitions', () => {
 
   it('restores active tool activity from history when the session remains running', () => {
     const activity: Message = {
+      attachments: [],
       id: 'activity-1',
       sessionId: session.id,
       role: 'activity',
@@ -772,6 +775,38 @@ describe('workspace state transitions', () => {
       message: { ...pending, id: 'pending:retry' },
     });
     expect(retried.conversations[session.id]?.failedSend).toBeNull();
+  });
+
+  it('retains attachment bytes after a failed send and releases them when history confirms it', () => {
+    const attachment = { name: 'screen.png', mimeType: 'image/png', data: 'aGVsbG8=' };
+    const metadata = {
+      id: 'attachment-1',
+      name: attachment.name,
+      mimeType: attachment.mimeType,
+      size: 5,
+    };
+    const withAttachment = {
+      ...pending,
+      content: '',
+      attachments: [metadata],
+      pendingAttachments: [attachment],
+    };
+    const sending = reduceTandem(loaded, { type: 'sendStarted', message: withAttachment });
+    const failed = reduceTandem(sending, {
+      type: 'sendFailed',
+      sessionId: session.id,
+      pendingId: pending.id,
+      error: 'Connection lost',
+    });
+    expect(failed.conversations[session.id]?.failedSend?.pendingAttachments).toEqual([attachment]);
+    const restored = reduceTandem(failed, {
+      type: 'historyReceived',
+      sessionId: session.id,
+      messages: [{ ...pending, id: '1', content: '', attachments: [metadata] }],
+    });
+    expect(restored.conversations[session.id]?.failedSend).toBeNull();
+    expect(restored.conversations[session.id]?.messages[0]?.attachments).toEqual([metadata]);
+    expect(restored.conversations[session.id]?.messages[0]?.pendingAttachments).toBeUndefined();
   });
 
   it.each(['before', 'after'] as const)(

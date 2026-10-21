@@ -66,6 +66,7 @@ impl App {
                     session_id: event.session_id.clone(),
                     role: MessageRole::Assistant,
                     content: content.into(),
+                    attachments: Vec::new(),
                     created_at: now(),
                     sequence: None,
                     activity: None,

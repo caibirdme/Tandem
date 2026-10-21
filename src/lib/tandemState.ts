@@ -1,5 +1,5 @@
 import { emptyConversation, receiveMessages, reduceEvent } from './conversation';
-import type { Conversation } from './conversation';
+import type { Conversation, ConversationMessage } from './conversation';
 import type { ModelChangeEvent } from './modelChanges';
 import type { PermissionModeChangeEvent } from './permissionModeChanges';
 import type { ReasoningEffortChangeEvent } from './reasoningEffortChanges';
@@ -60,7 +60,7 @@ type TandemAction =
   | { type: 'titleGenerationFailed'; sessionId: string; error: string }
   | { type: 'titleErrorDismissed'; sessionId: string }
   | { type: 'sessionRenamed'; sessionId: string; title: string }
-  | { type: 'sendStarted'; message: Message }
+  | { type: 'sendStarted'; message: ConversationMessage }
   | { type: 'sendFailed'; sessionId: string; pendingId: string; error: string }
   | { type: 'permissionResponded'; sessionId: string; requestId: string }
   | PermissionModeChangeEvent

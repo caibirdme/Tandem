@@ -60,7 +60,7 @@ fn configuration(
     config.provider = Some(provider.to_sdk(model)?);
     config.model_capabilities = model.to_sdk_capabilities()?;
     config.streaming = Some(false);
-    // Some([]) is an explicit empty allowlist in the pinned SDK wire format.
+    // Some([]) is an explicit empty allowlist in the SDK wire format.
     // Also exclude every tool namespace so future defaults cannot broaden it.
     config.available_tools = Some(Vec::new());
     config.tools = Some(Vec::new());
@@ -82,7 +82,6 @@ fn configuration(
     config.enable_on_demand_instruction_discovery = Some(false);
     config.enable_session_telemetry = Some(false);
     config.enable_session_store = Some(false);
-    config.enable_github_cache_store = Some(false);
     config.skip_custom_instructions = Some(true);
     config.skip_embedding_retrieval = Some(true);
     config.request_extensions = Some(false);

@@ -60,6 +60,7 @@ function setup() {
         sessionId: session.id,
         role: 'user',
         content: 'Keep this history',
+        attachments: [],
         createdAt: session.createdAt,
       },
     ],

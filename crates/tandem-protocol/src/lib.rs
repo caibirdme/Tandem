@@ -57,7 +57,7 @@ pub enum ProtocolError {
 }
 
 /// Maximum JSON bytes in a frame, excluding its terminating newline.
-pub const MAX_FRAME_BYTES: usize = 8 * 1024 * 1024;
+pub const MAX_FRAME_BYTES: usize = 32 * 1024 * 1024;
 
 /// One request; its numeric identifier correlates an eventual response.
 #[derive(Deserialize, Serialize)]

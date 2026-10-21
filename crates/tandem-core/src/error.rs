@@ -16,6 +16,14 @@ pub enum Error {
     #[error(transparent)]
     Runtime(#[from] copilot_runtime::Error),
     #[error(transparent)]
+    Attachment(#[from] copilot_runtime::AttachmentError),
+    #[error("This conversation contains an attachment the selected provider cannot send: {source}")]
+    ConversationAttachmentProtocol {
+        session_id: String,
+        #[source]
+        source: copilot_runtime::AttachmentError,
+    },
+    #[error(transparent)]
     Remote(#[from] tandem_remote::RemoteError),
     #[error("Filesystem operation failed: {0}")]
     Io(#[from] std::io::Error),
@@ -76,7 +84,7 @@ pub enum Error {
         "The model was saved, but the previous session connection could not be cleaned up. Try sending again."
     )]
     ModelConnectionCleanup(#[source] tokio::task::JoinError),
-    #[error("Messages must not be empty or exceed 500 KB.")]
+    #[error("Add a message or attachment, and keep message text within 500 KB.")]
     InvalidMessage,
     #[error("The conversation is running. Wait for it to finish or click Stop.")]
     ConversationRunning,
@@ -135,6 +143,23 @@ pub enum ErrorCode {
     Internal,
 }
 
+impl From<tandem_remote::RpcErrorCode> for ErrorCode {
+    fn from(code: tandem_remote::RpcErrorCode) -> Self {
+        match code {
+            tandem_remote::RpcErrorCode::InvalidPayload
+            | tandem_remote::RpcErrorCode::UnsupportedCommand => Self::InvalidInput,
+            tandem_remote::RpcErrorCode::ApprovalNotFound => Self::NotFound,
+            tandem_remote::RpcErrorCode::RuntimeBusy => Self::Conflict,
+            tandem_remote::RpcErrorCode::Internal => Self::Internal,
+            tandem_remote::RpcErrorCode::SessionNotConnected
+            | tandem_remote::RpcErrorCode::RuntimeUnavailable
+            | tandem_remote::RpcErrorCode::RuntimeFailure
+            | tandem_remote::RpcErrorCode::RuntimeTimeout
+            | tandem_remote::RpcErrorCode::StateDirectoryUnavailable => Self::Unavailable,
+        }
+    }
+}
+
 /// Serializable command failure shared by desktop IPC and development HTTP.
 #[derive(Debug, Serialize)]
 pub struct ErrorResponse {
@@ -158,23 +183,17 @@ impl Error {
             Self::DirectoryUnavailable(source) if source.kind() == std::io::ErrorKind::NotFound => {
                 ErrorCode::NotFound
             }
-            Self::Remote(error) => match error.code() {
-                tandem_remote::RpcErrorCode::InvalidPayload
-                | tandem_remote::RpcErrorCode::UnsupportedCommand => ErrorCode::InvalidInput,
-                tandem_remote::RpcErrorCode::ApprovalNotFound => ErrorCode::NotFound,
-                tandem_remote::RpcErrorCode::RuntimeBusy => ErrorCode::Conflict,
-                tandem_remote::RpcErrorCode::Internal => ErrorCode::Internal,
-                tandem_remote::RpcErrorCode::SessionNotConnected
-                | tandem_remote::RpcErrorCode::RuntimeUnavailable
-                | tandem_remote::RpcErrorCode::RuntimeFailure
-                | tandem_remote::RpcErrorCode::RuntimeTimeout
-                | tandem_remote::RpcErrorCode::StateDirectoryUnavailable => ErrorCode::Unavailable,
-            },
+            Self::Remote(error) => error.code().into(),
             Self::Runtime(copilot_runtime::Error::Skills(error)) => match error {
                 copilot_runtime::SkillError::PreparationTimeout => ErrorCode::Unavailable,
                 _ => ErrorCode::InvalidInput,
             },
-            Self::Runtime(copilot_runtime::Error::InvalidConfiguration(_))
+            Self::Runtime(
+                copilot_runtime::Error::InvalidConfiguration(_)
+                | copilot_runtime::Error::Attachments(_),
+            )
+            | Self::Attachment(_)
+            | Self::ConversationAttachmentProtocol { .. }
             | Self::Validation(_)
             | Self::InvalidProviderId(_)
             | Self::ProjectPathNotDirectory
@@ -190,7 +209,8 @@ impl Error {
             | Self::Storage(
                 StorageError::ProviderNotFound { .. }
                 | StorageError::ProjectNotFound { .. }
-                | StorageError::SessionNotFound { .. },
+                | StorageError::SessionNotFound { .. }
+                | StorageError::AttachmentNotFound { .. },
             )
             | Self::ModelNotConfigured { .. }
             | Self::CliNotFound { .. } => ErrorCode::NotFound,
@@ -233,6 +253,7 @@ impl Error {
                 StorageError::OpenDatabase { .. }
                 | StorageError::Database(_)
                 | StorageError::Json(_)
+                | StorageError::AttachmentCountMismatch
                 | StorageError::LockPoisoned,
             )
             | Self::Secret(

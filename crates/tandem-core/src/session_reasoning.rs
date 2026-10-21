@@ -102,6 +102,7 @@ mod tests {
                     session_id: session.id.clone(),
                     role,
                     content: content.into(),
+                    attachments: Vec::new(),
                     created_at: now(),
                     sequence: None,
                     activity: None,

@@ -98,7 +98,7 @@ export const en = {
   'settings.cliHint':
     'A matching CLI is bundled. Enter the full executable path only when debugging a custom CLI.',
   'settings.tagline': 'Connect ideas with action.',
-  'settings.sdkVersion': 'Built with GitHub Copilot SDK · v1.0.23-preview.5',
+  'settings.sdkVersion': 'Built with GitHub Copilot SDK · v1.0.24',
   'settings.sdkDocs': 'Copilot SDK documentation',
   'settings.save': 'Save settings',
   'project.selectDirectory': 'Choose project directory',

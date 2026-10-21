@@ -24,6 +24,7 @@ import { dispatch, errorMessage } from './lib/api';
 import { newSessionPayload } from './lib/sessionOptions';
 import { displaySessionTitle } from './lib/sessionTitles';
 import type {
+  AttachmentInput,
   ModelSelection,
   PermissionMode,
   Project,
@@ -109,6 +110,7 @@ export function App() {
     permissionMode: PermissionMode,
     skills: SelectedSkill[],
     reasoningEffort: ReasoningEffort,
+    attachments: AttachmentInput[],
   ) {
     if (!effectiveSelection) {
       setSettingsOpen(true);
@@ -143,7 +145,7 @@ export function App() {
         const confirmedMode = await tandem.changePermissionMode(target.id, permissionMode);
         if (confirmedMode !== permissionMode) throw new Error(t('app.permissionUnconfirmed'));
       }
-      await tandem.send(target.id, content, skills);
+      await tandem.send(target.id, content, skills, attachments);
     } finally {
       setSendingScopes((current) => {
         const next = new Set(current);

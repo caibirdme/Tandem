@@ -98,6 +98,8 @@ pub enum Error {
     Summary(#[from] SummaryError),
     #[error("project skills: {0}")]
     Skills(#[from] SkillError),
+    #[error("message attachments: {0}")]
+    Attachments(#[from] crate::AttachmentError),
 }
 
 #[cfg(test)]

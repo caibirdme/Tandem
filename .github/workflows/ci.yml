@@ -29,6 +29,8 @@ jobs:
     steps:
       # Run web and Rust unless all changes are excluded; bundle only when its inputs change.
       # User guides and README screenshots live under docs/**, so documentation-only edits run Format.
+      # Attachment UI modules use the web rules; tests/attachment_acceptance.py runs inside
+      # the existing local and remote Rust integration steps below.
       - uses: dorny/paths-filter@v4
         id: filter
         with:

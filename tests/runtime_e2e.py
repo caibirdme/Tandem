@@ -37,6 +37,7 @@ from model_switch_acceptance import (
     check_model_switching,
 )
 from skill_acceptance import check_project_skills, check_skill_resume
+from attachment_acceptance import check_attachments, check_attachment_resume
 from reasoning_acceptance import check_reasoning_after_restart, check_reasoning_efforts
 from activity_acceptance import check_grouped_activity
 
@@ -304,6 +305,14 @@ def main():
                 path=str(workspace),
                 connection={"kind": "local"},
             )
+            attachment_states = []
+            for attachment_provider, attachment_model in providers.values():
+                attachment_states.extend(check_attachments(
+                    app, fixture, project, attachment_provider, attachment_model,
+                ))
+            summary.append(
+                "attachments: images and text reached all three protocols in Chat and Work; PDFs reached Responses and Anthropic; unsupported Completions PDFs and binary formats rejected before persistence; attachment-only sends, history metadata, and scoped retrieval"
+            )
             grouped_session, grouped_history = check_grouped_activity(
                 app, project, provider, model, workspace,
             )
@@ -527,6 +536,21 @@ def main():
                 require_local_secret(root, provider["id"], FIXTURE_KEY)
                 require_local_secret(root, cleared_provider["id"], None)
             require_provider_key(app, provider["id"], FIXTURE_KEY)
+            # Preserve credential-persistence assertions before temporarily restoring
+            # every protocol's key for the attachment-history continuation checks.
+            missing_attachment_keys = [
+                attachment_provider
+                for attachment_provider, _ in providers.values()
+                if app.command("get_provider_api_key", id=attachment_provider["id"]) is None
+            ]
+            for attachment_provider in missing_attachment_keys:
+                app.command("save_provider", provider=attachment_provider, apiKey=FIXTURE_KEY)
+            try:
+                check_attachment_resume(app, fixture, attachment_states)
+            finally:
+                for attachment_provider in missing_attachment_keys:
+                    app.command("save_provider", provider=attachment_provider, apiKey="")
+            summary.append("attachments after restart: original bytes, identities, and SDK image/text context retained")
             check_skill_resume(app, fixture, skill_state)
             summary.append("project skills after server restart: updated instructions loaded from disk")
             restored = next(

@@ -1,6 +1,6 @@
 use std::fmt;
 
-pub use copilot_runtime::{ContextUsage, PermissionMode};
+pub use copilot_runtime::{ContextUsage, MessageAttachment, PermissionMode};
 use serde::{Deserialize, Serialize};
 use url::Url;
 
@@ -87,6 +87,16 @@ pub enum Protocol {
     OpenaiCompletions,
     OpenaiResponses,
     Anthropic,
+}
+
+impl From<Protocol> for copilot_runtime::ProviderProtocol {
+    fn from(protocol: Protocol) -> Self {
+        match protocol {
+            Protocol::OpenaiCompletions => Self::OpenaiCompletions,
+            Protocol::OpenaiResponses => Self::OpenaiResponses,
+            Protocol::Anthropic => Self::Anthropic,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -326,11 +336,21 @@ pub struct Activity {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct AttachmentMetadata {
+    pub id: String,
+    pub name: String,
+    pub mime_type: String,
+    pub size: usize,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Message {
     pub id: String,
     pub session_id: String,
     pub role: MessageRole,
     pub content: String,
+    pub attachments: Vec<AttachmentMetadata>,
     pub created_at: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sequence: Option<i64>,

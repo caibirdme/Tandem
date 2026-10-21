@@ -4,6 +4,7 @@ import { emptyConversation, mergeMessages, receiveMessages, reduceEvent } from '
 import type { Message, RuntimeEvent } from './types';
 
 const message: Message = {
+  attachments: [],
   id: 'message-1',
   sessionId: 'session-1',
   role: 'assistant',

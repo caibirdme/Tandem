@@ -48,6 +48,16 @@ The application command entry point only dispatches requests and serializes resu
 
 A pure reducer centralizes frontend session state changes; subscriptions and requests remain in hooks. Form submission rules are separate from components, so history merging, late events, and key retention/deletion can be tested without starting the desktop. Both SSH endpoints share framing and size limits. Connection tests inject I/O to cover broken streams and write failures directly.
 
+## Message attachments
+
+Users paste clipboard images, drop files, or choose files in the composer, then review or remove them before sending. The same message path serves Chat, local work, and SSH work, including messages containing only attachments.
+
+The UI reads explicitly selected files into bounded base64 inputs. Rust validates attachment counts, decoded sizes, names, MIME syntax, and encoding before changing session state. Each message accepts at most 10 files, with a 10 MiB per-file limit and a 20 MiB combined limit. Desktop IPC and the development HTTP host call the same service; HTTP and SSH frames allow 32 MiB for base64 expansion and message text.
+
+The application stores attachment bytes in a separate SQLite table, atomically with their user message. Ordinary history carries only IDs, names, MIME types, and sizes. `get_attachment` retrieves bytes for a specific conversation and attachment; snapshots do not include attachment contents. Foreign keys remove stored copies when their message, session, or project is deleted.
+
+The remote preparation request carries actual attachment contents over SSH, never a path on the user's computer. The runtime adapts those inputs to the locked SDK's Blob attachment interface. It normalizes generic image/PDF types and UTF-8 source or text files to MIME types the runtime handles; unsupported binary content is rejected before persistence instead of silently disappearing from the provider request. PDF input requires OpenAI Responses or Anthropic; OpenAI Completions submissions are rejected before persistence. Original bytes and supplied MIME metadata remain available in storage. Explicitly supplied attachments do not expand Chat's web-only tool allowlist or change Work permission policy.
+
 ## Typed failures
 
 When an operation fails, users receive an actionable message and can retry after correcting the indicated settings or session state. Rust services return domain-specific `thiserror` enums: validation, persistence, API key storage, runtime configuration, title inference, SSH, and RPC framing each preserve distinct failure reasons. `tandem-core::Error` composes these errors and enumerates application conflicts such as changing a running conversation's model. Callers match variants rather than inspecting message text. Underlying I/O, SQLite, JSON, and SDK causes remain available through error sources where they do not expose private input; sensitive parse errors retain only their category and location, and title inference retains only a safe failure variant.

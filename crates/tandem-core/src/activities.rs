@@ -139,6 +139,7 @@ impl Activities {
             session_id: session_id.into(),
             role: MessageRole::Activity,
             content,
+            attachments: Vec::new(),
             created_at: now(),
             sequence: None,
             activity: Some(Activity {
