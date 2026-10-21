@@ -21,7 +21,7 @@ const second: Subagent = {
   displayName: 'Review persistence',
   status: 'completed',
 };
-const messages: Message[] = [
+const messages: [Message, Message, Message] = [
   {
     id: 'a-output',
     sessionId: 'session',
@@ -122,6 +122,65 @@ describe('Multi-agent inspection', () => {
     expect(markup).toContain('Only worker B reported this finding.');
     expect(markup).not.toContain('Only worker A reported');
     expect(markup).not.toContain('Worker A tool result');
+  });
+
+  it('combines a worker’s consecutive thinking without including interleaved sibling output', () => {
+    const thinking: Message = {
+      ...messages[0],
+      id: 'a-thinking-1',
+      role: 'reasoning',
+      content: 'Checking approval ownership',
+      reasoning: { status: 'completed' },
+    };
+    const markup = renderToStaticMarkup(
+      <AgentOutput
+        agent={first}
+        messages={[
+          thinking,
+          {
+            ...thinking,
+            id: 'b-thinking',
+            agentId: second.id,
+            content: 'Private sibling thinking',
+          },
+          {
+            ...thinking,
+            id: 'a-thinking-2',
+            content: 'Checking cancellation',
+            reasoning: { status: 'running' },
+          },
+        ]}
+        stream=""
+      />,
+    );
+    expect(markup.match(/class="thinking-message /g)).toHaveLength(1);
+    expect(markup).toContain('class="thinking-message running"');
+    expect(markup).toContain('Checking approval ownership\n\nChecking cancellation');
+    expect(markup).not.toContain('Private sibling thinking');
+  });
+
+  it('keeps a worker’s tool activity between separate thinking disclosures', () => {
+    const thinking: Message = {
+      ...messages[0],
+      id: 'a-thinking-1',
+      role: 'reasoning',
+      content: 'Before reading the file',
+      reasoning: { status: 'completed' },
+    };
+    const markup = renderToStaticMarkup(
+      <AgentOutput
+        agent={{ ...first, status: 'completed' }}
+        messages={[
+          thinking,
+          messages[1],
+          { ...thinking, id: 'a-thinking-2', content: 'After reading the file' },
+        ]}
+        stream=""
+      />,
+    );
+    expect(markup.match(/class="thinking-message completed"/g)).toHaveLength(2);
+    expect(markup).toContain('Worker A tool result');
+    expect(markup).not.toContain('Before reading the file\n\nAfter reading the file');
   });
 
   it('shows a failed worker’s error even when it has no output', () => {

@@ -229,6 +229,199 @@ describe('skill and thinking transcript rendering', () => {
     expect(markup).not.toMatch(/<details[^>]*\bopen(?:=|\s|>)/);
   });
 
+  it.each(['running', 'completed', 'interrupted', 'error'] as const)(
+    'combines consecutive thinking in order and retains the %s state',
+    (status) => {
+      const markup = renderToStaticMarkup(
+        <Chat
+          {...props}
+          conversation={{
+            ...emptyConversation,
+            status: status === 'running' ? 'running' : 'idle',
+            messages: [
+              user,
+              { ...reasoning, reasoning: { status: 'completed' } },
+              {
+                ...reasoning,
+                id: 'thinking-2',
+                content: 'Checking the callers',
+                reasoning: { status },
+              },
+            ],
+          }}
+        />,
+      );
+      expect(markup.match(/class="thinking-message /g)).toHaveLength(1);
+      expect(markup).toContain(`class="thinking-message ${status}"`);
+      expect(markup).toContain(`${reasoning.content}\n\nChecking the callers`);
+      expect(markup).not.toMatch(/<details[^>]*\bopen(?:=|\s|>)/);
+    },
+  );
+
+  it('keeps the combined thinking disclosure active between reasoning blocks', () => {
+    const markup = renderToStaticMarkup(
+      <Chat
+        {...props}
+        conversation={{
+          ...emptyConversation,
+          status: 'running',
+          messages: [
+            user,
+            { ...reasoning, reasoning: { status: 'completed' } },
+            {
+              ...reasoning,
+              id: 'thinking-2',
+              content: 'Checking the callers',
+              reasoning: { status: 'completed' },
+            },
+          ],
+        }}
+      />,
+    );
+    expect(markup.match(/class="thinking-message /g)).toHaveLength(1);
+    expect(markup).toContain('class="thinking-message running"');
+    expect(markup).toContain(`${reasoning.content}\n\nChecking the callers`);
+  });
+
+  it('does not split thinking for worker records already represented by the same card', () => {
+    const worker = (id: string): Message => ({
+      ...user,
+      id,
+      role: 'agent',
+      content: '',
+      agent: {
+        id,
+        toolCallId: `call-${id}`,
+        name: id,
+        displayName: id,
+        description: '',
+        status: 'completed',
+      },
+    });
+    const markup = renderToStaticMarkup(
+      <Chat
+        {...props}
+        conversation={{
+          ...emptyConversation,
+          messages: [
+            user,
+            worker('worker-1'),
+            { ...reasoning, reasoning: { status: 'completed' } },
+            worker('worker-2'),
+            {
+              ...reasoning,
+              id: 'thinking-2',
+              content: 'Checking the callers',
+              reasoning: { status: 'completed' },
+            },
+          ],
+        }}
+      />,
+    );
+    expect(markup.match(/class="fleet-card"/g)).toHaveLength(1);
+    expect(markup.match(/class="thinking-message /g)).toHaveLength(1);
+    expect(markup).toContain(`${reasoning.content}\n\nChecking the callers`);
+  });
+
+  it.each(['user', 'assistant', 'activity', 'tool', 'system', 'agent'] as const)(
+    'starts a separate thinking disclosure after a %s message',
+    (role) => {
+      const separator: Message = {
+        ...user,
+        id: 'separator',
+        role,
+        content: 'A distinct conversation event',
+      };
+      if (role === 'activity') separator.activity = { status: 'completed', tools: [] };
+      if (role === 'agent')
+        separator.agent = {
+          id: 'worker',
+          toolCallId: 'worker-call',
+          name: 'worker',
+          displayName: 'Worker',
+          description: '',
+          status: 'completed',
+        };
+      const markup = renderToStaticMarkup(
+        <Chat
+          {...props}
+          conversation={{
+            ...emptyConversation,
+            messages: [
+              user,
+              { ...reasoning, reasoning: { status: 'completed' } },
+              separator,
+              {
+                ...reasoning,
+                id: 'thinking-after-separator',
+                content: 'Thinking after the event',
+                reasoning: { status: 'completed' },
+              },
+            ],
+          }}
+        />,
+      );
+      expect(markup.match(/class="thinking-message completed"/g)).toHaveLength(2);
+      expect(markup).not.toContain(`${reasoning.content}\n\nThinking after the event`);
+    },
+  );
+
+  it.each([
+    { name: 'an assistant stream', stream: 'The answer is arriving', permissions: [] },
+    {
+      name: 'a permission request',
+      stream: '',
+      permissions: [{ requestId: 'permission-1', kind: 'write', description: 'Write the file?' }],
+    },
+  ])('leaves completed thinking settled during $name', ({ stream, permissions }) => {
+    const markup = renderToStaticMarkup(
+      <Chat
+        {...props}
+        conversation={{
+          ...emptyConversation,
+          status: 'running',
+          stream,
+          permissions,
+          messages: [user, { ...reasoning, reasoning: { status: 'completed' } }],
+        }}
+      />,
+    );
+    expect(markup.match(/class="thinking-message /g)).toHaveLength(1);
+    expect(markup).toContain('class="thinking-message completed"');
+    expect(markup).not.toContain('class="thinking-message running"');
+    expect(markup).toContain(stream || 'Write the file?');
+  });
+
+  it('keeps interleaved worker thinking out of the combined main disclosure', () => {
+    const markup = renderToStaticMarkup(
+      <Chat
+        {...props}
+        conversation={{
+          ...emptyConversation,
+          messages: [
+            user,
+            { ...reasoning, reasoning: { status: 'completed' } },
+            {
+              ...reasoning,
+              id: 'worker-thinking',
+              agentId: 'worker',
+              content: 'Private worker thinking',
+            },
+            {
+              ...reasoning,
+              id: 'thinking-2',
+              content: 'Checking the callers',
+              reasoning: { status: 'completed' },
+            },
+          ],
+        }}
+      />,
+    );
+    expect(markup.match(/class="thinking-message completed"/g)).toHaveLength(1);
+    expect(markup).toContain(`${reasoning.content}\n\nChecking the callers`);
+    expect(markup).not.toContain('Private worker thinking');
+  });
+
   it.each(['completed', 'interrupted'] as const)(
     'keeps $status thinking readable without a running indicator after the turn ends',
     (status) => {

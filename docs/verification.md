@@ -1,5 +1,13 @@
 # Verification record
 
+## Consecutive thinking disclosures (2026-10-21)
+
+Developed from `main` (`75e4813`) in `.worktrees/merge-consecutive-thinking` on `codex/merge-consecutive-thinking`. Consecutive thinking blocks now share one collapsed disclosure in the main conversation and each worker's output. Their text remains in order, separated by blank lines. Other visible message types split groups. The first block's identity keeps expansion and scrolling stable while later blocks arrive. Between blocks, an existing trailing disclosure stays active instead of adding an empty waiting row. Raw runtime messages, stored history, permissions, and protocol interfaces are unchanged.
+
+All 456 frontend tests passed. New regressions cover running and terminal states, waiting gaps, message boundaries, assistant streams, pending approvals, worker isolation, worker records already represented by a visible card, stable identities, and source-record preservation. Browser verification used production React components with local synthetic message fixtures, without calling an inference provider or application service. It confirmed expansion handoff from waiting to the first block, merged later blocks, follow-at-bottom behavior, preserved upward scroll position when text is appended, completion, collapsed history reopening, tool boundaries, worker grouping, and English/Simplified Chinese labels. The screenshot and fixture are ignored artifacts under `artifacts/thinking-*`.
+
+`just check`, `just check-workspace`, and `just build` passed on Apple Silicon macOS, including 213 Rust tests and 36 Python tests. `CI=true just desktop-build` produced the current-platform `Tandem.app` and `Tandem_0.0.3_aarch64.dmg`; the bundle was not installed or launched. No dependencies or lockfiles changed, and existing CI source/test filters cover the new files. Check and build logs are ignored artifacts under `artifacts/`.
+
 ## Multi-agent mode and file tool titles (2026-10-21)
 
 Developed from `main` (`07d328e`) in `.worktrees/fleet-mode` on `codex/fleet-mode`. Work now offers an unchecked **Multi-agent** checkbox in the composer. Each submission explicitly selects ordinary or Fleet execution. The runtime updates its tool allowlist under the existing submission reservation and calls the SDK's Fleet RPC for opted-in turns. Ordinary turns restore the original Work tools; Chat rejects Fleet. Local and SSH execution preserve the same permission and cancellation policies.

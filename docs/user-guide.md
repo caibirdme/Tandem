@@ -44,9 +44,9 @@ Activity groups stay in conversation order when another message is sent, when yo
 
 ### Read thinking text
 
-Click **Thinking** in the conversation to expand thinking text shared by the model and provider. The header starts collapsed. The expanded area shows up to three lines at a time and scrolls for longer text. While new text arrives, it follows the latest content if you are at the bottom. Scroll up to read earlier text without losing your position; scroll back to the bottom to resume following updates.
+Click **Thinking** in the conversation to expand thinking text shared by the model and provider. Consecutive thinking blocks share one header, with their text kept in order and separated by blank lines. This also applies inside a subagent's output. Replies, tool activity, and other messages start a separate section. The header starts collapsed. The expanded area shows up to three lines at a time and scrolls for longer text. While new text arrives, it follows the latest content if you are at the bottom. Scroll up to read earlier text without losing your position; scroll back to the bottom to resume following updates.
 
-Thinking text is available only when the model and provider share it. While waiting, the expanded area says that no text has arrived yet. Completed thinking appears under **Thoughts**; interrupted thinking is labeled **Thinking stopped**.
+Thinking text is available only when the model and provider share it. Before text arrives, the expanded area displays a waiting message. While the model continues thinking between blocks, the same header stays active and retains the text already received. Completed thinking appears under **Thoughts**; interrupted thinking is labeled **Thinking stopped**.
 
 ### Use project skills
 

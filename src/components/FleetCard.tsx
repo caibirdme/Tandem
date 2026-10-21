@@ -2,6 +2,7 @@ import { ArrowLeft, Check, ChevronRight, CircleAlert, CircleSlash, Network } fro
 import { lazy, Suspense, useId, useLayoutEffect, useRef } from 'react';
 
 import { useI18n } from '../i18n';
+import { groupThinkingMessages } from '../lib/thinkingMessages';
 import type { ActivityStatus, Message, Subagent } from '../lib/types';
 import { ActivityMessage } from './ActivityMessage';
 import { ThinkingMessage } from './ThinkingMessage';
@@ -55,8 +56,8 @@ export function AgentOutput({
   const { t } = useI18n();
   const viewport = useRef<HTMLDivElement>(null);
   const followLatest = useRef(true);
-  const output = messages.filter(
-    (message) => message.agentId === agent.id && message.role !== 'agent',
+  const output = groupThinkingMessages(
+    messages.filter((message) => message.agentId === agent.id && message.role !== 'agent'),
   );
 
   useLayoutEffect(() => {
