@@ -21,6 +21,9 @@ export const emptyConversation: Conversation = {
   failedSend: null,
 };
 
+// Only reconciled lists can skip sorting when a live update keeps its ordering keys.
+const orderedMessageLists = new WeakSet<ConversationMessage[]>();
+
 function confirmsPending(pending: Message | null | undefined, message: Message): boolean {
   return (
     message.role === 'user' &&
@@ -34,6 +37,22 @@ export function mergeMessages(
   incoming: Message[],
   protectedIds?: ReadonlySet<string>,
 ): ConversationMessage[] {
+  const update = incoming.length === 1 ? incoming[0] : undefined;
+  if (update && update.role !== 'user' && orderedMessageLists.has(existing)) {
+    const index = existing.findIndex((message) => message.id === update.id);
+    const previous = existing[index];
+    if (
+      previous &&
+      previous.sequence === update.sequence &&
+      previous.createdAt === update.createdAt
+    ) {
+      if (protectedIds?.has(update.id) || previous === update) return existing;
+      const messages = existing.with(index, update);
+      orderedMessageLists.add(messages);
+      return messages;
+    }
+  }
+
   const messages = new Map(existing.map((message) => [message.id, message]));
   for (const message of incoming) {
     const pendingId = `pending:${message.id}`;
@@ -41,12 +60,14 @@ export function mergeMessages(
     if (!protectedIds?.has(message.id) || !messages.has(message.id))
       messages.set(message.id, message);
   }
-  return [...messages.values()].toSorted((a, b) => {
+  const ordered = [...messages.values()].toSorted((a, b) => {
     if (a.sequence !== undefined && b.sequence !== undefined) return a.sequence - b.sequence;
     if (a.sequence !== undefined) return -1;
     if (b.sequence !== undefined) return 1;
     return a.createdAt.localeCompare(b.createdAt);
   });
+  orderedMessageLists.add(ordered);
+  return ordered;
 }
 
 /** Live events and history confirm only the send carrying the same client-generated ID. */

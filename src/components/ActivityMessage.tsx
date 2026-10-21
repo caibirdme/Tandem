@@ -1,4 +1,5 @@
 import { Check, ChevronRight, CircleAlert, CircleSlash } from 'lucide-react';
+import { memo } from 'react';
 
 import { useI18n } from '../i18n';
 import type { MessageKey } from '../i18n';
@@ -104,7 +105,7 @@ function ToolDetails({ tool }: { tool: ToolActivity }) {
   );
 }
 
-export function ActivityMessage({
+export const ActivityMessage = memo(function ActivityMessage({
   content,
   activity,
 }: {
@@ -146,4 +147,4 @@ export function ActivityMessage({
       ))}
     </section>
   );
-}
+});

@@ -1,28 +1,36 @@
 import { useEffect, useMemo, useState } from 'react';
 
-import { loadProjectSkills } from '../lib/projectSkills';
+import { projectSkills } from '../lib/projectSkills';
 import type { ProjectSkill } from '../lib/types';
 
 export function useProjectSkills(projectId: string | undefined, open: boolean, connected: boolean) {
-  const request = useMemo(() => ({ projectId, open, connected }), [projectId, open, connected]);
+  const request = useMemo(() => ({ projectId, connected }), [projectId, connected]);
   const [catalog, setCatalog] = useState<{
     request: typeof request;
     skills: ProjectSkill[];
   } | null>(null);
 
   useEffect(() => {
-    if (!request.projectId || !request.open || !request.connected) return;
+    if (!request.projectId) return;
+    if (!request.connected) {
+      projectSkills.invalidate(request.projectId);
+      return;
+    }
     let active = true;
-    void loadProjectSkills(request.projectId).then((skills) => {
+    // Warm the catalog when Work opens, and refresh expired entries when the picker reopens.
+    void projectSkills.load(request.projectId).then((skills) => {
       if (active) setCatalog({ request, skills });
     });
     return () => {
       active = false;
     };
-  }, [request]);
+  }, [request, open]);
+
+  const cached = projectId && connected ? projectSkills.get(projectId) : undefined;
+  const skills = cached ?? (catalog?.request === request && connected ? catalog.skills : undefined);
 
   return {
-    skills: catalog?.request === request && connected ? catalog.skills : [],
-    loading: connected && catalog?.request !== request,
+    skills: skills ?? [],
+    loading: Boolean(projectId && connected && skills === undefined),
   };
 }

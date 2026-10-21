@@ -1,4 +1,5 @@
 import { Sparkles } from 'lucide-react';
+import { memo } from 'react';
 import type { ReactNode } from 'react';
 
 import { findSkillQuery } from '../lib/skillMentions';
@@ -49,7 +50,7 @@ function sentSkillMentions(content: string, skills: SelectedSkill[]): SentSkillM
   return separate;
 }
 
-export function SentMessageContent({
+export const SentMessageContent = memo(function SentMessageContent({
   content,
   selectedSkills = noSkills,
 }: SentMessageContentProps) {
@@ -67,4 +68,4 @@ export function SentMessageContent({
   }
   if (cursor < content.length) parts.push(content.slice(cursor));
   return <p className="sent-message-content">{parts}</p>;
-}
+});
