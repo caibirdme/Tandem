@@ -10,6 +10,12 @@ pub(crate) enum ServerError {
     UnknownOption { option: String },
     #[error("Choose only one tandem-server mode")]
     ConflictingModes,
+    #[cfg(not(unix))]
+    #[error("The shared remote daemon and proxy require a Unix host")]
+    UnixOnlyMode,
+    #[cfg(unix)]
+    #[error(transparent)]
+    Daemon(#[from] crate::daemon::DaemonError),
     #[error("Unsupported remote command")]
     UnsupportedCommand,
     #[error("{field} is required and must be a string")]
@@ -24,6 +30,22 @@ pub(crate) enum ServerError {
     },
     #[error("Session not connected; start or resume the session before sending a command")]
     SessionNotConnected,
+    #[error(
+        "This session is attached to another connection. Close that connection before resuming it."
+    )]
+    SessionOwned,
+    #[error(
+        "Active remote sessions use different telemetry settings. Close those sessions before changing the shared runtime configuration."
+    )]
+    TelemetryConflict,
+    #[error("Too many remote operations are pending. Retry after an operation completes.")]
+    RequestLimit,
+    #[error("The remote operation timed out. Reconnect before retrying the operation.")]
+    RequestTimeout,
+    #[error("A remote operation task stopped unexpectedly. Reconnect before retrying.")]
+    RequestTask(#[source] tokio::task::JoinError),
+    #[error("The session's connection has closed. Reconnect to resume its history.")]
+    ConnectionClosed,
     #[error("The prepared message is missing or has expired. Prepare the message again.")]
     PreparedMessageUnavailable,
     #[error("HOME is required on a remote host")]
@@ -57,6 +79,16 @@ pub(crate) enum ServerError {
 impl ServerError {
     const fn code(&self) -> RpcErrorCode {
         match self {
+            #[cfg(not(unix))]
+            Self::UnixOnlyMode => RpcErrorCode::RuntimeUnavailable,
+            #[cfg(unix)]
+            Self::Daemon(_) => RpcErrorCode::RuntimeUnavailable,
+            Self::SessionOwned | Self::TelemetryConflict | Self::RequestLimit => {
+                RpcErrorCode::RuntimeBusy
+            }
+            Self::RequestTimeout => RpcErrorCode::RuntimeTimeout,
+            Self::RequestTask(_) => RpcErrorCode::RuntimeFailure,
+            Self::ConnectionClosed => RpcErrorCode::SessionNotConnected,
             Self::UnsupportedCommand => RpcErrorCode::UnsupportedCommand,
             Self::Runtime(RuntimeError::Skills(error)) => match error {
                 copilot_runtime::SkillError::PreparationTimeout

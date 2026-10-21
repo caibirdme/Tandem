@@ -31,6 +31,8 @@ jobs:
       # User guides and README screenshots live under docs/**, so documentation-only edits run Format.
       # Attachment UI modules use the web rules; tests/attachment_acceptance.py runs inside
       # the existing local and remote Rust integration steps below.
+      # tests/daemon_acceptance.py and tests/remote_protocol.py are included by the
+      # remote integration step; macOS also exercises the real Unix daemon/proxies.
       - uses: dorny/paths-filter@v4
         id: filter
         with:
@@ -76,6 +78,7 @@ jobs:
               - 'src-tauri/remote/**'
               - 'src-tauri/build.rs'
               - 'src-tauri/Cargo.toml'
+              - 'crates/tandem-server/build.rs'
               - 'Cargo.toml'
               - 'Cargo.lock'
               - 'rust-toolchain.toml'
@@ -146,6 +149,7 @@ jobs:
       - run: cargo test --workspace --locked
       - run: cargo build -p tandem-dev-server -p tandem-server --locked
       - run: python tests/runtime_e2e.py
+      # POSIX runs shared-daemon acceptance even when an SSH daemon is unavailable.
       - run: python tests/remote_e2e.py --skip-ssh
 
   bundle:

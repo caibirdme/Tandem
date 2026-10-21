@@ -15,8 +15,10 @@ flowchart LR
   Core --> Store[SQLite / local API key configuration]
   Core --> SDK[Copilot SDK]
   SDK --> CLI[Bundled Copilot CLI]
-  Core --> SSH[OpenSSH encrypted channel]
-  SSH --> Remote[Remote tandem-server]
+  Core --> SSH[One SSH channel per Work conversation]
+  SSH --> Proxy[tandem-server --proxy]
+  Proxy --> Socket[Private Unix socket]
+  Socket --> Remote[Shared tandem-server --daemon]
   Remote --> RemoteSDK[Remote SDK / CLI]
   CLI --> Provider[Model provider]
   RemoteSDK --> Provider
@@ -28,7 +30,21 @@ flowchart LR
 
 `copilot-runtime` adapts only the official SDK. The SDK handles model requests, tool execution, context compaction, and session recovery. The application owns tool allowlists, permission requests, provider mapping, and telemetry parameters; it does not maintain a second agent loop.
 
-`tandem-remote` owns system SSH, platform detection, atomic deployment, and bidirectional JSON RPC with request IDs. The remote `tandem-server --stdio` accepts only agent lifecycle commands and runs work through `copilot-runtime`. Provider keys pass through the SSH channel in memory; they are not written to remote preference files or process arguments.
+`tandem-remote` owns system SSH, platform detection, atomic deployment, and bidirectional JSON RPC with request IDs. Each remote Work conversation opens an SSH channel running `tandem-server --proxy`. The proxy forwards bounded frames through a private Unix socket to a shared `tandem-server --daemon`; it does not start an SDK or CLI. Provider keys pass through SSH and the socket in memory; they are not written to remote preference files or process arguments.
+
+### Shared remote runtime
+
+Users can start several Work conversations on the same host, including in different project directories. Each conversation keeps its own model, provider, permissions, history, and SSH connection. A shared daemon owns one Copilot SDK client and CLI for the same Unix user, canonical home directory, and build identity. The server embeds an identity derived from its relevant source, manifests, lockfile, toolchain, target, and build options. Copies and concurrent uploads of the same artifact share the daemon even when atomic deployment changes the file's inode. A different build selects a separate daemon so incompatible builds never share live sessions. Old daemons exit after their connections close and the idle deadline expires.
+
+The proxy starts the daemon on demand. A startup lock prevents simultaneous proxies from launching multiple daemons, and a lifetime lock protects socket creation and stale-socket cleanup. Socket and lock files live in a private `0700` directory under the canonical system `/tmp`, keyed by UID and home identity; short paths also support long home directories on macOS. Peers must have the same UID, and the socket handshake verifies protocol and binary identity. Both locks are regular private files and remain in place after exit to avoid lock-file replacement races. No public TCP listener is created.
+
+Connection tests and runtime preparation also use the daemon. `--install-runtime` reuses its current runtime, avoiding a temporary CLI for each connection. Skill scans use that same runtime through an idle conversation's existing proxy when available, or a temporary proxy otherwise. The isolated `--stdio` mode remains available for protocol verification, including on Windows; SSH execution uses `--proxy`.
+
+The daemon accepts at most 64 connections, with independent bounded output queues and request limits. Each connection reserves capacity for stop, approval, and disconnect commands. Long preparation or skill discovery does not serialize unrelated sessions. Request IDs are scoped to their connection. Sessions have one connection owner, events go only to that owner, and commands from another connection are rejected. Prepared messages are single-use and tied to the session; abort or disconnect invalidates both pending and in-progress preparation. The desktop also rejects an event whose session ID differs from its conversation.
+
+Losing a connection aborts and detaches only that connection's sessions, denying unanswered approvals and discarding prepared messages. Other connections and the shared CLI remain usable. An explicit later send opens a new proxy and resumes the persisted SDK history; submitted tasks are never automatically replayed. The desktop persists the output it received as interrupted. This policy does not continue unattended work or replay output missed during an outage. An SDK failure invalidates all sessions using that CLI; a later connection can rebuild it. If the SDK cannot confirm abort or detach, the daemon closes all connections and exits, forcing the CLI to stop when graceful shutdown fails, times out, or is cancelled. Uncertain work is never left running without a connection owner.
+
+Telemetry is process-wide. Every desktop skill scan and session start supplies the desired settings. A healthy runtime can change settings only when no session or operation holds it; conflicting settings while it is in use return a typed conflict. Provider and model settings remain per session. After the last proxy disconnects, the daemon retains the CLI for five minutes, then flushes telemetry and exits. Termination signals perform the same cleanup.
 
 `tandem-dev-server` forwards local development HTTP requests to `tandem-core`. The production desktop calls `tandem-core` directly through Tauri without an HTTP host. Remote execution needs neither project management, SQLite, nor system credential stores. The development host and remote agent therefore have separate binary entry points.
 
@@ -88,7 +104,7 @@ Bare configuration removes the SDK's default environment context. Work prompts t
 
 Work explicitly enables the SDK's skill support and `builtin:skill` tool, loading only the selected project's `.agents/skills` and the execution user's `~/.agents/skills`. Creation and recovery apply the same configuration. The `$` picker preloads metadata from the runtime on the project's execution host and shares a bounded, in-memory project cache for 60 seconds. Expired entries stay visible during refresh. Missing or invalid sources are skipped; discovery failures retain the last catalog, or show an empty list when none exists, and can be retried by reopening. Failures and timeouts remain typed across the service boundary rather than being cached as successful empty scans.
 
-SSH discovery reuses a connected, idle conversation's transport for the same project, releasing the session-map lock before the RPC and retaining that conversation's operation gate until discovery finishes. This prevents a turn from starting concurrently with a borrowed scan. It never shuts down that shared transport. When no idle connection is available, discovery creates and closes a temporary transport; this keeps scans from delaying an active turn's approvals or cancellation on the remote server's sequential command loop. Skill roots and candidate paths are validated in blocking filesystem batches so large catalogs do not occupy the async executor or schedule a separate worker task per filesystem operation.
+SSH discovery reuses a connected, idle conversation's transport for the same project, releasing the session-map lock before the RPC and retaining that conversation's operation gate until discovery finishes. This prevents a turn from starting concurrently with a borrowed scan. It never shuts down that shared transport. When no idle connection is available, discovery creates and closes a temporary proxy connected to the same daemon. This avoids holding an active conversation's operation gate while scanning; the daemon also reserves request capacity for approvals and cancellation. Skill roots and candidate paths are validated in blocking filesystem batches so large catalogs do not occupy the async executor or schedule a separate worker task per filesystem operation.
 
 Explicit selections travel as names and paths alongside message text, are freshly validated against the same roots by the runtime, and are expanded through the native skill command API before sending. Chat and title generation retain their disabled skill configuration. See [Project skills](skills.md) for directory layout, interaction, and the protocol research.
 

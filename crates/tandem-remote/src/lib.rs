@@ -148,6 +148,10 @@ pub enum RemoteError {
     InvalidArtifact { path: std::path::PathBuf },
     #[error("Invalid remote response: {0}")]
     InvalidResponse(#[from] RemoteResponseError),
+    #[error(
+        "The remote server has an incompatible protocol or release. Reconnect the project to deploy the matching server."
+    )]
+    ServerVersionMismatch,
     #[error("Invalid remote RPC frame: {0}")]
     Protocol(#[from] tandem_protocol::ProtocolError),
     #[error(transparent)]
@@ -193,6 +197,7 @@ impl RemoteError {
             | Self::ArtifactMissing { .. }
             | Self::InvalidArtifact { .. }
             | Self::InvalidResponse(_)
+            | Self::ServerVersionMismatch
             | Self::Disconnected(_)
             | Self::OutputTooLarge { .. }
             | Self::Io(_) => RpcErrorCode::RuntimeUnavailable,

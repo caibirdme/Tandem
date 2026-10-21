@@ -33,7 +33,13 @@ impl AgentHandle {
     pub fn subscribe(&self) -> AgentEvents {
         match self {
             Self::Local(agent) => AgentEvents::Local(agent.subscribe()),
-            Self::Remote { transport, .. } => AgentEvents::Remote(transport.subscribe()),
+            Self::Remote {
+                session_id,
+                transport,
+            } => AgentEvents::Remote {
+                session_id: session_id.clone(),
+                incoming: transport.subscribe(),
+            },
         }
     }
 
@@ -147,7 +153,26 @@ impl AgentHandle {
     pub async fn disconnect(&self) -> Result<()> {
         match self {
             Self::Local(agent) => agent.disconnect().await?,
-            Self::Remote { transport, .. } => transport.shutdown().await,
+            Self::Remote {
+                session_id,
+                transport,
+            } => {
+                let result = if transport.is_closed() {
+                    Ok(Value::Null)
+                } else {
+                    match tokio::time::timeout(
+                        Duration::from_secs(15),
+                        transport.request("disconnect_agent", json!({"sessionId":session_id})),
+                    )
+                    .await
+                    {
+                        Ok(result) => result.map_err(Error::from),
+                        Err(source) => Err(Error::RemoteDisconnectTimeout(source)),
+                    }
+                };
+                transport.shutdown().await;
+                result?;
+            }
         }
         Ok(())
     }
@@ -155,17 +180,27 @@ impl AgentHandle {
 
 pub(crate) enum AgentEvents {
     Local(broadcast::Receiver<RuntimeEvent>),
-    Remote(broadcast::Receiver<Value>),
+    Remote {
+        session_id: String,
+        incoming: broadcast::Receiver<Value>,
+    },
 }
 
 impl AgentEvents {
     pub async fn recv(&mut self) -> Result<RuntimeEvent> {
         match self {
             Self::Local(incoming) => incoming.recv().await.map_err(Error::RuntimeEventStream),
-            Self::Remote(incoming) => {
+            Self::Remote {
+                session_id,
+                incoming,
+            } => {
                 let value = incoming.recv().await.map_err(Error::RemoteEventStream)?;
-                serde_json::from_value(value)
-                    .map_err(|error| Error::InvalidRemoteEvent(error.into()))
+                let event: RuntimeEvent = serde_json::from_value(value)
+                    .map_err(|error| Error::InvalidRemoteEvent(error.into()))?;
+                if event.session_id != *session_id {
+                    return Err(Error::RemoteSessionMismatch);
+                }
+                Ok(event)
             }
         }
     }
@@ -290,7 +325,10 @@ mod tests {
         use std::error::Error as _;
 
         let (events, incoming) = broadcast::channel(2);
-        let mut incoming = AgentEvents::Remote(incoming);
+        let mut incoming = AgentEvents::Remote {
+            session_id: "session".into(),
+            incoming,
+        };
         events.send(json!({"sessionId":"session","kind":"private-event-value","data":{}}))?;
         let error = incoming
             .recv()
@@ -311,6 +349,28 @@ mod tests {
                 broadcast::error::RecvError::Closed
             ))
         ));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn a_remote_connection_cannot_deliver_another_sessions_events() -> Result<()> {
+        let (events, incoming) = broadcast::channel(2);
+        let mut incoming = AgentEvents::Remote {
+            session_id: "expected".into(),
+            incoming,
+        };
+        events.send(
+            json!({"sessionId":"other","kind":"delta","data":{"content":"private-output"}}),
+        )?;
+        let error = incoming
+            .recv()
+            .await
+            .err()
+            .ok_or_else(|| anyhow::anyhow!("foreign event accepted"))?;
+        assert!(matches!(error, Error::RemoteSessionMismatch));
+        assert!(!error.to_string().contains("private-output"));
+        events.send(json!({"sessionId":"expected","kind":"status","data":{"state":"idle"}}))?;
+        assert_eq!(incoming.recv().await?.session_id, "expected");
         Ok(())
     }
 

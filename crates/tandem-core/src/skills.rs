@@ -30,7 +30,7 @@ impl App {
                         ),
                     };
                 let response = transport
-                    .request("list_project_skills", json!({"directory": project.path}))
+                    .request("list_project_skills", json!({"directory": project.path,"telemetry":self.store.preferences()?.telemetry}))
                     .await;
                 if session_guard.is_none() {
                     transport.shutdown().await;

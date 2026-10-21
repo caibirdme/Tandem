@@ -17,7 +17,7 @@ Stack: Tauri 2, Rust 1.99.1 / edition 2024, React, TypeScript 7, Vite 8, and pnp
 | `crates/copilot-runtime/`   | Copilot SDK sessions, permission boundaries, and telemetry configuration          |
 | `crates/tandem-remote/`     | OpenSSH connections, remote installation, and JSON RPC transport                  |
 | `crates/tandem-protocol/`   | Shared SSH RPC frames, size limits, and errors                                    |
-| `crates/tandem-server/`     | Remote agent stdio entry point, distributed with desktop resources                |
+| `crates/tandem-server/`     | Remote shared daemon and SSH stdio proxy, distributed with desktop resources      |
 | `crates/tandem-dev-server/` | Local HTTP development host that calls application services                       |
 | `tests/`                    | Integration verification against real protocols and test services                 |
 | `.github/workflows/`        | PR checks, desktop bundles, and tag releases                                      |

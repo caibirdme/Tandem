@@ -348,3 +348,50 @@ async fn skill_discovery_timeout_remains_distinct_from_an_empty_catalog() -> Tes
     ));
     Ok(())
 }
+
+#[tokio::test]
+async fn force_stop_releases_sessions_after_graceful_detach_is_cancelled() -> TestResult {
+    let directory = TestDirectory::new()?;
+    let (client_writer, reader) = duplex(65_536);
+    let (writer, client_reader) = duplex(65_536);
+    let runtime = Runtime {
+        client: Client::from_streams(client_reader, client_writer, directory.0.clone())?,
+        chat_directory: directory.0.clone(),
+    };
+    let mut server = SdkServer {
+        reader: BufReader::new(reader),
+        writer,
+    };
+    let (session, created) = tokio::join!(
+        runtime.create_session(session_options(directory.0.clone(), false)),
+        server.reply("session.create", json!({"sessionId":"attachment-session"})),
+    );
+    created?;
+    let session = session?;
+    let mut graceful = Box::pin(runtime.stop());
+    tokio::select! {
+        result = &mut graceful => panic!("shutdown completed without a detach response: {result:?}"),
+        request = server.request("session.detach") => { request?; }
+    }
+    assert!(
+        tokio::time::timeout(Duration::from_millis(1), &mut graceful)
+            .await
+            .is_err()
+    );
+    drop(graceful);
+    runtime.force_stop();
+    assert!(!runtime.is_healthy().await);
+    tokio::time::timeout(Duration::from_secs(1), async {
+        while session.is_connected() {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await?;
+    let mut remaining = Vec::new();
+    tokio::time::timeout(
+        Duration::from_secs(1),
+        server.reader.read_to_end(&mut remaining),
+    )
+    .await??;
+    Ok(())
+}

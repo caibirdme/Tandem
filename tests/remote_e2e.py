@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Exercise real remote stdio and OpenSSH without touching the user's SSH setup.
+"""Exercise real remote stdio, shared Unix proxies, and isolated OpenSSH.
 
 The SDK and tools are production code; inference and OTLP use the same local
 fixtures as runtime_e2e.py. SSH uses ephemeral keys, an isolated known-hosts file,
@@ -8,7 +8,8 @@ home and runtime state to a temporary directory. No real provider key is needed.
 
 Run after building tandem-server and tandem-dev-server: python3 tests/remote_e2e.py
 Use --server for the remote stdio executable and --dev-server for the HTTP host.
-With --skip-ssh, only the remote stdio executable is required.
+With --skip-ssh, only the remote executable is required. Unix hosts also verify
+shared daemon/proxy sessions without requiring an SSH daemon.
 """
 
 from __future__ import annotations
@@ -55,133 +56,17 @@ from reasoning_acceptance import (
 )
 from skill_acceptance import check_project_skills, check_stdio_skills
 from attachment_acceptance import check_attachments, check_stdio_attachments
-
-
-def private_environment(home):
-    environment = os.environ.copy()
-    environment.update(HOME=str(home), USERPROFILE=str(home), XDG_CACHE_HOME=str(home / '.cache'),
-                       XDG_CONFIG_HOME=str(home / '.config'), XDG_STATE_HOME=str(home / '.state'))
-    for key in ('COPILOT_CLI_PATH', 'GITHUB_TOKEN', 'GH_TOKEN', 'COPILOT_GITHUB_TOKEN'):
-        environment.pop(key, None)
-    return environment
-
-
-def child_processes(parent):
-    """Inspect only descendants of a process owned by this test."""
-    if not shutil.which('pgrep'):
-        return []
-    result = subprocess.run(['pgrep', '-P', str(parent)], capture_output=True, text=True, check=False)
-    children = [int(value) for value in result.stdout.split()]
-    return children + [descendant for child in children for descendant in child_processes(child)]
-
-
-def require_processes_stopped(processes):
-    deadline = time.monotonic() + 5
-    while time.monotonic() < deadline:
-        remaining = []
-        for process in processes:
-            try:
-                os.kill(process, 0)
-                remaining.append(process)
-            except ProcessLookupError:
-                pass
-        if not remaining:
-            return
-        time.sleep(.05)
-    raise AssertionError(f'Test-owned runtime children survived cleanup: {remaining}')
+from remote_protocol import (
+    StdioServer,
+    child_processes,
+    private_environment,
+)
+from daemon_acceptance import check_daemon, require_runtime, runtime_processes, stop_daemon
 
 
 def require_no_persisted_key(home):
     leaks = scan_for_key(home, FIXTURE_KEY)
     require(not leaks, f'Provider credential persisted on remote host: {leaks}')
-
-
-class StdioServer:
-    def __init__(self, binary, directory):
-        self.log = open(directory / f'stdio-{uuid.uuid4()}.log', 'w+')
-        self.process = subprocess.Popen([str(binary), '--stdio'], stdin=subprocess.PIPE,
-                                        stdout=subprocess.PIPE, stderr=self.log, text=True,
-                                        env=private_environment(directory))
-        self.responses = queue.Queue()
-        self.events = queue.Queue()
-        self.failures = queue.Queue()
-        self.next_id = 0
-        self.children = set()
-        self.reader = threading.Thread(target=self.read_frames, daemon=True)
-        self.reader.start()
-
-    def read_frames(self):
-        try:
-            for line in self.process.stdout:
-                frame = json.loads(line)
-                if 'event' in frame:
-                    self.events.put(frame['event'])
-                else:
-                    self.responses.put(frame)
-        except (OSError, ValueError) as error:
-            self.failures.put(error)
-
-    def command(self, command, **payload):
-        self.next_id += 1
-        self.process.stdin.write(json.dumps({'id': self.next_id, 'command': command, 'payload': payload}) + '\n')
-        self.process.stdin.flush()
-        response = self.responses.get(timeout=45)
-        require(response.get('id') == self.next_id, 'Remote response ID did not match the request')
-        if 'error' in response:
-            raise RuntimeError(response['error']['message'])
-        if command == 'start_agent':
-            self.children.update(child_processes(self.process.pid))
-        return response['value']
-
-    def turn(self, session_id, prompt, selected_skills=(), attachments=()):
-        while not self.events.empty():
-            self.events.get_nowait()
-        self.command('send_agent', sessionId=session_id, content=prompt,
-                     selectedSkills=list(selected_skills), attachments=list(attachments))
-        return self.receive_turn(session_id)
-
-    def prepared_turn(self, session_id, prepared_id):
-        while not self.events.empty():
-            self.events.get_nowait()
-        self.command('send_prepared_agent_message', sessionId=session_id, preparedId=prepared_id)
-        return self.receive_turn(session_id)
-
-    def receive_turn(self, session_id):
-        received = []
-        deadline = time.monotonic() + 45
-        while time.monotonic() < deadline:
-            event = self.events.get(timeout=max(1, deadline - time.monotonic()))
-            require(event['sessionId'] == session_id, 'Remote event routed to another session')
-            received.append(event)
-            if event['kind'] == 'permission':
-                self.command('approve_agent', sessionId=session_id,
-                             requestId=event['data']['requestId'], approved=True)
-            if event['kind'] == 'error':
-                raise AssertionError(event['data'])
-            if event['kind'] == 'status' and event['data']['state'] == 'idle':
-                return received
-        raise TimeoutError('Remote stdio turn did not finish')
-
-    def close(self, expected_status=0):
-        children = self.children.union(child_processes(self.process.pid))
-        if self.process.stdin and not self.process.stdin.closed:
-            try:
-                self.process.stdin.close()
-            except BrokenPipeError:
-                pass
-        try:
-            status = self.process.wait(timeout=20)
-        except subprocess.TimeoutExpired:
-            self.process.kill()
-            self.process.wait(timeout=5)
-            raise AssertionError('Remote server did not exit after stdin EOF') from None
-        finally:
-            self.reader.join(timeout=2)
-            self.process.stdout.close()
-            self.log.close()
-        require((status == 0) == (expected_status == 0), f'Unexpected remote exit status: {status}')
-        require(self.failures.empty(), 'Remote stdout contained non-protocol output')
-        require_processes_stopped(children)
 
 
 def session_options(session_id, endpoint):
@@ -200,6 +85,13 @@ def check_stdio(binary, home, endpoint, fixture):
     initialized = subprocess.run([str(binary), '--install-runtime'], capture_output=True,
                                  env=private_environment(home), timeout=45, check=False)
     require(initialized.returncode == 0, 'Bundled remote runtime initialization failed')
+    if os.name == 'posix':
+        bootstrap = StdioServer(binary, home, mode='--proxy')
+        try:
+            daemon = bootstrap.command('server_info')['processId']
+        finally:
+            bootstrap.close()
+        stop_daemon(daemon)
     session_id = str(uuid.uuid4())
     options = session_options(session_id, endpoint)
     telemetry = {'enabled': True, 'endpoint': endpoint, 'protocol': 'http/json', 'captureContent': False}
@@ -312,6 +204,8 @@ def check_stdio_reasoning(server, fixture, endpoint):
 class IsolatedSsh:
     def __init__(self, directory):
         self.directory = directory
+        self.runtime_daemon = None
+        self.runtime_daemons = set()
         directory.mkdir()
         self.home = directory / 'remote-home'
         self.home.mkdir()
@@ -331,7 +225,7 @@ class IsolatedSsh:
         forced = directory / 'remote-shell.py'
         remote_environment = {'HOME': str(self.home), 'XDG_CACHE_HOME': str(self.home / '.cache'),
                               'XDG_CONFIG_HOME': str(self.home / '.config'), 'XDG_STATE_HOME': str(self.home / '.state')}
-        forced.write_text('import os, time\nfrom pathlib import Path\n'
+        forced.write_text('import os, subprocess, sys, time\nfrom pathlib import Path\n'
                           f'with open({str(self.command_marker)!r}, "ab", buffering=0) as marker:\n'
                           '    marker.write(b"x")\n'
                           f'os.environ.update({remote_environment!r})\n'
@@ -340,6 +234,21 @@ class IsolatedSsh:
                           'if "uname -s" in os.environ["SSH_ORIGINAL_COMMAND"] and delay.exists():\n'
                           '    Path("bootstrap-waiting").touch()\n'
                           '    while delay.exists(): time.sleep(.05)\n'
+                          'race = Path("race-bootstrap")\n'
+                          'command = os.environ["SSH_ORIGINAL_COMMAND"]\n'
+                          'if race.exists() and "uname -s" in command:\n'
+                          '    result = subprocess.run(["/bin/sh", "-c", command], capture_output=True)\n'
+                          '    (race / f"probe-{os.getpid()}").touch()\n'
+                          '    while not (race / "proceed").exists(): time.sleep(.02)\n'
+                          '    sys.stdout.buffer.write(result.stdout)\n'
+                          '    sys.stderr.buffer.write(result.stderr)\n'
+                          '    sys.exit(result.returncode)\n'
+                          'if race.exists() and "destination=" in command:\n'
+                          '    try:\n'
+                          '        (race / "first-upload").mkdir()\n'
+                          '    except FileExistsError:\n'
+                          '        (race / "second-upload").touch()\n'
+                          '        while not (race / "release-second").exists(): time.sleep(.02)\n'
                           'os.execv("/bin/sh", ["sh", "-c", os.environ["SSH_ORIGINAL_COMMAND"]])\n')
         config = directory / 'sshd_config'
         config.write_text('\n'.join([
@@ -384,15 +293,32 @@ class IsolatedSsh:
         key_type, key, *_ = (self.directory / 'host.pub').read_text().split()
         self.known_hosts.write_text(f'[127.0.0.1]:{self.port} {key_type} {key}\n')
 
+    def identify_runtime_daemon(self):
+        arguments = [str(self.directory / 'bin/ssh'), '-T', '-p', str(self.port),
+                     '-i', str(self.directory / 'identity'), '-o', 'BatchMode=yes',
+                     f'{getpass.getuser()}@127.0.0.1',
+                     'exec "$HOME/.local/share/tandem/bin/tandem-server" --proxy']
+        client = StdioServer(None, self.home, mode='--proxy', arguments=arguments,
+                             environment=self.environment)
+        try:
+            self.runtime_daemon = client.command('server_info')['processId']
+            self.runtime_daemons.add(self.runtime_daemon)
+        finally:
+            client.close()
+
     def close(self):
-        if self.daemon.poll() is None:
-            os.killpg(self.daemon.pid, signal.SIGTERM)
-            try:
-                self.daemon.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                os.killpg(self.daemon.pid, signal.SIGKILL)
-                self.daemon.wait(timeout=5)
-        self.log.close()
+        try:
+            for daemon in self.runtime_daemons:
+                stop_daemon(daemon)
+        finally:
+            if self.daemon.poll() is None:
+                os.killpg(self.daemon.pid, signal.SIGTERM)
+                try:
+                    self.daemon.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    os.killpg(self.daemon.pid, signal.SIGKILL)
+                    self.daemon.wait(timeout=5)
+            self.log.close()
 
 
 def digest(path):
@@ -412,7 +338,56 @@ def expect_command_error(app, command, expected, **payload):
         raise AssertionError(f'{command} unexpectedly succeeded')
 
 
+def check_concurrent_bootstrap(app, ssh):
+    """Force two fresh probes to deploy the same build across a live daemon."""
+    race = ssh.home / 'race-bootstrap'
+    race.mkdir()
+    results = queue.Queue()
+
+    def bootstrap():
+        try:
+            app.command('check_connection', connection=ssh.connection)
+            results.put(None)
+        except Exception as error:
+            results.put(error)
+
+    starters = [threading.Thread(target=bootstrap, daemon=True) for _ in range(2)]
+    for starter in starters:
+        starter.start()
+    try:
+        deadline = time.monotonic() + 15
+        while len(list(race.glob('probe-*'))) < 2 and time.monotonic() < deadline:
+            time.sleep(.02)
+        require(len(list(race.glob('probe-*'))) == 2, 'Concurrent SSH bootstrap did not perform two fresh probes')
+        (race / 'proceed').touch()
+        first = results.get(timeout=45)
+        if first:
+            raise first
+        deadline = time.monotonic() + 15
+        while not (race / 'second-upload').exists() and time.monotonic() < deadline:
+            time.sleep(.02)
+        require((race / 'second-upload').exists(), 'The second SSH deployment did not reach its controlled pause')
+        ssh.identify_runtime_daemon()
+        daemon = ssh.runtime_daemon
+        runtime = require_runtime(daemon)
+        (race / 'release-second').touch()
+        second = results.get(timeout=45)
+        if second:
+            raise second
+        ssh.identify_runtime_daemon()
+        require(ssh.runtime_daemon == daemon, 'Identical concurrent deployments created different remote daemons')
+        require_runtime(daemon, runtime)
+    finally:
+        (race / 'proceed').touch()
+        (race / 'release-second').touch()
+        for starter in starters:
+            starter.join(timeout=45)
+        require(not any(starter.is_alive() for starter in starters), 'Concurrent SSH bootstrap did not finish')
+        shutil.rmtree(race)
+
+
 def check_independent_stop(app, work, second, ssh, fixture):
+    runtime = require_runtime(ssh.runtime_daemon)
     fixture.release_slow_response.clear()
     app.command('send_message', sessionId=work['id'], content='fixture:slow Stream until stopped.',
                 messageId=str(uuid.uuid4()))
@@ -466,6 +441,12 @@ def check_independent_stop(app, work, second, ssh, fixture):
     if result:
         raise result
     app.wait_event(second['id'], lambda event: event['kind'] == 'status' and event['data']['status'] == 'idle')
+    require_runtime(ssh.runtime_daemon, runtime)
+    transports = [process for process in child_processes(app.process.pid)
+                  if Path(subprocess.run(['ps', '-p', str(process), '-o', 'comm='],
+                                         capture_output=True, text=True, check=False).stdout.strip()).name == 'ssh']
+    require(len(transports) == 2,
+            f'Two remote conversations must retain two independent SSH proxies; found {len(transports)}')
     messages = app.command('messages', sessionId=work['id'])
     require(any(message.get('interrupted') and message['content'] for message in messages),
             'Stopped streamed output was not persisted as an interrupted message')
@@ -477,19 +458,16 @@ def check_remote_runtime_restart(app, work, ssh, fixture):
     app.command('send_message', sessionId=work['id'], content='fixture:slow Wait while the remote runtime exits.',
                 messageId=str(uuid.uuid4()))
     app.wait_event(work['id'], lambda event: event['kind'] == 'delta')
-    runtimes = []
-    for process in child_processes(ssh.daemon.pid):
-        command = subprocess.run(['ps', '-p', str(process), '-o', 'comm='],
-                                 capture_output=True, text=True, check=False).stdout.strip()
-        if Path(command).name in {'copilot', 'copilot-runtime'}:
-            runtimes.append(process)
-    require(len(runtimes) == 1, 'Could not identify this test SSH daemon\'s sole SDK child')
+    runtimes = runtime_processes(ssh.runtime_daemon)
+    require(len(runtimes) == 1, 'Could not identify this test remote daemon\'s sole SDK child')
     os.kill(runtimes[0], signal.SIGKILL)
     fixture.release_slow_response.set()
     app.wait_event(work['id'], lambda event: event['kind'] == 'error')
     requests_before = len(fixture.conversation_requests())
     app.turn(work, 'fixture:chat Recover the remote runtime on this explicit new message.')
     require(len(fixture.conversation_requests()) == requests_before + 1, 'Remote runtime recovery replayed the interrupted prompt')
+    ssh.identify_runtime_daemon()
+    require_runtime(ssh.runtime_daemon)
 
 
 def check_ssh_reasoning(app, fixture, directory, endpoint, project):
@@ -545,7 +523,7 @@ def check_ssh(remote_server, dev_server, root, endpoint, fixture):
         trusted_before = ssh.known_hosts.read_bytes()
         wrong_key = {**ssh.connection, 'identityFile': str(ssh.directory / 'wrong-identity')}
         expect_command_error(app, 'check_connection', 'authentication', connection=wrong_key)
-        app.command('check_connection', connection=ssh.connection)
+        check_concurrent_bootstrap(app, ssh)
         deployed = ssh.home / '.local/share/tandem/bin/tandem-server'
         require(deployed.is_file(), 'SSH bootstrap did not deploy tandem-server')
         require(deployed.stat().st_mode & 0o777 == 0o700, 'Deployed server is not private and executable')
@@ -553,10 +531,14 @@ def check_ssh(remote_server, dev_server, root, endpoint, fixture):
         modification = deployed.stat().st_mtime_ns
         app.command('check_connection', connection=ssh.connection)
         require(deployed.stat().st_mtime_ns == modification, 'Matching server version was needlessly replaced')
-        deployed.write_text('#!/bin/sh\n[ "$1" = "--version" ] || exit 97\nprintf "tandem-server 0.0.1\\n"\n')
+        previous_protocol = deployed.with_name('previous-protocol')
+        previous_protocol.write_text('#!/bin/sh\n[ "$1" = "--version" ] || exit 97\nprintf "tandem-server 0.0.3\\n"\n')
+        previous_protocol.chmod(0o700)
+        previous_protocol.replace(deployed)
         app.command('check_connection', connection=ssh.connection)
         require(digest(deployed) == digest(remote_server),
-                'An older server was reused instead of receiving the updated runtime configuration')
+                'A server without the current protocol version was reused')
+        ssh.identify_runtime_daemon()
         workspace = ssh.home / "project ' $(exit 91)"
         workspace.mkdir()
         fixture.workspace = workspace
@@ -573,7 +555,8 @@ def check_ssh(remote_server, dev_server, root, endpoint, fixture):
         project = app.command('create_project', name='SSH work', path=str(workspace), connection=ssh.connection)
         grouped_session, _ = check_grouped_activity(app, project, provider, 'gpt-4.1', workspace)
         app.command('delete_session', sessionId=grouped_session['id'])
-        check_attachments(app, fixture, project, provider, 'gpt-4.1')
+        for session, _inputs, _marker, _metadata in check_attachments(app, fixture, project, provider, 'gpt-4.1'):
+            app.command('delete_session', sessionId=session['id'])
         skill_session, _ = check_project_skills(app, fixture, project, provider, 'gpt-4.1', workspace, ssh.home)
         app.command('delete_session', sessionId=skill_session['id'])
         work = app.command('create_session', projectId=project['id'], providerId=provider['id'], modelId='gpt-4.1')
@@ -648,10 +631,11 @@ def stage_binaries(remote_server, dev_server, directory):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--server', type=Path, default=debug_binary('tandem-server'),
-                        help='Remote stdio executable deployed over SSH (tandem-server)')
+                        help='Remote agent executable deployed over SSH (tandem-server)')
     parser.add_argument('--dev-server', type=Path, default=debug_binary('tandem-dev-server'),
                         help='Local HTTP development host executable (tandem-dev-server)')
-    parser.add_argument('--skip-ssh', action='store_true', help='Only verify stdio on hosts without an SSH daemon')
+    parser.add_argument('--skip-ssh', action='store_true',
+                        help='Verify stdio and supported local proxies without an SSH daemon')
     arguments = parser.parse_args()
     remote_server = arguments.server.resolve()
     dev_server = None if arguments.skip_ssh else arguments.dev_server.resolve()
@@ -672,10 +656,13 @@ def main():
         try:
             check_stdio(remote_server, root / 'stdio-home', endpoint_url, fixture)
             checks.append('stdio: real SDK streaming, native Anthropic thinking deltas and completion with opaque signatures excluded, image/text attachments on all protocols and PDF on Responses/Anthropic, attachment-only preparation and direct sends in Chat and Work, project skill discovery and invocation, same-session cold resume with a new provider/model and original history, reasoning changes and reset on the provider wire, EOF cleanup, malformed/oversized input, OTLP flush')
+            if os.name == 'posix':
+                check_daemon(remote_server, endpoint_url, fixture)
+                checks.append('Unix daemon: five simultaneous proxy connections share one daemon and Copilot CLI; concurrent turns, session and approval isolation, prompt abort, proxy EOF/kill isolation, same-CLI reconnect with preserved history, shared CLI failure propagation and explicit recovery, and no interrupted-turn replay')
             if not arguments.skip_ssh:
                 require(os.name == 'posix', 'Use --skip-ssh on hosts without a POSIX SSH daemon')
                 check_ssh(remote_server, dev_server, root, endpoint_url, fixture)
-                checks.append('OpenSSH: strict host trust, key rejection, atomic deployment, literal directories, image/text attachments, grouped tool activity, confirmed skill selection metadata, repeated skill discovery reuses idle work without new SSH connections, remote tools, reconnect/resume, native thinking history and cancellation, core session reasoning changes, pending approval, and native-default reset with complete history')
+                checks.append('OpenSSH: strict host trust, key rejection, concurrent atomic deployments share one daemon and CLI, literal directories, image/text attachments, grouped tool activity, confirmed skill selection metadata, repeated skill discovery reuses idle work without new SSH connections, remote tools, reconnect/resume, native thinking history and cancellation, core session reasoning changes, pending approval, and native-default reset with complete history')
             print(json.dumps({'result': 'passed', 'checks': checks, 'inferenceRequests': len(fixture.requests),
                               'telemetryExports': len(fixture.exports)}, indent=2))
         finally:
