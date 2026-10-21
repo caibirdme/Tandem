@@ -11,6 +11,8 @@ pub enum ConfigurationError {
     OutputExceedsContextWindow,
     #[error("model ID cannot be empty")]
     EmptyModelId,
+    #[error("reasoning effort must be low, medium, or high")]
+    UnsupportedReasoningEffort,
     #[error("endpoint must be an absolute HTTP(S) URL")]
     InvalidEndpoint(#[source] url::ParseError),
     #[error("endpoint must use HTTP(S)")]
@@ -68,10 +70,6 @@ pub enum SkillError {
     Unavailable { name: String },
     #[error("skill '{name}' cannot be invoked as a message in this session")]
     UnsupportedInvocation { name: String },
-    #[error("project skill definitions could not be loaded: {errors:?}")]
-    InvalidDefinitions { errors: Vec<String> },
-    #[error("project skill discovery did not complete within fifteen seconds")]
-    DiscoveryTimeout,
     #[error("project skill preparation did not complete within fifteen seconds")]
     PreparationTimeout,
 }

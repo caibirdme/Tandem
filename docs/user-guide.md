@@ -6,7 +6,7 @@ Start with the [README](../README.md#get-started) to connect a provider and open
 
 Open **Settings > Model providers > Add provider**, choose OpenAI Chat Completions, OpenAI Responses, or Anthropic Messages, and enter the provider's base URL and API key. Add at least one model ID supported by that provider.
 
-For each model, enter its required context window in **K** (1 K = 1,000 tokens): enter `256` for 256k or `1000` for 1M. Display names are customizable. Reasoning effort and output limits are optional advanced settings; set them only if the model supports them.
+For each model, enter its required context window in **K** (1 K = 1,000 tokens): enter `256` for 256k or `1000` for 1M. Display names are customizable. Default reasoning effort and output limits are optional advanced settings; set them only if the model supports them. The reasoning setting supplies the default for conversations using that model; each conversation can override it.
 
 Required fields are marked with a red **\***. If you leave one empty and click **Save provider**, the form scrolls to and focuses the first missing field and displays a prompt. Type the context limit directly into the compact input; it has no stepper arrows.
 
@@ -34,17 +34,31 @@ Choose **New chat** for a conversation with web reading tools. Chat exposes only
 
 To work with files, choose **Add project**, select a local or SSH directory, and create **New work** within that project. Work gives the agent file and command tools on the execution machine. The first message prepares the bundled runtime automatically; you do not need to click **Prepare runtime** first.
 
+### Inspect tool activity
+
+Click a progress heading or its left chevron in the conversation to expand the tools used for that stage. Each stage starts collapsed. Running headings show a moving highlight; completed headings remain static. Expand an individual tool to inspect its arguments, progress, result, or error. The final response stays visible below the activity groups.
+
+Activity groups stay in conversation order when another message is sent, when you reopen the conversation, and after restarting the application. If the model does not provide a progress description, known tool types supply a short heading such as **Reading files** or **Running commands**; other combinations show **Agent activity**. Tool failures and interruption details remain available inside the group, with status also exposed to assistive technology. Permission requests remain separate approval cards, so you can respond without opening tool details.
+
 ### Use project skills
 
 In Work, type `$` to list the selected project's skills or `$prefix` to filter them by name. Select with the mouse or use the arrow keys and Enter or Tab; Escape closes the list. Work can also choose relevant skills automatically. SSH projects discover and load skills on the remote host. Chat does not load project skills.
 
-Keep each skill's `SKILL.md` in its own subdirectory under `.agents/skills`, `.github/skills`, `.claude/skills`, or `skills` in the project. See [Project skills](skills.md) for the format and selection behavior.
+Keep each skill's `SKILL.md` in its own subdirectory under the project's `.agents/skills` or the execution user's `~/.agents/skills`. Project definitions take precedence when names match. See [Project skills](skills.md) for the format and selection behavior.
 
 ### Switch models
 
 Click the model name beside the composer to select any configured model, including one from another provider. The next message uses the saved selection while keeping the conversation's history, title, and tool permissions. Unsent text stays in the composer.
 
 Wait for generation or tool approval to finish, or click **Stop**, before switching. If a connection failure leaves the selection unconfirmed, click **Confirm model again** before sending another message.
+
+### Choose reasoning effort
+
+Use **Reasoning effort** beside the composer in any chat or local/SSH work session. Choose **Low**, **Medium**, or **High** to override the model's configured default for that conversation, or choose **Default** to follow it. When the provider leaves its default unset, the model chooses its own effort. Only use effort levels supported by your model and provider.
+
+You can choose before the first message and change it at any time, including during a reply or tool approval. Changes apply to the next message; the current response continues with its original setting. Each conversation saves its own choice, restores it when reopened, and keeps it when switching models. Choose **Default** again to follow the newly selected model's default. Changing one conversation never changes the provider or other conversations.
+
+If a connection failure leaves the choice unconfirmed, use **Confirm reasoning effort again** before sending the next message.
 
 ### Choose tool permissions
 
@@ -95,7 +109,7 @@ Development builds use `just remote-build` to prepare a server for the local pla
 
 ## Images and files
 
-Focus the message box and press **Ctrl+V** (**Command+V** on macOS) to paste an image from the clipboard. You can also drag files onto the composer or click its attachment button to choose files. Images appear as thumbnails; other files appear with their names and sizes. Click an attachment's **×** to remove it before sending.
+Focus the message box and press **Ctrl+V** (**Command+V** on macOS) to paste an image from the clipboard. You can also drag files onto the composer or click its attachment button to choose files. Attachments appear as compact horizontal cards with a small image thumbnail or file icon beside the name and size. The attachment area scrolls when several rows are needed. Click an attachment's **×** to remove it before sending.
 
 Add an optional message and send. An attachment can be sent on its own. Chat, local work, and SSH work use the same controls. For SSH work, Tandem transfers the attachment contents to the remote runtime, so the file does not need to exist on the remote machine. The selected model and provider must support the attached content.
 

@@ -4,7 +4,6 @@ import {
   ArrowRight,
   ArrowUp,
   Check,
-  CheckCheck,
   ChevronDown,
   Code2,
   Compass,
@@ -47,13 +46,16 @@ import type {
   Project,
   ProjectSkill,
   Provider,
+  ReasoningEffort,
   RuntimeStatus,
   Session,
   SelectedSkill,
 } from '../lib/types';
+import { ActivityMessage } from './ActivityMessage';
 import { DraftAttachments, MessageAttachments } from './Attachments';
 import { ContextUsageIndicator } from './ContextUsageIndicator';
 import { PermissionModeSelector } from './PermissionModeSelector';
+import { ReasoningEffortSelector } from './ReasoningEffortSelector';
 import { SkillPicker } from './SkillPicker';
 import { Modal, Notice, Spinner } from './ui';
 
@@ -73,6 +75,10 @@ interface ChatProps {
   modelSaving: boolean;
   modelError: string | null;
   onConfirmModel: () => void;
+  reasoningEffortSaving: boolean;
+  reasoningEffortError: string | null;
+  onReasoningEffort: (reasoningEffort: ReasoningEffort) => void;
+  onConfirmReasoningEffort: () => void;
   onPermissionMode: (mode: PermissionMode) => void;
   onConfirmPermissionMode: () => void;
   runtime: RuntimeStatus | undefined;
@@ -83,6 +89,7 @@ interface ChatProps {
     content: string,
     permissionMode: PermissionMode,
     skills: SelectedSkill[],
+    reasoningEffort: ReasoningEffort,
     attachments: AttachmentInput[],
   ) => Promise<void>;
   onAbort: () => void;
@@ -120,9 +127,9 @@ export function Chat(props: ChatProps) {
     skill.name.toLocaleLowerCase().startsWith(skillQuery?.prefix.toLocaleLowerCase() ?? ''),
   );
   const activeSkillIndex = Math.min(skillIndex, Math.max(matchingSkills.length - 1, 0));
-  const skillsSelectable =
-    !skillCatalog.loading && !skillCatalog.error && props.connected && matchingSkills.length > 0;
+  const skillsSelectable = !skillCatalog.loading && props.connected && matchingSkills.length > 0;
   const [draftPermissionMode, setDraftPermissionMode] = useState<PermissionMode>('ask');
+  const [draftReasoningEffort, setDraftReasoningEffort] = useState<ReasoningEffort>(null);
   const [jumpVisible, setJumpVisible] = useState(false);
   const [pendingPermission, setPendingPermission] = useState<string | null>(null);
   const [localError, setLocalError] = useState<string | null>(null);
@@ -139,6 +146,7 @@ export function Chat(props: ChatProps) {
   const permissionMode = props.project
     ? (props.session?.permissionMode ?? draftPermissionMode)
     : 'ask';
+  const reasoningEffort = props.session ? props.session.reasoningEffort : draftReasoningEffort;
   const workHistoryUncertain = Boolean(
     props.project &&
     props.session &&
@@ -153,12 +161,17 @@ export function Chat(props: ChatProps) {
     Boolean(props.permissionModeError) ||
     props.modelSaving ||
     Boolean(props.modelError) ||
+    props.reasoningEffortSaving ||
+    Boolean(props.reasoningEffortError) ||
     !props.connected ||
     props.conversation.permissions.length > 0;
   const hasMessages = Boolean(
     props.conversation.messages.length ||
     props.conversation.stream ||
     props.conversation.failedSend,
+  );
+  const hasActiveActivity = props.conversation.messages.some(
+    (message) => message.activity?.status === 'running',
   );
   const currentProvider = props.providers.find(
     (provider) => provider.id === props.selection?.providerId,
@@ -167,6 +180,12 @@ export function Chat(props: ChatProps) {
     (model) => model.id === props.selection?.modelId,
   );
   const modelDisabled = permissionModeDisabled;
+  const reasoningEffortDisabled =
+    !props.connected ||
+    !currentModel ||
+    (props.sending && !props.session) ||
+    props.modelSaving ||
+    Boolean(props.modelError);
   const modelLabel = props.modelError
     ? t('permissions.unconfirmed')
     : currentModel?.name || currentModel?.id || props.selection?.modelId || t('chat.selectModel');
@@ -194,18 +213,15 @@ export function Chat(props: ChatProps) {
     !props.permissionModeError &&
     !props.modelSaving &&
     !props.modelError &&
+    !props.reasoningEffortSaving &&
+    !props.reasoningEffortError &&
     props.conversation.permissions.length === 0,
   );
 
   useEffect(() => {
     if (stickToBottom.current && transcript.current)
       transcript.current.scrollTop = transcript.current.scrollHeight;
-  }, [
-    props.conversation.messages,
-    props.conversation.stream,
-    props.conversation.tools,
-    props.conversation.permissions,
-  ]);
+  }, [props.conversation.messages, props.conversation.stream, props.conversation.permissions]);
   useEffect(() => {
     textarea.current?.focus();
   }, []);
@@ -320,6 +336,7 @@ export function Chat(props: ChatProps) {
         savedDraft.text.trim(),
         mode,
         props.project ? selectedSkills(savedDraft) : [],
+        reasoningEffort,
         inputs,
       );
       attachmentDraft.remove(savedAttachments.map((item) => item.id));
@@ -544,6 +561,12 @@ export function Chat(props: ChatProps) {
                     {message.content && <p>{message.content}</p>}
                   </div>
                 </div>
+              ) : message.role === 'activity' ? (
+                <ActivityMessage
+                  key={message.id}
+                  content={message.content}
+                  activity={message.activity}
+                />
               ) : message.role === 'assistant' ? (
                 <article className="assistant-message" key={message.id}>
                   <div className="assistant-label">
@@ -575,42 +598,20 @@ export function Chat(props: ChatProps) {
                 <Markdown content={props.conversation.stream} />
               </article>
             )}
-            {props.conversation.tools.length > 0 && (
-              <div className="tool-activities">
-                {props.conversation.tools.map((tool, index) => (
-                  <details
-                    key={tool.toolCallId ?? `${tool.name}-${String(index)}`}
-                    className="tool-activity"
-                  >
-                    <summary>
-                      {tool.status === 'running' ? <Spinner size={13} /> : <CheckCheck size={13} />}
-                      <span>{tool.name}</span>
-                      <small>
-                        {tool.status === 'running'
-                          ? t('chat.toolRunning')
-                          : tool.status === 'error'
-                            ? t('chat.toolFailed')
-                            : t('chat.toolCompleted')}
-                      </small>
-                      <ChevronDown size={13} />
-                    </summary>
-                    {tool.content && <pre>{tool.content}</pre>}
-                  </details>
-                ))}
-              </div>
-            )}
-            {running && !props.conversation.stream && (
-              <div className="thinking">
-                <span />
-                <span />
-                <span />
-                <small>
-                  {props.conversation.permissions.length
-                    ? t('chat.awaitingApproval')
-                    : t('chat.thinking')}
-                </small>
-              </div>
-            )}
+            {running &&
+              !props.conversation.stream &&
+              (!hasActiveActivity || props.conversation.permissions.length > 0) && (
+                <div className="thinking">
+                  <span />
+                  <span />
+                  <span />
+                  <small>
+                    {props.conversation.permissions.length
+                      ? t('chat.awaitingApproval')
+                      : t('chat.thinking')}
+                  </small>
+                </div>
+              )}
             {props.conversation.permissions.map((request) => (
               <div className="permission-card" key={request.requestId}>
                 <div className="permission-heading">
@@ -744,6 +745,26 @@ export function Chat(props: ChatProps) {
             </button>
           </Notice>
         )}
+        {props.reasoningEffortError && (
+          <Notice>
+            <span>{props.reasoningEffortError}</span>
+            <button
+              className="text-button"
+              type="button"
+              onClick={props.onConfirmReasoningEffort}
+              disabled={props.reasoningEffortSaving || !props.connected}
+            >
+              {props.reasoningEffortSaving ? (
+                <>
+                  <Spinner size={13} />
+                  {t('chat.reasoningConfirming')}
+                </>
+              ) : (
+                t('chat.confirmReasoningAgain')
+              )}
+            </button>
+          </Notice>
+        )}
         {!props.connected && (
           <div className="setup-banner">
             <span>
@@ -808,12 +829,10 @@ export function Chat(props: ChatProps) {
               skills={matchingSkills}
               index={activeSkillIndex}
               loading={skillCatalog.loading}
-              error={skillCatalog.error}
               connected={props.connected}
               filtered={Boolean(skillQuery.prefix)}
               onIndex={setSkillIndex}
               onSelect={chooseSkill}
-              onReload={skillCatalog.reload}
               onBlur={composerBlur}
             />
           )}
@@ -970,6 +989,18 @@ export function Chat(props: ChatProps) {
                   </Dropdown.Content>
                 </Dropdown.Portal>
               </Dropdown.Root>
+              <ReasoningEffortSelector
+                effort={reasoningEffort}
+                defaultEffort={currentModel?.reasoningEffort ?? null}
+                disabled={reasoningEffortDisabled}
+                saving={props.reasoningEffortSaving}
+                uncertain={Boolean(props.reasoningEffortError)}
+                onChange={(effort) => {
+                  if (reasoningEffortDisabled) return;
+                  if (props.session) props.onReasoningEffort(effort);
+                  else setDraftReasoningEffort(effort);
+                }}
+              />
               {props.project && (
                 <PermissionModeSelector
                   mode={permissionMode}

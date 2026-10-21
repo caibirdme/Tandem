@@ -166,12 +166,13 @@ mod tests {
                 StatusCode::NOT_FOUND,
             ),
             (
-                tandem_core::Request::CreateSession {
+                tandem_core::Request::CreateSession(tandem_core::CreateSessionRequest {
                     project_id: None,
                     provider_id: "missing".into(),
                     model_id: "model".into(),
                     permission_mode: tandem_core::model::PermissionMode::AllowAll,
-                },
+                    reasoning_effort: None,
+                }),
                 StatusCode::BAD_REQUEST,
             ),
         ] {

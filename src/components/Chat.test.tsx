@@ -4,7 +4,8 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import { setLocale } from '../i18n';
 import { emptyConversation } from '../lib/conversation';
-import type { Project, Provider, Session } from '../lib/types';
+import { initialTandemState, reduceTandem } from '../lib/tandemState';
+import type { Message, Project, Provider, Session } from '../lib/types';
 import { Chat } from './Chat';
 
 const project: Project = {
@@ -15,6 +16,7 @@ const project: Project = {
   createdAt: '2026-10-17T00:00:00Z',
 };
 const session: Session = {
+  reasoningEffort: null,
   contextUsage: null,
   titleState: 'preserved',
   id: 'session-1',
@@ -58,6 +60,10 @@ const props: ComponentProps<typeof Chat> = {
   permissionModeError: null,
   modelSaving: false,
   modelError: null,
+  reasoningEffortSaving: false,
+  reasoningEffortError: null,
+  onReasoningEffort: () => undefined,
+  onConfirmReasoningEffort: () => undefined,
   onConfirmModel: () => undefined,
   onPermissionMode: () => undefined,
   onConfirmPermissionMode: () => undefined,
@@ -75,6 +81,9 @@ function modeControl(markup: string) {
 }
 function modelControl(markup: string) {
   return markup.match(/<button[^>]*aria-label="Model: [^"]+"[^>]*>/)?.[0];
+}
+function reasoningControl(markup: string) {
+  return markup.match(/<button[^>]*aria-label="Reasoning effort: [^"]+"[^>]*>/)?.[0];
 }
 
 afterEach(() => {
@@ -152,6 +161,104 @@ describe('composer attachments', () => {
     );
     expect(markup).toContain('Download notes.txt');
     expect(markup).not.toContain('<p></p>');
+  });
+});
+
+describe('conversation reasoning effort controls', () => {
+  const reasoningProps = {
+    ...props,
+    session,
+    providers: [provider],
+    selection: { providerId: provider.id, modelId: session.modelId },
+  };
+
+  it.each([undefined, project])(
+    'offers a model default in every new Chat and Work',
+    (draftProject) => {
+      const markup = renderToStaticMarkup(
+        <Chat {...reasoningProps} project={draftProject} session={undefined} />,
+      );
+      expect(reasoningControl(markup)).toContain('Reasoning effort: Default');
+      expect(reasoningControl(markup)).not.toContain('disabled');
+    },
+  );
+
+  it('shows the effective provider default without storing it as an override', () => {
+    const configured: Provider = {
+      ...provider,
+      models: provider.models.map((model) => ({ ...model, reasoningEffort: 'high' })),
+    };
+    const inherited = renderToStaticMarkup(<Chat {...reasoningProps} providers={[configured]} />);
+    const overridden = renderToStaticMarkup(
+      <Chat
+        {...reasoningProps}
+        providers={[configured]}
+        session={{ ...session, reasoningEffort: 'low' }}
+      />,
+    );
+    expect(reasoningControl(inherited)).toContain('Reasoning effort: Default (High)');
+    expect(reasoningControl(overridden)).toContain('Reasoning effort: Low');
+  });
+
+  it.each([
+    {
+      name: 'active response',
+      override: {
+        session: { ...session, status: 'running' as const },
+        conversation: { ...emptyConversation, status: 'running' as const },
+      },
+    },
+    { name: 'send in progress', override: { sending: true } },
+    { name: 'history loading', override: { historyLoading: true } },
+    {
+      name: 'tool approval pending',
+      override: {
+        conversation: {
+          ...emptyConversation,
+          permissions: [{ requestId: 'permission-1', kind: 'shell', description: 'Run a command' }],
+        },
+      },
+    },
+  ])('allows changing the next turn during $name', ({ override }) => {
+    const markup = renderToStaticMarkup(<Chat {...reasoningProps} {...override} />);
+    expect(reasoningControl(markup)).not.toContain('disabled');
+    expect(markup).toContain('The current response continues unchanged.');
+  });
+
+  it.each([
+    { name: 'disconnected', override: { connected: false } },
+    { name: 'saving reasoning effort', override: { reasoningEffortSaving: true } },
+    {
+      name: 'reasoning effort unconfirmed',
+      override: { reasoningEffortError: 'Cannot confirm reasoning effort' },
+    },
+    { name: 'saving the model', override: { modelSaving: true } },
+    { name: 'model unconfirmed', override: { modelError: 'Cannot confirm model' } },
+  ])('locks the selector while $name', ({ override }) => {
+    const markup = renderToStaticMarkup(<Chat {...reasoningProps} {...override} />);
+    expect(reasoningControl(markup)).toContain('disabled');
+  });
+
+  it('offers confirmation recovery without disabling the stop button', () => {
+    const markup = renderToStaticMarkup(
+      <Chat
+        {...reasoningProps}
+        session={{ ...session, status: 'running' }}
+        reasoningEffortError="Could not confirm reasoning effort"
+      />,
+    );
+    expect(markup).toContain('Confirm reasoning effort again');
+    const stop = markup.match(/<button[^>]*aria-label="Stop generating"[^>]*>/)?.[0];
+    expect(stop).toBeDefined();
+    expect(stop).not.toContain('disabled');
+  });
+
+  it('translates the session control', () => {
+    setLocale('zh-CN');
+    const markup = renderToStaticMarkup(
+      <Chat {...reasoningProps} session={{ ...session, reasoningEffort: 'high' }} />,
+    );
+    expect(markup).toContain('思考强度：高');
   });
 });
 
@@ -446,5 +553,232 @@ describe('work context usage', () => {
     const markup = renderToStaticMarkup(<Chat {...contextProps} />);
     expect(markup).toContain('aria-label="上下文窗口"');
     expect(markup).toContain('已使用 15.3%');
+  });
+});
+
+describe('grouped activity timeline', () => {
+  const activity: Message = {
+    attachments: [],
+    id: 'activity-1',
+    sessionId: session.id,
+    role: 'activity',
+    content: 'Inspecting the conversation layout',
+    createdAt: session.createdAt,
+    activity: {
+      status: 'completed',
+      tools: [
+        {
+          toolCallId: 'read-1',
+          name: 'read_file',
+          title: 'Read the chat component',
+          status: 'completed',
+          arguments: { path: 'src/components/Chat.tsx' },
+          result: { lines: 40 },
+          progress: 'Read 40 lines',
+        },
+        {
+          toolCallId: 'read-2',
+          name: 'read_file',
+          title: 'Read the conversation state',
+          status: 'completed',
+        },
+      ],
+    },
+  };
+  const answer: Message = {
+    attachments: [],
+    id: 'answer',
+    sessionId: session.id,
+    role: 'assistant',
+    content: 'The conversation now groups related tool calls.',
+    createdAt: session.createdAt,
+  };
+
+  it('collapses each stage and its tools while keeping final replies in order', () => {
+    const nextActivity = {
+      ...activity,
+      id: 'activity-2',
+      content: 'Checking the updated layout',
+    };
+    const markup = renderToStaticMarkup(
+      <Chat
+        {...props}
+        conversation={{
+          ...emptyConversation,
+          messages: [activity, nextActivity, answer],
+          stream: 'One more detail',
+        }}
+      />,
+    );
+    expect(markup.match(/class="activity-group"/g)).toHaveLength(2);
+    expect(markup).not.toMatch(/<details[^>]*\bopen(?:=|\s|>)/);
+    const summary = markup.match(/<details class="activity-group"><summary>(.*?)<\/summary>/)?.[1];
+    expect(summary).toContain(activity.content);
+    expect(summary).not.toContain('tool calls');
+    expect(summary).not.toContain('activity-count');
+    expect(summary).not.toContain('Read the chat component');
+    expect(markup).toContain('Read the chat component');
+    expect(markup).toContain('Read the conversation state');
+    expect(markup).toContain('Arguments');
+    expect(markup).toContain('src/components/Chat.tsx');
+    expect(markup).toContain('Result');
+    expect(markup).toContain('Read 40 lines');
+    expect(markup.indexOf(nextActivity.content)).toBeGreaterThan(markup.indexOf(activity.content));
+    expect(markup.indexOf(answer.content)).toBeGreaterThan(markup.indexOf(nextActivity.content));
+    expect(markup.indexOf('One more detail')).toBeGreaterThan(markup.indexOf(answer.content));
+  });
+
+  it('keeps failures and pending approvals visible outside collapsed tool details', () => {
+    const failed: Message = {
+      ...activity,
+      activity: {
+        status: 'error',
+        tools: [
+          {
+            toolCallId: 'check-1',
+            name: 'run_check',
+            title: 'Check the layout',
+            status: 'error',
+            error: { message: 'The check failed' },
+          },
+        ],
+      },
+    };
+    const markup = renderToStaticMarkup(
+      <Chat
+        {...props}
+        conversation={{
+          ...emptyConversation,
+          messages: [failed, answer],
+          permissions: [
+            { requestId: 'approval', kind: 'shell', description: 'Run the verification command' },
+          ],
+        }}
+      />,
+    );
+    expect(markup).toContain('class="activity-status error">Failed');
+    const summary = markup.match(/<details class="activity-group"><summary>(.*?)<\/summary>/)?.[1];
+    expect(summary).toContain(
+      '<span class="activity-group-status"><span class="activity-status error">Failed</span></span>',
+    );
+    expect(summary).not.toContain('activity-failed-count');
+    expect(markup).toContain('Check the layout failed. Expand this step for details.');
+    expect(markup.indexOf('class="activity-failure"')).toBeGreaterThan(
+      markup.lastIndexOf('</details>'),
+    );
+    expect(markup).toContain('The check failed');
+    expect(markup).toContain('Your approval is required');
+    expect(markup).toContain('Run the verification command');
+    expect(markup).toContain('Allow once');
+    expect(markup).toContain(answer.content);
+  });
+
+  it('uses translated fallback headings and distinguishes stopped activities', () => {
+    setLocale('zh-CN');
+    const markup = renderToStaticMarkup(
+      <Chat
+        {...props}
+        conversation={{
+          ...emptyConversation,
+          messages: [
+            {
+              ...activity,
+              content: '',
+              activity: {
+                status: 'interrupted',
+                tools: [{ toolCallId: 'stopped-1', name: 'read_file', status: 'interrupted' }],
+              },
+            },
+          ],
+        }}
+      />,
+    );
+    expect(markup).toContain('Agent 活动');
+    expect(markup).toContain('class="activity-message interrupted"');
+    expect(markup).not.toContain('次工具调用');
+    expect(markup).toContain('已停止');
+    expect(markup).not.toContain('已完成');
+  });
+
+  it('keeps failures visible while another call is still running without showing counts', () => {
+    const markup = renderToStaticMarkup(
+      <Chat
+        {...props}
+        conversation={{
+          ...emptyConversation,
+          status: 'running',
+          messages: [
+            {
+              ...activity,
+              activity: {
+                status: 'running',
+                tools: [
+                  { toolCallId: 'failed-1', name: 'check_layout', status: 'error' },
+                  { toolCallId: 'running-1', name: 'read_file', status: 'running' },
+                ],
+              },
+            },
+          ],
+        }}
+      />,
+    );
+    const summary = markup.match(/<details class="activity-group"><summary>(.*?)<\/summary>/)?.[1];
+    expect(summary).not.toContain('1 failed');
+    expect(summary).not.toContain('activity-failed-count');
+    expect(summary).not.toContain('activity-count');
+    expect(summary).toContain(
+      '<span class="activity-group-status"><span class="activity-status running">Running</span></span>',
+    );
+    expect(markup).toContain('class="activity-message running"');
+    expect(markup).toContain('check_layout failed. Expand this step for details.');
+    expect(markup).not.toContain('class="thinking"');
+  });
+
+  it('keeps next-turn reasoning editable through an active group and pending approval', () => {
+    const conversation = {
+      ...emptyConversation,
+      status: 'running' as const,
+      messages: [
+        {
+          ...activity,
+          activity: {
+            status: 'running' as const,
+            tools: [{ toolCallId: 'run-1', name: 'bash', status: 'running' as const }],
+          },
+        },
+      ],
+      stream: 'Reviewing the command output',
+      permissions: [
+        { requestId: 'approval-1', kind: 'shell', description: 'Run the verification command' },
+      ],
+    };
+    const saving = reduceTandem(
+      { ...initialTandemState, conversations: { [session.id]: conversation } },
+      { type: 'reasoningEffortChangeStarted', sessionId: session.id },
+    );
+    const changed = reduceTandem(saving, {
+      type: 'reasoningEffortChanged',
+      sessionId: session.id,
+      reasoningEffort: 'high',
+    });
+    expect(changed.conversations[session.id]).toBe(conversation);
+    expect(changed.reasoningEffortUpdates.has(session.id)).toBe(false);
+    const markup = renderToStaticMarkup(
+      <Chat
+        {...props}
+        session={{ ...session, status: 'running', reasoningEffort: 'high' }}
+        providers={[provider]}
+        selection={{ providerId: provider.id, modelId: session.modelId }}
+        conversation={changed.conversations[session.id] ?? emptyConversation}
+      />,
+    );
+    expect(reasoningControl(markup)).toContain('Reasoning effort: High');
+    expect(reasoningControl(markup)).not.toContain('disabled');
+    expect(modelControl(markup)).toContain('disabled');
+    expect(markup).toContain('class="activity-status running">Running');
+    expect(markup).toContain(activity.content);
+    expect(markup).toContain(conversation.stream);
+    expect(markup).toContain('Run the verification command');
+    expect(markup).toContain('Allow once');
   });
 });

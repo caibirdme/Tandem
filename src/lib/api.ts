@@ -64,7 +64,6 @@ export async function subscribe(
         [
           'delta',
           'message',
-          'tool',
           'permission',
           'status',
           'error',

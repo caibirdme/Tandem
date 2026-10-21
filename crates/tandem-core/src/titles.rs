@@ -357,7 +357,7 @@ mod tests {
             "models":[{"id":"chat","name":"Chat","contextWindow":200_000},{"id":"title","name":"Title","contextWindow":1_000_000,"maxOutputTokens":128_000}]
         }))?, None).await?;
         let session = app
-            .create_session(None, provider.id, "chat".into(), PermissionMode::Ask)
+            .create_session(None, provider.id, "chat".into(), PermissionMode::Ask, None)
             .await?;
         Ok((directory, app, session))
     }
@@ -369,15 +369,18 @@ mod tests {
         content: &str,
         interrupted: bool,
     ) -> Result<()> {
-        Ok(app.store.append_message(&Message {
+        app.store.append_message(&Message {
             id: Uuid::new_v4().to_string(),
             session_id: session.id.clone(),
             role,
             content: content.into(),
             attachments: Vec::new(),
             created_at: now(),
+            sequence: None,
+            activity: None,
             interrupted,
-        })?)
+        })?;
+        Ok(())
     }
 
     fn exchange(app: &App, session: &Session) -> Result<()> {

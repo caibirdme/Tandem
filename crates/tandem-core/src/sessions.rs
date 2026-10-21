@@ -16,7 +16,7 @@ use crate::{
     events::EventOutcome,
     model::{
         AttachmentMetadata, Connection, Message, MessageRole, NameField, PermissionMode, Session,
-        SessionStatus, TitleState, validate_name,
+        SessionStatus, TitleState, validate_name, validate_reasoning_effort,
     },
 };
 
@@ -65,7 +65,9 @@ impl App {
         provider_id: String,
         model_id: String,
         permission_mode: PermissionMode,
+        reasoning_effort: Option<String>,
     ) -> Result<Session> {
+        validate_reasoning_effort(reasoning_effort.as_deref())?;
         if project_id.is_none() && permission_mode != PermissionMode::Ask {
             return Err(Error::ChatPermissionMode);
         }
@@ -93,6 +95,7 @@ impl App {
             provider_id,
             model_id,
             permission_mode,
+            reasoning_effort,
             created_at: now(),
             updated_at: now(),
             status: SessionStatus::Idle,
@@ -273,9 +276,12 @@ impl App {
                 })
                 .collect(),
             created_at: now(),
+            sequence: None,
+            activity: None,
             interrupted: false,
         };
-        self.store
+        let message = self
+            .store
             .append_message_with_attachments(&message, &request.attachment_bytes)?;
         self.store.update_session(&session.id, |current| {
             current.updated_at = now();
@@ -286,13 +292,18 @@ impl App {
         handle.send(prepared).await
     }
 
-    async fn cached_session(&self, id: &str) -> Option<AgentHandle> {
+    async fn cached_session(
+        &self,
+        id: &str,
+        reasoning_effort: Option<&str>,
+    ) -> Option<AgentHandle> {
         let stale = {
             let mut sessions = self.sessions.lock().await;
             let live = sessions.get(id)?;
             if live.handle.is_connected()
                 && !live.event_task.is_finished()
                 && !live.completion.has_failed()
+                && live.reasoning_effort.as_deref() == reasoning_effort
             {
                 return Some(live.handle.clone());
             }
@@ -312,10 +323,6 @@ impl App {
         session: &Session,
         resume: bool,
     ) -> Result<AgentHandle> {
-        let cached = self.cached_session(&session.id).await;
-        if let Some(AgentHandle::Local(agent)) = &cached {
-            return Ok(AgentHandle::Local(agent.clone()));
-        }
         let project = session
             .project_id
             .as_ref()
@@ -325,6 +332,12 @@ impl App {
             session,
             project.as_ref().map(|project| project.path.clone()),
         )?;
+        let cached = self
+            .cached_session(&session.id, options.model.reasoning_effort.as_deref())
+            .await;
+        if let Some(AgentHandle::Local(agent)) = &cached {
+            return Ok(AgentHandle::Local(agent.clone()));
+        }
         if let Some(AgentHandle::Remote {
             session_id,
             transport,
@@ -366,6 +379,7 @@ impl App {
                 handle: handle.clone(),
                 event_task,
                 completion,
+                reasoning_effort: options.model.reasoning_effort,
             },
         );
         Ok(handle)
@@ -416,7 +430,10 @@ impl App {
         session: &Session,
         directory: Option<String>,
     ) -> Result<SessionOptions> {
-        let (provider, model) = self.model_settings(&session.provider_id, &session.model_id)?;
+        let (provider, mut model) = self.model_settings(&session.provider_id, &session.model_id)?;
+        if let Some(effort) = &session.reasoning_effort {
+            model.reasoning_effort = Some(effort.clone());
+        }
         Ok(SessionOptions {
             session_id: Some(session.id.clone()),
             permission_mode: session.permission_mode,
@@ -543,7 +560,13 @@ mod tests {
             None,
         ).await?;
         Ok(app
-            .create_session(None, provider.id, "fixture".into(), PermissionMode::Ask)
+            .create_session(
+                None,
+                provider.id,
+                "fixture".into(),
+                PermissionMode::Ask,
+                None,
+            )
             .await?)
     }
 
@@ -566,8 +589,73 @@ mod tests {
                 chat.provider_id,
                 chat.model_id,
                 PermissionMode::Ask,
+                None,
             )
             .await?)
+    }
+
+    #[tokio::test]
+    async fn effective_reasoning_effort_uses_the_session_override_or_current_model_default()
+    -> Result<()> {
+        let (_directory, app) = application()?;
+        let session = session(&app).await?;
+        let mut provider = app.store.provider(&session.provider_id)?;
+        for (default, selected, expected) in [
+            (None, None, None),
+            (Some("low"), None, Some("low")),
+            (Some("medium"), Some("high"), Some("high")),
+            (Some("high"), Some("low"), Some("low")),
+            (None, Some("medium"), Some("medium")),
+            (None, None, None),
+        ] {
+            provider.models[0].reasoning_effort = default.map(str::to_owned);
+            app.save_provider(provider.clone(), None).await?;
+            let updated = app
+                .set_session_reasoning_effort(&session.id, selected.map(str::to_owned))
+                .await?;
+            for directory in [None, Some("/fixture".into())] {
+                let options = app.session_options(&updated, directory)?;
+                assert_eq!(options.model.reasoning_effort.as_deref(), expected);
+                // SSH uses this exact SessionOptions payload.
+                let remote: SessionOptions =
+                    serde_json::from_value(serde_json::to_value(options)?)?;
+                assert_eq!(remote.model.reasoning_effort.as_deref(), expected);
+            }
+            assert_eq!(
+                app.store.provider(&session.provider_id)?.models[0]
+                    .reasoning_effort
+                    .as_deref(),
+                default
+            );
+        }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn create_session_accepts_optional_reasoning_overrides() -> Result<()> {
+        let (_directory, app) = application()?;
+        let session = session(&app).await?;
+        let mut provider = app.store.provider(&session.provider_id)?;
+        provider.models[0].reasoning_effort = Some("medium".into());
+        app.save_provider(provider, None).await?;
+        for effort in [None, Some("low"), Some("medium"), Some("high")] {
+            let mut payload = json!({"providerId":session.provider_id,"modelId":session.model_id});
+            if let Some(effort) = effort {
+                payload["reasoningEffort"] = json!(effort);
+            }
+            let request: Request =
+                serde_json::from_value(json!({"command":"create_session","payload":payload}))?;
+            let created: Session = serde_json::from_value(app.dispatch(request).await?)?;
+            assert_eq!(created.reasoning_effort.as_deref(), effort);
+            assert_eq!(
+                app.session_options(&created, None)?
+                    .model
+                    .reasoning_effort
+                    .as_deref(),
+                effort.or(Some("medium"))
+            );
+        }
+        Ok(())
     }
 
     #[tokio::test]
@@ -781,6 +869,8 @@ mod tests {
             content: "Partial output before the failure".into(),
             attachments: Vec::new(),
             created_at: now(),
+            sequence: None,
+            activity: None,
             interrupted: true,
         })?;
         app.set_status(&work.id, SessionStatus::Error)?;
@@ -818,6 +908,8 @@ mod tests {
                 content: content.into(),
                 attachments: Vec::new(),
                 created_at: now(),
+                sequence: None,
+                activity: None,
                 interrupted: false,
             })?;
         }

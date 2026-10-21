@@ -6,6 +6,7 @@ import { initialTandemState, reduceTandem } from './tandemState';
 import type { PermissionMode, Session, Snapshot } from './types';
 
 const session: Session = {
+  reasoningEffort: null,
   contextUsage: null,
   titleState: 'preserved',
   id: 'session-1',

@@ -67,7 +67,9 @@ export const en = {
   'settings.displayName': 'Display name',
   'settings.displayNameHint': 'Optional; defaults to the model ID',
   'settings.advanced': 'Advanced parameters',
-  'settings.reasoning': 'Reasoning effort',
+  'settings.reasoning': 'Default reasoning effort',
+  'settings.reasoningHint':
+    'Conversations use this default unless you choose another reasoning effort in Chat or Work.',
   'settings.modelDefault': 'Model default',
   'settings.low': 'Low',
   'settings.medium': 'Medium',
@@ -183,6 +185,17 @@ export const en = {
   'error.permissionsTimeout': 'Permission confirmation timed out. Try again.',
   'error.invalidPermissions': 'The service did not return a valid permission state for this work.',
   'error.invalidModel': 'The service did not return a valid model state for this conversation.',
+  'error.invalidReasoning':
+    'The service did not return a valid reasoning effort for this conversation.',
+  'error.reasoningWaitConnection':
+    'Wait for the service to reconnect before changing reasoning effort.',
+  'error.reasoningUnconfirmed': 'The current reasoning effort is unconfirmed. Confirm it first.',
+  'error.reasoningTimeout': 'Reasoning effort confirmation timed out. Try again.',
+  'error.reasoningSaveFailed': 'The reasoning effort change was not confirmed: {error}.',
+  'error.reasoningConfirmationFailed':
+    '{failure}Unable to confirm reasoning effort: {error}. Confirm it before sending the next message.',
+  'error.reasoningRecovered':
+    '{failure} The current reasoning effort has been confirmed as “{effort}”.',
   'error.projectRemoved': 'The project for this work has been removed.',
   'error.initializing': 'The workspace is initializing. Try again shortly.',
   'error.workOnlyPermissions': 'Tool permissions can only be changed for work sessions.',

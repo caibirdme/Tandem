@@ -6,6 +6,7 @@ import { protectedSessionIds, reconcileConversations, reconcileSessions } from '
 import type { Session } from './types';
 
 const session: Session = {
+  reasoningEffort: null,
   contextUsage: null,
   titleState: 'preserved',
   id: 'session-1',
@@ -30,7 +31,20 @@ describe('reconnecting to a running or completed session', () => {
           status: 'running',
           stream: 'partial',
           permissions: [permission],
-          tools: [{ name: 'create', status: 'running', content: '' }],
+          messages: [
+            {
+              id: 'activity-1',
+              sessionId: session.id,
+              role: 'activity',
+              content: 'Creating a file',
+              attachments: [],
+              createdAt: session.createdAt,
+              activity: {
+                status: 'running',
+                tools: [{ toolCallId: 'tool-1', name: 'create', status: 'running' }],
+              },
+            },
+          ],
         },
       };
       const restored = reconcileConversations(
@@ -42,7 +56,14 @@ describe('reconnecting to a running or completed session', () => {
         status,
         stream: '',
         permissions: [],
-        tools: [{ status: status === 'running' ? 'running' : 'completed' }],
+        messages: [
+          {
+            activity: {
+              status: status === 'running' ? 'running' : 'interrupted',
+              tools: [{ status: status === 'running' ? 'running' : 'interrupted' }],
+            },
+          },
+        ],
       });
     },
   );

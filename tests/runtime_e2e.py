@@ -19,7 +19,7 @@ import threading
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 
-from acceptance_support import Application, debug_binary, require_context_usage
+from acceptance_support import Application, activity_tools, debug_binary, require_context_usage
 from credential_checks import require_local_secret, require_provider_key, scan_for_key
 from inference_fixture import (
     FIXTURE_KEY,
@@ -38,6 +38,8 @@ from model_switch_acceptance import (
 )
 from skill_acceptance import check_project_skills, check_skill_resume
 from attachment_acceptance import check_attachments, check_attachment_resume
+from reasoning_acceptance import check_reasoning_after_restart, check_reasoning_efforts
+from activity_acceptance import check_grouped_activity
 
 
 def check_custom_provider_paths(app, fixture, fixture_url, project):
@@ -119,11 +121,20 @@ def main():
         root = Path(temporary)
         workspace = root / "project"
         workspace.mkdir()
+        home = root / "home"
+        home.mkdir()
+        environment = os.environ.copy()
+        environment.update(
+            HOME=str(home), USERPROFILE=str(home), XDG_CACHE_HOME=str(home / ".cache"),
+            XDG_CONFIG_HOME=str(home / ".config"), XDG_STATE_HOME=str(home / ".state"),
+        )
+        for key in ("COPILOT_CLI_PATH", "GITHUB_TOKEN", "GH_TOKEN", "COPILOT_GITHUB_TOKEN"):
+            environment.pop(key, None)
         fixture = Fixture(workspace)
         endpoint = ThreadingHTTPServer(("127.0.0.1", 0), handler_for(fixture))
         threading.Thread(target=endpoint.serve_forever, daemon=True).start()
         fixture_url = f"http://127.0.0.1:{endpoint.server_port}"
-        app = Application(arguments.server.resolve(), root, arguments.ephemeral_secrets)
+        app = Application(arguments.server.resolve(), root, arguments.ephemeral_secrets, env=environment)
         summary = []
         providers = {}
         chats = {}
@@ -263,7 +274,7 @@ def main():
                         "Chat executed an unavailable shell tool",
                     )
                     require(
-                        any(event["kind"] == "tool" for event in attack),
+                        bool(activity_tools(attack)),
                         "Malicious tool calls were not exercised",
                     )
                     summary.append(
@@ -302,11 +313,15 @@ def main():
             summary.append(
                 "attachments: images and text reached all three protocols in Chat and Work; PDFs reached Responses and Anthropic; unsupported Completions PDFs and binary formats rejected before persistence; attachment-only sends, history metadata, and scoped retrieval"
             )
+            grouped_session, grouped_history = check_grouped_activity(
+                app, project, provider, model, workspace,
+            )
+            summary.append("grouped activity: two progress stages, parallel tools, failure visibility, preserved details, and ordered history")
             skill_state = check_project_skills(
-                app, fixture, project, provider, model, workspace,
+                app, fixture, project, provider, model, workspace, home,
             )
             summary.append(
-                "project skills: native discovery, automatic and explicit loading, Chat isolation, and invalid-selection rejection"
+                "skills: only home/project .agents roots, missing/invalid sources ignored, automatic/explicit loading, Chat isolation, and invalid-selection rejection"
             )
             check_custom_provider_paths(app, fixture, fixture_url, project)
             summary.append(
@@ -417,6 +432,10 @@ def main():
             summary.append(
                 "model switching: same provider and cross-protocol providers retain the same session, ordered inference history, persisted selection, and work authorization; generation and pending-approval changes are rejected"
             )
+            reasoning_state = check_reasoning_efforts(app, fixture, root, fixture_url, project)
+            summary.append(
+                "session reasoning: provider defaults, explicit overrides, reset, Chat/Work isolation, live and pending-approval changes, model/provider changes, malformed inputs, persistence, and actual OpenAI request effort verified"
+            )
             web_chat = app.command(
                 "create_session",
                 projectId=None,
@@ -488,19 +507,15 @@ def main():
             if not arguments.ephemeral_secrets:
                 require_local_secret(root, cleared_provider["id"], None)
             app.close()
-            app = Application(arguments.server.resolve(), root, arguments.ephemeral_secrets)
-            # The Anthropic credential was intentionally cleared above; restore it
-            # only for attachment-history continuation, then preserve that test state.
-            app.command("save_provider", provider=cleared_provider, apiKey=FIXTURE_KEY)
-            check_attachment_resume(app, fixture, attachment_states)
-            app.command("save_provider", provider=cleared_provider, apiKey="")
-            summary.append("attachments after restart: original bytes, identities, and SDK image/text context retained")
+            app = Application(arguments.server.resolve(), root, arguments.ephemeral_secrets, env=environment)
             require(app.command("snapshot")["settings"]["titleModel"] == selection,
                     "Server restart lost the chosen title model")
             require(
                 app.command("messages", sessionId=work["id"]) == previous_messages,
                 "Server restart changed persisted messages",
             )
+            require(app.command("messages", sessionId=grouped_session["id"]) == grouped_history,
+                    "Server restart lost activity groups or their tool details")
             restored_context = next(session["contextUsage"]
                                     for session in app.command("snapshot")["sessions"]
                                     if session["id"] == work["id"])
@@ -521,6 +536,21 @@ def main():
                 require_local_secret(root, provider["id"], FIXTURE_KEY)
                 require_local_secret(root, cleared_provider["id"], None)
             require_provider_key(app, provider["id"], FIXTURE_KEY)
+            # Preserve credential-persistence assertions before temporarily restoring
+            # every protocol's key for the attachment-history continuation checks.
+            missing_attachment_keys = [
+                attachment_provider
+                for attachment_provider, _ in providers.values()
+                if app.command("get_provider_api_key", id=attachment_provider["id"]) is None
+            ]
+            for attachment_provider in missing_attachment_keys:
+                app.command("save_provider", provider=attachment_provider, apiKey=FIXTURE_KEY)
+            try:
+                check_attachment_resume(app, fixture, attachment_states)
+            finally:
+                for attachment_provider in missing_attachment_keys:
+                    app.command("save_provider", provider=attachment_provider, apiKey="")
+            summary.append("attachments after restart: original bytes, identities, and SDK image/text context retained")
             check_skill_resume(app, fixture, skill_state)
             summary.append("project skills after server restart: updated instructions loaded from disk")
             restored = next(
@@ -563,6 +593,8 @@ def main():
             summary.append(
                 "model switching after server restart: saved model receives the complete original conversation"
             )
+            check_reasoning_after_restart(app, fixture, root, reasoning_state, arguments.ephemeral_secrets)
+            summary.append("session reasoning after server restart: Chat and Work overrides and complete history retained")
             if os.name != "nt":
                 app.crash_runtime_during_turn(work, fixture)
                 request_count = len(fixture.conversation_requests())

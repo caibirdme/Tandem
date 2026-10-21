@@ -130,7 +130,13 @@ mod tests {
             )
             .await?;
         let session = app
-            .create_session(None, original.id, "original".into(), PermissionMode::Ask)
+            .create_session(
+                None,
+                original.id,
+                "original".into(),
+                PermissionMode::Ask,
+                None,
+            )
             .await?;
         Ok((directory, app, session, alternate))
     }
@@ -183,6 +189,8 @@ mod tests {
                         size: bytes.len(),
                     }],
                     created_at: now(),
+                    sequence: None,
+                    activity: None,
                     interrupted: false,
                 },
                 &[bytes],
@@ -279,6 +287,8 @@ mod tests {
                     content: content.into(),
                     attachments: Vec::new(),
                     created_at: now(),
+                    sequence: None,
+                    activity: None,
                     interrupted: false,
                 })?;
             }

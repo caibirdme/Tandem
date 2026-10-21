@@ -34,7 +34,7 @@ from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from acceptance_support import Application, debug_binary
+from acceptance_support import Application, activity_tools, debug_binary
 from credential_checks import require_provider_key, scan_for_key
 from inference_fixture import is_title_request
 
@@ -312,30 +312,15 @@ def wait_turn(app, session, prompt, message_id, policy, timeout):
 
 
 def tool_evidence(events):
-    names = {}
-    arguments = {}
-    successful = []
-    for event in events:
-        if event["kind"] != "tool":
-            continue
-        data = event["data"]
-        call_id = data.get("toolCallId")
-        if data.get("name") not in {None, "tool"}:
-            names[call_id] = data["name"]
-        if data.get("status") == "running":
-            with suppress(TypeError, ValueError):
-                parsed = json.loads(data.get("content", ""))
-                if isinstance(parsed, dict):
-                    arguments[call_id] = parsed
-        if data.get("status") == "completed":
-            successful.append(
-                (
-                    names.get(call_id, data.get("name", "tool")),
-                    arguments.get(call_id, {}),
-                    data.get("content", ""),
-                )
-            )
-    return successful
+    return [
+        (
+            tool["name"],
+            tool.get("arguments", {}),
+            json.dumps(tool.get("result", ""), ensure_ascii=False),
+        )
+        for tool in activity_tools(events)
+        if tool["status"] == "completed"
+    ]
 
 
 def create_session(app, provider, model, project_id=None):

@@ -166,6 +166,7 @@ mod tests {
                 provider.id.clone(),
                 "fixture".into(),
                 PermissionMode::Ask,
+                None,
             )
             .await?;
         let bytes = if pdf {
@@ -186,6 +187,8 @@ mod tests {
                     size: bytes.len(),
                 }],
                 created_at: now(),
+                sequence: None,
+                activity: None,
                 interrupted: false,
             },
             &[bytes.to_vec()],

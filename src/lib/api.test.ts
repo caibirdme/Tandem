@@ -3,7 +3,35 @@ import { describe, expect, it, vi } from 'vitest';
 import { CommandError, commandError, dispatch, errorMessage, subscribe } from './api';
 
 describe('browser event transport', () => {
-  it('forwards live context readings and reset events through the real subscription', async () => {
+  it.each([
+    {
+      name: 'live context readings and reset events',
+      events: [
+        { currentTokens: 153_000, tokenLimit: 1_000_000 },
+        { currentTokens: 20_000, tokenLimit: 1_000_000 },
+        null,
+      ].map((data) => ({ sessionId: 'work-1', kind: 'context_usage', data })),
+    },
+    {
+      name: 'grouped activity updates',
+      events: ['running', 'completed'].map((status) => ({
+        sessionId: 'work-1',
+        kind: 'message',
+        data: {
+          id: 'activity-1',
+          sessionId: 'work-1',
+          sequence: 2,
+          role: 'activity',
+          content: 'Inspecting the project',
+          createdAt: '2026-10-20T00:00:00Z',
+          activity: {
+            status,
+            tools: [{ toolCallId: 'tool-1', name: 'read_file', status }],
+          },
+        },
+      })),
+    },
+  ])('forwards $name through the subscription', async ({ events }) => {
     const source = new EventTarget();
     const close = vi.fn();
     vi.stubGlobal('window', {});
@@ -17,17 +45,11 @@ describe('browser event transport', () => {
     const receive = vi.fn();
     try {
       const unsubscribe = await subscribe(receive, () => undefined);
-      const readings = [
-        { currentTokens: 153_000, tokenLimit: 1_000_000 },
-        { currentTokens: 20_000, tokenLimit: 1_000_000 },
-        null,
-      ];
-      for (const data of readings) {
-        const event = { sessionId: 'work-1', kind: 'context_usage', data };
+      for (const event of events) {
         source.dispatchEvent(new MessageEvent('message', { data: JSON.stringify(event) }));
         expect(receive).toHaveBeenLastCalledWith(event);
       }
-      expect(receive).toHaveBeenCalledTimes(3);
+      expect(receive).toHaveBeenCalledTimes(events.length);
       unsubscribe();
       expect(close).toHaveBeenCalledOnce();
     } finally {

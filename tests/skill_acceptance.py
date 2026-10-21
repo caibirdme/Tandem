@@ -3,22 +3,33 @@
 import json
 import time
 import uuid
+from contextlib import contextmanager
 from pathlib import Path
 
 from inference_fixture import require
 
 
-def write_project_skills(workspace):
-    """Use separate catalog and body markers to detect eager body loading."""
+def write_project_skills(workspace, home):
+    """Detect forbidden roots and eager loading with unique metadata/body markers."""
+    sources = [
+        ("auto", workspace / ".agents/skills", False, True),
+        ("manual", workspace / ".agents/skills", True, True),
+        ("deleted", workspace / ".agents/skills", False, True),
+        ("global", home / ".agents/skills", False, True),
+    ]
+    for scope, directory in (("project", workspace), ("home", home)):
+        for suffix, root in (
+            ("github", ".github/skills"),
+            ("claude", ".claude/skills"),
+            ("plain", "skills"),
+            ("codex", ".codex/skills"),
+            ("copilot", ".copilot/skills"),
+        ):
+            sources.append((f"{scope}-{suffix}", directory / root, False, False))
     skills = {}
-    for suffix, root, manual in (
-        ("auto", ".agents/skills", False),
-        ("manual", ".github/skills", True),
-        ("claude", ".claude/skills", False),
-        ("plain", "skills", False),
-    ):
+    for suffix, root, manual, available in sources:
         name = f"tandem-fixture-{suffix}"
-        path = workspace / root / name / "SKILL.md"
+        path = root / name / "SKILL.md"
         path.parent.mkdir(parents=True, exist_ok=True)
         description = f"Catalog marker {uuid.uuid4().hex} for skill acceptance."
         marker = "TANDEM_SKILL_BODY_" + uuid.uuid4().hex
@@ -30,6 +41,7 @@ def write_project_skills(workspace):
         )
         skills[suffix] = {
             "name": name, "path": str(path), "description": description, "marker": marker,
+            "available": available, "root": root.resolve(),
         }
     duplicate = workspace / ".github/skills/tandem-fixture-auto-duplicate/SKILL.md"
     duplicate.parent.mkdir(parents=True, exist_ok=True)
@@ -37,12 +49,73 @@ def write_project_skills(workspace):
     shadowed_description = "Shadowed catalog marker " + uuid.uuid4().hex
     duplicate.write_text(
         f"---\nname: {skills['auto']['name']}\ndescription: {shadowed_description}\n---\n\n"
-        f"This duplicate skill must not replace the first source: {shadowed_marker}\n",
+        f"This duplicate skill must not replace the allowed source: {shadowed_marker}\n",
         encoding="utf-8",
     )
     skills["auto"]["shadowed_marker"] = shadowed_marker
     skills["auto"]["shadowed_description"] = shadowed_description
     return skills
+
+
+def write_global_shadow(skills, home):
+    """A project definition wins over a home definition with the same name."""
+    skill = skills["auto"]
+    path = home / ".agents/skills/tandem-fixture-auto/SKILL.md"
+    path.parent.mkdir(parents=True)
+    description = "Shadowed home catalog marker " + uuid.uuid4().hex
+    marker = "TANDEM_SHADOWED_HOME_SKILL_BODY_" + uuid.uuid4().hex
+    path.write_text(
+        f"---\nname: {skill['name']}\ndescription: {description}\n---\n\n"
+        f"This home definition must not replace the project's skill: {marker}\n",
+        encoding="utf-8",
+    )
+    skill["global_shadowed_marker"] = marker
+    skill["global_shadowed_description"] = description
+
+
+def check_empty_and_invalid_skill_roots(list_catalog, workspace, home):
+    """Optional missing directories and unreadable definitions have no UI error."""
+    require(list_catalog() == [], "Missing optional skill roots did not produce an empty catalog")
+    for directory in (workspace, home):
+        root = directory / ".agents/skills"
+        root.parent.mkdir(parents=True, exist_ok=True)
+        root.write_text("A skill root is not a directory.", encoding="utf-8")
+        try:
+            require(list_catalog() == [], "An invalid skill directory did not act as missing")
+        finally:
+            root.unlink()
+        broken = root / "broken/SKILL.md"
+        broken.parent.mkdir(parents=True)
+        broken.write_bytes(b"\xff\xfe")
+        try:
+            require(list_catalog() == [], "An unreadable skill definition did not act as missing")
+        finally:
+            broken.unlink()
+            broken.parent.rmdir()
+            root.rmdir()
+
+
+@contextmanager
+def broken_skill_root(directory):
+    """Keep valid fixtures recoverable while one allowed source cannot be scanned."""
+    root = directory / ".agents/skills"
+    backup = root.with_name("skills-backup")
+    root.rename(backup)
+    root.write_text("A skill root is not a directory.", encoding="utf-8")
+    try:
+        yield
+    finally:
+        root.unlink()
+        backup.rename(root)
+
+
+def skills_without_root(skills, directory):
+    """Use source provenance independently of SDK canonical selection paths."""
+    root = directory.resolve() / ".agents/skills"
+    return {
+        suffix: {**skill, "available": skill["available"] and skill["root"] != root}
+        for suffix, skill in skills.items()
+    }
 
 
 def selection(skill):
@@ -52,7 +125,10 @@ def selection(skill):
 def require_catalog(catalog, skills):
     for skill in skills.values():
         matches = [item for item in catalog if item["name"] == skill["name"]]
-        require(len(matches) == 1, f"Project skill missing or duplicated: {skill['name']}")
+        if not skill["available"]:
+            require(not matches, f"Skill from an excluded root entered the picker: {skill['name']}")
+            continue
+        require(len(matches) == 1, f"Allowed skill missing or duplicated: {skill['name']}")
         item = matches[0]
         require(Path(item["path"]).samefile(skill["path"]), "Skill path was not canonical")
         require(item["description"] == skill["description"], "Skill description was lost")
@@ -72,13 +148,22 @@ def require_skill_requests(fixture, offset, skills, loaded=None):
         for tool in requests[0][1].get("tools", [])
     }
     require("skill" in tools, "Work did not expose the native skill tool")
-    require(skills["auto"]["description"] in first,
-            "Automatic project skill metadata did not enter the model context")
     require(skills["auto"]["shadowed_description"] not in first,
             "Session catalog included the losing duplicate skill source")
     require(skills["auto"]["shadowed_marker"] not in json.dumps(requests),
             "The duplicate skill source won over the source shown in the picker")
+    if "global_shadowed_description" in skills["auto"]:
+        require(skills["auto"]["global_shadowed_description"] not in first,
+                "The home definition replaced the project's same-name skill metadata")
+        require(skills["auto"]["global_shadowed_marker"] not in json.dumps(requests),
+                "The home definition replaced the project's same-name skill body")
     for suffix, skill in skills.items():
+        if skill["available"] and suffix != "manual":
+            require(skill["description"] in first,
+                    f"Allowed skill metadata did not enter the model context: {skill['name']}")
+        if not skill["available"]:
+            require(skill["description"] not in first,
+                    f"Excluded skill metadata entered the model context: {skill['name']}")
         if suffix not in loaded:
             require(skill["marker"] not in first,
                     f"Unselected skill instructions were loaded eagerly: {skill['name']}")
@@ -100,9 +185,11 @@ def require_selection_rejected(send, fixture, selected):
             "Invalid skill selection reached inference")
 
 
-def check_project_skills(app, fixture, project, provider, model, workspace):
-    skills = write_project_skills(workspace)
-    require_catalog(app.command("list_project_skills", projectId=project["id"]), skills)
+def check_project_skills(app, fixture, project, provider, model, workspace, home):
+    def list_catalog():
+        return app.command("list_project_skills", projectId=project["id"])
+
+    check_empty_and_invalid_skill_roots(list_catalog, workspace, home)
     sessions = []
 
     def new_session(project_id=project["id"]):
@@ -113,8 +200,21 @@ def check_project_skills(app, fixture, project, provider, model, workspace):
         return session
 
     automatic = new_session()
+    app.turn(automatic, "fixture:chat Start before optional skill directories exist.")
+    skills = write_project_skills(workspace, home)
+    require_catalog(list_catalog(), skills)
+    for directory in (workspace, home):
+        with broken_skill_root(directory):
+            available = skills_without_root(skills, directory)
+            require_catalog(list_catalog(), available)
+            offset = len(fixture.conversation_requests())
+            app.turn(new_session(), "fixture:chat Continue when an optional skill root is invalid.")
+            require_skill_requests(fixture, offset, available)
+
+    write_global_shadow(skills, home)
+    require_catalog(list_catalog(), skills)
     offset = len(fixture.conversation_requests())
-    app.turn(automatic, "fixture:skill-auto Use the available acceptance skill.")
+    app.turn(automatic, "fixture:skill-auto Discover the acceptance skill added after session startup.")
     requests = require_skill_requests(fixture, offset, skills)
     require(len(requests) >= 2, "Native skill tool did not return to inference")
     require(skills["auto"]["marker"] in json.dumps(requests[-1][1]),
@@ -133,13 +233,13 @@ def check_project_skills(app, fixture, project, provider, model, workspace):
     multiple_prompt = "fixture:skill-multiple Combine both selected skills for this request."
     offset = len(fixture.conversation_requests())
     app.turn(multiple, multiple_prompt, selected_skills=[
-        selection(skills["manual"]), selection(skills["claude"]),
+        selection(skills["manual"]), selection(skills["global"]),
     ])
-    requests = require_skill_requests(fixture, offset, skills, loaded=("manual", "claude"))
+    requests = require_skill_requests(fixture, offset, skills, loaded=("manual", "global"))
     first = json.dumps(requests[0][1])
     require(first.count(multiple_prompt) == 1,
             "Multiple skill selections duplicated the user's model prompt")
-    require(all(first.count(skills[suffix]["marker"]) == 1 for suffix in ("manual", "claude")),
+    require(all(first.count(skills[suffix]["marker"]) == 1 for suffix in ("manual", "global")),
             "Multiple skill selections duplicated a skill body")
     messages = app.command("messages", sessionId=multiple["id"])
     require([item["content"] for item in messages if item["role"] == "user"] == [multiple_prompt],
@@ -199,8 +299,11 @@ def check_project_skills(app, fixture, project, provider, model, workspace):
     foreign = workspace.parent / "foreign-skill.md"
     foreign.write_text("Never load a skill outside this project's catalog.", encoding="utf-8")
     rejected(new_session(), {**selection(skills["manual"]), "path": str(foreign)})
-    deleted = skills["plain"]
+    for suffix in ("project-github", "home-copilot"):
+        rejected(new_session(), selection(skills[suffix]))
+    deleted = skills["deleted"]
     Path(deleted["path"]).unlink()
+    deleted["available"] = False
     rejected(multiple, selection(deleted))
     refreshed = app.command("list_project_skills", projectId=project["id"])
     require(all(item["name"] != deleted["name"] for item in refreshed),
@@ -225,16 +328,34 @@ def check_skill_resume(app, fixture, state):
     require_skill_requests(fixture, offset, skills, loaded="manual")
 
 
-def check_stdio_skills(server, fixture, options):
+def check_stdio_skills(server, fixture, options, home):
     """The real remote executable resolves paths on its execution host."""
     workspace = fixture.workspace
-    skills = write_project_skills(workspace)
-    require_catalog(server.command("list_project_skills", directory=str(workspace)), skills)
+
+    def list_catalog():
+        return server.command("list_project_skills", directory=str(workspace))
+
+    check_empty_and_invalid_skill_roots(list_catalog, workspace, home)
     options = {**options, "sessionId": str(uuid.uuid4()),
                "mode": {"kind": "work", "directory": str(workspace)}}
     server.command("start_agent", options=options, resume=False)
+    server.turn(options["sessionId"], "fixture:chat Start before optional remote skill directories exist.")
+    skills = write_project_skills(workspace, home)
+    require_catalog(list_catalog(), skills)
+    for directory in (workspace, home):
+        with broken_skill_root(directory):
+            available = skills_without_root(skills, directory)
+            require_catalog(list_catalog(), available)
+            session = {**options, "sessionId": str(uuid.uuid4())}
+            server.command("start_agent", options=session, resume=False)
+            offset = len(fixture.conversation_requests())
+            server.turn(session["sessionId"], "fixture:chat Continue when an optional remote skill root is invalid.")
+            require_skill_requests(fixture, offset, available)
+            server.command("disconnect_agent", sessionId=session["sessionId"])
+    write_global_shadow(skills, home)
+    require_catalog(list_catalog(), skills)
     offset = len(fixture.conversation_requests())
-    server.turn(options["sessionId"], "fixture:skill-auto Use the available remote skill.")
+    server.turn(options["sessionId"], "fixture:skill-auto Discover the remote skill added after session startup.")
     requests = require_skill_requests(fixture, offset, skills)
     require(len(requests) >= 2 and skills["auto"]["marker"] in json.dumps(requests[-1][1]),
             "Remote native skill tool did not load its body")
@@ -245,7 +366,7 @@ def check_stdio_skills(server, fixture, options):
     server.command(
         "prepare_agent_message", sessionId=explicit["sessionId"], preparedId=prepared_id,
         content="fixture:skill-explicit Use the remote selected skill.",
-        selectedSkills=[selection(skills["manual"])],
+        selectedSkills=[selection(skills["manual"]), selection(skills["global"])],
     )
     require(len(fixture.conversation_requests()) == offset,
             "Preparing a remote skill message started inference")
@@ -255,7 +376,7 @@ def check_stdio_skills(server, fixture, options):
         ), fixture, str(uuid.uuid4()),
     )
     server.prepared_turn(explicit["sessionId"], prepared_id)
-    require_skill_requests(fixture, offset, skills, loaded="manual")
+    require_skill_requests(fixture, offset, skills, loaded=("manual", "global"))
     require_selection_rejected(
         lambda value: server.command(
             "send_prepared_agent_message", sessionId=explicit["sessionId"], preparedId=value,
@@ -267,5 +388,12 @@ def check_stdio_skills(server, fixture, options):
             preparedId=str(uuid.uuid4()), content="fixture:skill-rejected", selectedSkills=[value],
         ), fixture, {**selection(skills["manual"]), "name": "missing-skill"},
     )
+    for suffix in ("project-github", "home-copilot"):
+        require_selection_rejected(
+            lambda value: server.command(
+                "prepare_agent_message", sessionId=explicit["sessionId"],
+                preparedId=str(uuid.uuid4()), content="fixture:skill-rejected", selectedSkills=[value],
+            ), fixture, selection(skills[suffix]),
+        )
     for session in (options, explicit):
         server.command("disconnect_agent", sessionId=session["sessionId"])

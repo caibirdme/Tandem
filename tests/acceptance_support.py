@@ -24,6 +24,15 @@ def debug_binary(name):
     return Path(__file__).resolve().parents[1] / "target" / "debug" / (name + suffix)
 
 
+def activity_tools(events):
+    """Read the latest tools from each durable activity message upsert."""
+    groups = {}
+    for event in events:
+        if event["kind"] == "message" and event["data"].get("role") == "activity":
+            groups[event["data"]["id"]] = event["data"]["activity"]
+    return [tool for group in groups.values() for tool in group["tools"]]
+
+
 def require_context_usage(events, expected_limit):
     """Verify the real SDK's current-window event crosses the transport."""
     usage = [event["data"] for event in events if event["kind"] == "context_usage"]

@@ -159,6 +159,20 @@ impl Runtime {
         let permissions = Permissions::new(&options.mode, options.permission_mode, events.clone());
         let config = resume_config(id, options, directory.clone(), permissions.clone())?;
         let session = self.client.resume_session(config).await?;
+        if options.model.reasoning_effort.is_none() {
+            // Resume omits a None effort and therefore preserves a previous SDK
+            // override. The pinned switchTo protocol requires explicit null to
+            // restore the model default while retaining the same transcript.
+            let reset = default_reasoning_request(id, &options.model)?;
+            if let Err(error) = session
+                .client()
+                .call("session.model.switchTo", Some(reset))
+                .await
+            {
+                let _ = session.disconnect().await;
+                return Err(error.into());
+            }
+        }
         let skill_directory = match &options.mode {
             SessionMode::Chat => None,
             SessionMode::Work { .. } => Some(directory),
@@ -173,22 +187,23 @@ impl Runtime {
         ))
     }
 
-    /// Lists user-invocable skills from the selected project using SDK discovery.
+    /// Lists user-invocable skills from the project and user's agent skill roots.
+    /// Missing, invalid, or unavailable skill sources contribute no entries.
     ///
     /// # Errors
-    /// Returns an error for an inaccessible project or failed SDK discovery.
+    /// Returns an error for an inaccessible project.
     pub async fn list_project_skills(&self, directory: &Path) -> Result<Vec<ProjectSkill>> {
         let directory = self
             .directory_for(&SessionMode::Work {
                 directory: directory.to_path_buf(),
             })
             .await?;
-        tokio::time::timeout(
+        Ok(tokio::time::timeout(
             Duration::from_secs(15),
             skills::discover(&self.client, &directory),
         )
         .await
-        .map_err(|_| SkillError::DiscoveryTimeout)?
+        .unwrap_or_default())
     }
 
     /// Returns one complete text response from an isolated, tools-disabled session.
@@ -245,6 +260,15 @@ impl Runtime {
     }
 }
 
+fn default_reasoning_request(id: &str, model: &ModelSettings) -> Result<serde_json::Value> {
+    Ok(json!({
+        "sessionId": id,
+        "modelId": model.id,
+        "reasoningEffort": null,
+        "modelCapabilities": model.to_sdk_capabilities()?,
+    }))
+}
+
 fn tools_for(mode: &SessionMode) -> Vec<String> {
     match mode {
         SessionMode::Chat => CHAT_TOOLS,
@@ -273,6 +297,9 @@ fn system_message(options: &SessionOptions, directory: &Path) -> SystemMessageCo
             )
         }
     };
+    content.push_str(
+        "\n\nBefore a meaningful group of tool calls, briefly tell the user what you are doing. Give another brief progress update only when the work moves to a new stage or a material finding changes the plan. Keep updates concise, use the same language as your response, and avoid narrating individual tool calls.",
+    );
     if let Some(prompt) = &options.system_prompt {
         content.push_str("\n\n");
         content.push_str(prompt);
@@ -675,13 +702,16 @@ mod tests {
             let (events, _) = broadcast::channel(16);
             let permissions = Permissions::new(&options.mode, options.permission_mode, events);
             let fresh = create_config(&options, directory.clone(), permissions.clone())?;
-            let resumed = resume_config("work-1", &options, directory, permissions)?;
+            let resumed = resume_config("work-1", &options, directory.clone(), permissions)?;
             assert_eq!(fresh.enable_skills, Some(true));
             assert_eq!(resumed.enable_skills, fresh.enable_skills);
             assert_eq!(fresh.enable_config_discovery, Some(false));
             assert_eq!(resumed.enable_config_discovery, Some(false));
             assert_eq!(fresh.skill_directories, resumed.skill_directories);
-            assert_eq!(fresh.skill_directories.as_ref().map(Vec::len), Some(4));
+            assert_eq!(
+                fresh.skill_directories,
+                Some(skills::directories(&options.mode, &directory))
+            );
             assert!(
                 fresh
                     .available_tools
@@ -704,6 +734,8 @@ mod tests {
                     content.contains("without asking for permission"),
                     mode == PermissionMode::AllowAll
                 );
+                assert!(content.contains("Before a meaningful group of tool calls"));
+                assert!(content.contains("only when the work moves to a new stage"));
                 let handler = handler.ok_or("missing permission handler")?;
                 let result = handler
                     .handle(
@@ -793,6 +825,36 @@ mod tests {
     }
 
     #[test]
+    fn returning_to_the_model_default_sends_explicit_null_and_retains_token_limits() -> Result<()> {
+        let model = ModelSettings {
+            id: "configured-model".into(),
+            reasoning_effort: None,
+            context_window: 200_000,
+            max_output_tokens: Some(32_000),
+        };
+        let request = default_reasoning_request("existing-session", &model)?;
+        assert_eq!(request["sessionId"], "existing-session");
+        assert_eq!(request["modelId"], "configured-model");
+        assert_eq!(
+            request.get("reasoningEffort"),
+            Some(&serde_json::Value::Null)
+        );
+        assert_eq!(
+            request["modelCapabilities"]["limits"]["max_context_window_tokens"],
+            200_000
+        );
+        assert_eq!(
+            request["modelCapabilities"]["limits"]["max_prompt_tokens"],
+            168_000
+        );
+        assert_eq!(
+            request["modelCapabilities"]["limits"]["max_output_tokens"],
+            32_000
+        );
+        Ok(())
+    }
+
+    #[test]
     fn fresh_and_resumed_byok_sessions_preserve_model_and_token_overrides()
     -> std::result::Result<(), Box<dyn std::error::Error>> {
         for (protocol, model_id, output) in [
@@ -825,9 +887,9 @@ mod tests {
                 },
                 model: ModelSettings {
                     id: model_id.into(),
+                    reasoning_effort: Some("high".into()),
                     context_window: 1_000_000,
                     max_output_tokens: output,
-                    ..Default::default()
                 },
                 system_prompt: None,
             };
@@ -842,6 +904,8 @@ mod tests {
             )?;
             assert_eq!(fresh.model.as_deref(), Some(model_id));
             assert_eq!(resumed.model, fresh.model);
+            assert_eq!(fresh.reasoning_effort.as_deref(), Some("high"));
+            assert_eq!(resumed.reasoning_effort, fresh.reasoning_effort);
             assert_eq!(resumed.session_id.as_str(), "existing-session");
             assert_eq!(resumed.continue_pending_work, Some(false));
             assert!(fresh.providers.is_none() && resumed.providers.is_none());
@@ -913,6 +977,8 @@ mod tests {
                 .unwrap_or_default();
             assert_ne!(content, "");
             assert!(content.contains("execute them without asking for permission"));
+            assert!(content.contains("Before a meaningful group of tool calls"));
+            assert!(content.contains("use the same language as your response"));
             assert!(!content.contains("/private/chat"));
             assert!(!content.contains("Project directory"));
         }

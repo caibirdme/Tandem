@@ -1,8 +1,9 @@
 export type ProviderProtocol = 'openai-completions' | 'openai-responses' | 'anthropic';
+export type ReasoningEffort = 'low' | 'medium' | 'high' | null;
 export interface Model {
   id: string;
   name: string;
-  reasoningEffort: 'low' | 'medium' | 'high' | null;
+  reasoningEffort: ReasoningEffort;
   contextWindow: number;
   maxOutputTokens: number | null;
 }
@@ -75,17 +76,20 @@ export interface Session {
   updatedAt: string;
   status: SessionStatus;
   permissionMode: PermissionMode;
+  reasoningEffort: ReasoningEffort;
   contextUsage: ContextUsage | null;
 }
 export interface Message {
   id: string;
   sessionId: string;
-  role: 'user' | 'assistant' | 'tool' | 'system';
+  role: 'user' | 'assistant' | 'activity' | 'tool' | 'system';
   interrupted?: boolean;
   content: string;
   createdAt: string;
   selectedSkills?: SelectedSkill[];
   attachments: Attachment[];
+  activity?: Activity;
+  sequence?: number;
 }
 export interface RuntimeStatus {
   available: boolean;
@@ -100,11 +104,20 @@ export interface Snapshot {
   sessions: Session[];
   runtime: RuntimeStatus;
 }
+export type ActivityStatus = 'running' | 'completed' | 'error' | 'interrupted';
+export interface Activity {
+  status: ActivityStatus;
+  tools: ToolActivity[];
+}
 export interface ToolActivity {
-  toolCallId?: string;
+  toolCallId: string;
   name: string;
-  status: 'running' | 'completed' | 'error';
-  content: string;
+  title?: string;
+  status: ActivityStatus;
+  arguments?: unknown;
+  result?: unknown;
+  error?: unknown;
+  progress?: string;
 }
 export interface Permission {
   requestId: string;
@@ -114,7 +127,6 @@ export interface Permission {
 export type RuntimeEvent = { sessionId: string } & (
   | { kind: 'delta'; data: { content: string } }
   | { kind: 'message'; data: Message }
-  | { kind: 'tool'; data: ToolActivity }
   | { kind: 'permission'; data: Permission }
   | { kind: 'status'; data: { status: SessionStatus } }
   | { kind: 'error'; data: { message: string } }
@@ -147,6 +159,7 @@ export interface Commands {
       providerId: string;
       modelId: string;
       permissionMode?: PermissionMode;
+      reasoningEffort?: ReasoningEffort;
     };
     result: Session;
   };
@@ -156,6 +169,10 @@ export interface Commands {
   };
   set_session_model: {
     payload: { sessionId: string; providerId: string; modelId: string };
+    result: Session;
+  };
+  set_session_reasoning_effort: {
+    payload: { sessionId: string; reasoningEffort: ReasoningEffort };
     result: Session;
   };
   delete_session: { payload: { sessionId: string }; result: null };

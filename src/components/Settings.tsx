@@ -453,6 +453,7 @@ export function ProviderEditor({
                   <option value="medium">{t('settings.medium')}</option>
                   <option value="high">{t('settings.high')}</option>
                 </select>
+                <small>{t('settings.reasoningHint')}</small>
               </label>
               <label>
                 {t('settings.maxOutputTokens')}

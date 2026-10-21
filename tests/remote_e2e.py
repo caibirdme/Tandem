@@ -32,7 +32,8 @@ import uuid
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 
-from acceptance_support import Application, debug_binary, require_context_usage
+from acceptance_support import Application, activity_tools, debug_binary, require_context_usage
+from activity_acceptance import check_grouped_activity
 from credential_checks import require_local_secret, require_provider_key, scan_for_key
 from inference_fixture import (
     FIXTURE_KEY,
@@ -43,13 +44,20 @@ from inference_fixture import (
 )
 from permission_acceptance import check_permission_modes
 from model_switch_acceptance import require_wire_history
+from reasoning_acceptance import (
+    check_pending_reasoning_change,
+    check_reasoning_turn,
+    require_wire_effort,
+    set_effort,
+    wire_effort,
+)
 from skill_acceptance import check_project_skills, check_stdio_skills
 from attachment_acceptance import check_attachments, check_stdio_attachments
 
 
 def private_environment(home):
     environment = os.environ.copy()
-    environment.update(HOME=str(home), XDG_CACHE_HOME=str(home / '.cache'),
+    environment.update(HOME=str(home), USERPROFILE=str(home), XDG_CACHE_HOME=str(home / '.cache'),
                        XDG_CONFIG_HOME=str(home / '.config'), XDG_STATE_HOME=str(home / '.state'))
     for key in ('COPILOT_CLI_PATH', 'GITHUB_TOKEN', 'GH_TOKEN', 'COPILOT_GITHUB_TOKEN'):
         environment.pop(key, None)
@@ -208,7 +216,7 @@ def check_stdio(binary, home, endpoint, fixture):
         require(any(event['kind'] == 'delta' for event in events), 'stdio streaming delta missing')
         require(any(event['kind'] == 'message' and event['data']['content'] == first_response
                     for event in events), 'stdio final response missing')
-        check_stdio_skills(server, fixture, options)
+        check_stdio_skills(server, fixture, options, home)
         check_stdio_attachments(server, fixture, options)
         for protocol, model in (('openai-responses', 'gpt-4.1'),
                                 ('anthropic', 'claude-sonnet-4.5')):
@@ -219,6 +227,7 @@ def check_stdio(binary, home, endpoint, fixture):
                 'model': {**options['model'], 'id': model},
             }
             check_stdio_attachments(server, fixture, attachment_options)
+        check_stdio_reasoning(server, fixture, endpoint)
     finally:
         server.close()
     resumed = StdioServer(binary, home)
@@ -262,6 +271,31 @@ def check_stdio(binary, home, endpoint, fixture):
     require(any(path == '/v1/traces' and 'json' in content_type and json_span_names(body)
                 for path, body, content_type in fixture.exports), 'Remote EOF did not flush valid OTLP spans')
     require_no_persisted_key(home)
+
+
+def check_stdio_reasoning(server, fixture, endpoint):
+    options = session_options(str(uuid.uuid4()), endpoint)
+    options['model']['id'] = 'gpt-5'
+    transcript = []
+    native_effort = None
+    for index, effort in enumerate((None, 'low', 'high', None)):
+        options['model']['reasoningEffort'] = effort
+        server.command('start_agent', options=options, resume=bool(transcript))
+        prompt = f'fixture:chat Preserve STDIO_REASONING_HISTORY with effort {effort}.'
+        offset = len(fixture.conversation_requests())
+        events = server.turn(options['sessionId'], prompt)
+        requests = fixture.conversation_requests()[offset:]
+        require(bool(requests), 'Remote reasoning selection never reached inference')
+        if index == 0:
+            native_effort = wire_effort(*requests[0])
+        for path, body in requests:
+            require_wire_effort(path, body, effort if effort is not None else native_effort)
+            require_wire_history(body, transcript)
+        response = next(event['data']['content'] for event in events
+                        if event['kind'] == 'message')
+        transcript.extend(({'role': 'user', 'content': prompt},
+                           {'role': 'assistant', 'content': response}))
+        server.command('disconnect_agent', sessionId=options['sessionId'])
 
 
 class IsolatedSsh:
@@ -439,6 +473,34 @@ def check_remote_runtime_restart(app, work, ssh, fixture):
     require(len(fixture.conversation_requests()) == requests_before + 1, 'Remote runtime recovery replayed the interrupted prompt')
 
 
+def check_ssh_reasoning(app, fixture, directory, endpoint, project):
+    provider = app.command('save_provider', provider={
+        'id': '', 'name': 'SSH reasoning acceptance', 'protocol': 'openai-completions',
+        'baseUrl': endpoint + '/v1',
+        'models': [{'id': 'gpt-5', 'name': 'Reasoning fixture', 'reasoningEffort': None,
+                    'contextWindow': 128000, 'maxOutputTokens': 4096}],
+    }, apiKey=FIXTURE_KEY)
+    work = app.command('create_session', projectId=project['id'], providerId=provider['id'], modelId='gpt-5')
+    offset = len(fixture.conversation_requests())
+    events = app.turn(work, 'fixture:chat Preserve SSH_REASONING_ORIGINAL_HISTORY with the native default.')
+    app.wait_title(work['id'], events)
+    requests = fixture.conversation_requests()[offset:]
+    require(bool(requests), 'SSH native reasoning baseline never reached inference')
+    native_effort = wire_effort(*requests[0])
+    for path, body in requests:
+        require_wire_effort(path, body, native_effort)
+    for effort in ('high', 'low'):
+        work = set_effort(app, directory, work, effort)
+        check_reasoning_turn(app, fixture, work,
+                             f'fixture:chat Apply SSH reasoning override {effort} in the original conversation.', effort)
+    work = set_effort(app, directory, work, 'medium')
+    work = check_pending_reasoning_change(app, fixture, directory, work)
+    work = set_effort(app, directory, work, None)
+    check_reasoning_turn(app, fixture, work,
+                         'fixture:chat Reset SSH reasoning to the original native default.', native_effort)
+    app.command('delete_session', sessionId=work['id'])
+
+
 def check_ssh(remote_server, dev_server, root, endpoint, fixture):
     ssh = IsolatedSsh(root / 'ssh')
     app_directory = root / 'desktop'
@@ -482,15 +544,17 @@ def check_ssh(remote_server, dev_server, root, endpoint, fixture):
         app.command('save_preferences', telemetry={'enabled': True, 'endpoint': endpoint,
                     'protocol': 'http/json', 'captureContent': False}, cliPath=None)
         project = app.command('create_project', name='SSH work', path=str(workspace), connection=ssh.connection)
-        skill_session, _ = check_project_skills(app, fixture, project, provider, 'gpt-4.1', workspace)
+        grouped_session, _ = check_grouped_activity(app, project, provider, 'gpt-4.1', workspace)
+        app.command('delete_session', sessionId=grouped_session['id'])
         check_attachments(app, fixture, project, provider, 'gpt-4.1')
+        skill_session, _ = check_project_skills(app, fixture, project, provider, 'gpt-4.1', workspace, ssh.home)
         app.command('delete_session', sessionId=skill_session['id'])
         work = app.command('create_session', projectId=project['id'], providerId=provider['id'], modelId='gpt-4.1')
         first_work_events = app.turn(work, 'fixture:work-create Create verified.txt on the SSH host.')
         require(app.wait_title(work['id'], first_work_events) == 'Acceptance file operations', 'SSH work title was not summarized')
         require((workspace / 'verified.txt').read_text() == 'first version\n', 'Remote SDK tool did not create the file')
         failed_tool = app.turn(work, 'fixture:work-create Attempt to create the already existing file.')
-        require(any(event['kind'] == 'tool' and event['data']['status'] == 'error' for event in failed_tool),
+        require(any(tool['status'] == 'error' for tool in activity_tools(failed_tool)),
                 'Failed remote tool was presented as a successful completion')
         require((workspace / 'verified.txt').read_text() == 'first version\n', 'Failed create changed the existing file')
         second = app.command('create_session', projectId=project['id'], providerId=provider['id'], modelId='gpt-4.1')
@@ -521,6 +585,7 @@ def check_ssh(remote_server, dev_server, root, endpoint, fixture):
         app.turn(work, 'fixture:work-edit Resume after reconnect and edit verified.txt.')
         require((workspace / 'verified.txt').read_text() == 'verified by SDK\n', 'Remote reconnect did not resume executable work')
         check_permission_modes(app, project, provider, 'gpt-4.1', workspace)
+        check_ssh_reasoning(app, fixture, app_directory, endpoint, project)
         app.command('save_preferences', telemetry={'enabled': False, 'endpoint': '',
                     'protocol': 'http/json', 'captureContent': False}, cliPath=None)
         require(any(path == '/v1/traces' and 'json' in content_type and json_span_names(body)
@@ -573,11 +638,11 @@ def main():
         checks = []
         try:
             check_stdio(remote_server, root / 'stdio-home', endpoint_url, fixture)
-            checks.append('stdio: real SDK streaming, image/text attachments on all protocols and PDF on Responses/Anthropic, attachment-only preparation and direct sends in Chat and Work, project skill discovery and invocation, same-session cold resume with a new provider/model and original history, EOF cleanup, malformed/oversized input, OTLP flush')
+            checks.append('stdio: real SDK streaming, image/text attachments on all protocols and PDF on Responses/Anthropic, attachment-only preparation and direct sends in Chat and Work, project skill discovery and invocation, same-session cold resume with a new provider/model and original history, reasoning changes and reset on the provider wire, EOF cleanup, malformed/oversized input, OTLP flush')
             if not arguments.skip_ssh:
                 require(os.name == 'posix', 'Use --skip-ssh on hosts without a POSIX SSH daemon')
                 check_ssh(remote_server, dev_server, root, endpoint_url, fixture)
-                checks.append('OpenSSH: strict host trust, key rejection, atomic deployment, literal directories, project skills, remote tools, reconnect/resume')
+                checks.append('OpenSSH: strict host trust, key rejection, atomic deployment, literal directories, image/text attachments, grouped tool activity, project skills, remote tools, reconnect/resume, core session reasoning changes, pending approval, and native-default reset with complete history')
             print(json.dumps({'result': 'passed', 'checks': checks, 'inferenceRequests': len(fixture.requests),
                               'telemetryExports': len(fixture.exports)}, indent=2))
         finally:

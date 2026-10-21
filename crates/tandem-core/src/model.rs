@@ -60,6 +60,17 @@ pub enum ValidationError {
 
 type Result<T> = std::result::Result<T, ValidationError>;
 
+pub(crate) fn validate_reasoning_effort(effort: Option<&str>) -> Result<()> {
+    if let Some(effort) = effort
+        && !["low", "medium", "high"].contains(&effort)
+    {
+        return Err(ValidationError::UnsupportedReasoningEffort {
+            effort: effort.into(),
+        });
+    }
+    Ok(())
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Model {
@@ -120,13 +131,7 @@ impl Provider {
                     id: model.id.clone(),
                 });
             }
-            if let Some(effort) = &model.reasoning_effort
-                && !["low", "medium", "high"].contains(&effort.as_str())
-            {
-                return Err(ValidationError::UnsupportedReasoningEffort {
-                    effort: effort.clone(),
-                });
-            }
+            validate_reasoning_effort(model.reasoning_effort.as_deref())?;
             for count in [Some(model.context_window), model.max_output_tokens]
                 .into_iter()
                 .flatten()
@@ -260,6 +265,8 @@ pub struct Session {
     pub provider_id: String,
     pub model_id: String,
     pub permission_mode: PermissionMode,
+    /// None inherits the selected provider model's default.
+    pub reasoning_effort: Option<String>,
     pub created_at: String,
     pub updated_at: String,
     pub status: SessionStatus,
@@ -290,6 +297,41 @@ pub enum MessageRole {
     Assistant,
     Tool,
     System,
+    Activity,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ActivityStatus {
+    Running,
+    Completed,
+    Error,
+    Interrupted,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ToolActivity {
+    pub tool_call_id: String,
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    pub status: ActivityStatus,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub arguments: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub result: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub progress: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Activity {
+    pub status: ActivityStatus,
+    pub tools: Vec<ToolActivity>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -310,6 +352,10 @@ pub struct Message {
     pub content: String,
     pub attachments: Vec<AttachmentMetadata>,
     pub created_at: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sequence: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub activity: Option<Activity>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub interrupted: bool,
 }

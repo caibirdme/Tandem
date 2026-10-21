@@ -176,6 +176,8 @@ pub(crate) struct LiveSession {
     pub handle: AgentHandle,
     pub event_task: JoinHandle<()>,
     pub completion: TurnCompletion,
+    /// Effective effort used to initialize this SDK connection.
+    pub reasoning_effort: Option<String>,
 }
 
 impl LiveSession {

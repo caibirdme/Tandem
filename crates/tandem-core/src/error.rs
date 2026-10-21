@@ -185,8 +185,7 @@ impl Error {
             }
             Self::Remote(error) => error.code().into(),
             Self::Runtime(copilot_runtime::Error::Skills(error)) => match error {
-                copilot_runtime::SkillError::DiscoveryTimeout
-                | copilot_runtime::SkillError::PreparationTimeout => ErrorCode::Unavailable,
+                copilot_runtime::SkillError::PreparationTimeout => ErrorCode::Unavailable,
                 _ => ErrorCode::InvalidInput,
             },
             Self::Runtime(
@@ -215,7 +214,9 @@ impl Error {
             )
             | Self::ModelNotConfigured { .. }
             | Self::CliNotFound { .. } => ErrorCode::NotFound,
-            Self::Storage(StorageError::ProviderInUse { .. })
+            Self::Storage(
+                StorageError::ProviderInUse { .. } | StorageError::ActivityConflict { .. },
+            )
             | Self::ConversationsRunning
             | Self::ProjectRunning
             | Self::ProviderRunning
