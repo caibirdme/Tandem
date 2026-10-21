@@ -128,13 +128,13 @@ SSH uses BatchMode and strict host verification, supporting keys and ssh-agent. 
 2. Tag `main` and push the tag:
 
    ```sh
-   git tag v0.0.2
-   git push origin v0.0.2
+   git tag v0.0.3
+   git push origin v0.0.3
    ```
 
 3. Wait for the Release workflow in Actions, open the matching draft on the Releases page, review its installers, and publish it.
 
-The commands above use `0.0.2` as an example; use the version merged in step 1. The tag must be `v` followed by that version. Otherwise, `Check version` lists inconsistent files and stops before packaging. Publish the Release only after the workflow has attached the installers.
+The commands above use `0.0.3` as an example; use the version merged in step 1. The tag must be `v` followed by that version. Otherwise, `Check version` lists inconsistent files and stops before packaging. Publish the Release only after the workflow has attached the installers.
 
 If version validation fails, correct all three manifests and synchronize `Cargo.lock` before merging. Rerunning the failed workflow uses its original commit, so a fix on `main` alone does not repair an existing tag. Use a new matching version and tag, or deliberately correct the existing tag and Release after reviewing their published state.
 

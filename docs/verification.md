@@ -1,5 +1,13 @@
 # Verification record
 
+## Release 0.0.3 version metadata (2026-10-21)
+
+Prepared from `main` in `.worktrees/release-0.0.3`, carrying the Windows installer and conversation changes below. Frontend, Tauri, and Rust workspace manifests now declare `0.0.3`, and the release instructions use `v0.0.3`. Offline workspace lockfile synchronization changed only the seven workspace package versions; third-party versions, dependencies, sources, and checksums are unchanged.
+
+`cargo metadata --locked --no-deps` confirmed all seven workspace packages at `0.0.3`. The exact Python guard extracted from `.github/workflows/release.yml` accepted `v0.0.3` and rejected mismatched `v0.0.2`. `cargo check --workspace --locked`, frontend formatting, lint, type checks, and the production frontend build passed. Frontend installation used the existing frozen lockfile and offline cache. Logs are ignored artifacts under `artifacts/version-0.0.3-*` and `artifacts/version-guard-*`.
+
+The full test suites, service integrations, browser verification, and Windows desktop packaging recorded below passed before this metadata-only bump at version `0.0.2`. They were not repeated for the version change, and this step produced no `0.0.3` installer.
+
 ## Conversation skills, thinking, and activity layout (2026-10-21)
 
 Developed from `main` in `.worktrees/conversation-progress`, carrying the Windows NSIS-only installer change below. Selected skills now render as inline icon chips and remain on confirmed and reopened user messages because validated skill identities are stored with those messages. Ordinary `$` text stays plain. Intent sentences stay visible above a smaller, collapsed tool-category disclosure.
