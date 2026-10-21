@@ -15,12 +15,13 @@ mod session_reasoning;
 mod sessions;
 mod skills;
 mod store;
+mod subagents;
 mod titles;
 mod turns;
 mod vault;
 
 pub use app::{App, AppOptions};
-pub use dispatch::{CreateSessionRequest, Request};
+pub use dispatch::{CreateSessionRequest, Request, SendMessageRequest};
 pub use error::{Error, ErrorCode, ErrorResponse, EventDecodeError, Result};
 pub use store::StorageError;
 pub use vault::{LocalVault, MemoryVault, SecretError, SecretStore};

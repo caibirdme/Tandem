@@ -35,6 +35,35 @@ impl CreateSessionRequest {
     }
 }
 
+/// One user turn, with Fleet available only through explicit opt-in.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SendMessageRequest {
+    pub session_id: String,
+    pub content: String,
+    pub message_id: Uuid,
+    #[serde(default)]
+    pub selected_skills: Vec<SkillSelection>,
+    #[serde(default)]
+    pub attachments: Vec<MessageAttachment>,
+    #[serde(default)]
+    pub fleet: bool,
+}
+
+impl SendMessageRequest {
+    async fn execute(self, app: &Arc<App>) -> Result<()> {
+        app.send_message(
+            &self.session_id,
+            self.content,
+            self.message_id,
+            &self.selected_skills,
+            &self.attachments,
+            self.fleet,
+        )
+        .await
+    }
+}
+
 /// Stable command contract, used by both Tauri IPC and the development server.
 #[derive(Deserialize)]
 #[serde(
@@ -108,15 +137,7 @@ pub enum Request {
         session_id: String,
         attachment_id: String,
     },
-    SendMessage {
-        session_id: String,
-        content: String,
-        message_id: Uuid,
-        #[serde(default)]
-        selected_skills: Vec<SkillSelection>,
-        #[serde(default)]
-        attachments: Vec<MessageAttachment>,
-    },
+    SendMessage(SendMessageRequest),
     AbortSession {
         session_id: String,
     },
@@ -203,22 +224,7 @@ impl App {
                 session_id,
                 attachment_id,
             } => response(self.store.attachment(&session_id, &attachment_id)?),
-            Request::SendMessage {
-                session_id,
-                content,
-                message_id,
-                selected_skills,
-                attachments,
-            } => response(
-                self.send_message(
-                    &session_id,
-                    content,
-                    message_id,
-                    &selected_skills,
-                    &attachments,
-                )
-                .await?,
-            ),
+            Request::SendMessage(request) => response(request.execute(self).await?),
             Request::AbortSession { session_id } => {
                 response(self.abort_session(&session_id).await?)
             }

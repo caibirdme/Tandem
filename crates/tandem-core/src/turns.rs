@@ -9,13 +9,16 @@ use crate::{
     app::now,
     model::{ActiveTurnView, Message, MessageRole},
     reasoning::{ReasoningUpdate, Reasonings},
+    subagents::Subagents,
 };
 
 #[derive(Default)]
 struct ActiveTurn {
     messages: Vec<(String, Message)>,
+    settled_messages: Vec<(String, Message)>,
     permissions: Vec<Value>,
-    activities: Activities,
+    activities: HashMap<Option<String>, Activities>,
+    agents: Subagents,
     reasoning: Reasonings,
 }
 
@@ -78,9 +81,14 @@ impl ActiveTurns {
             return Ok(());
         };
         let message_id = data["messageId"].as_str().unwrap_or_default();
+        let agent_id = data["agentId"].as_str();
         let mut turns = self.0.lock().map_err(|_| Error::SessionStatePoisoned)?;
         let turn = turns.entry(session_id.to_owned()).or_default();
-        if let Some((_, message)) = turn.messages.iter_mut().find(|(id, _)| id == message_id) {
+        if let Some((_, message)) = turn
+            .messages
+            .iter_mut()
+            .find(|(id, message)| id == message_id && message.agent_id.as_deref() == agent_id)
+        {
             message.content.push_str(content);
         } else {
             turn.messages.push((
@@ -96,6 +104,9 @@ impl ActiveTurns {
                     activity: None,
                     reasoning: None,
                     selected_skills: Vec::new(),
+                    agent_id: agent_id.map(str::to_owned),
+                    agent: None,
+                    fleet: false,
                     interrupted: true,
                 },
             ));
@@ -103,12 +114,63 @@ impl ActiveTurns {
         Ok(())
     }
 
+    pub fn checkpointed_message(&self, session_id: &str, data: &Value) -> Result<Option<Message>> {
+        let turns = self.0.lock().map_err(|_| Error::SessionStatePoisoned)?;
+        Ok(turns.get(session_id).and_then(|turn| {
+            turn.settled_messages
+                .iter()
+                .find(|(id, message)| {
+                    id == data["id"].as_str().unwrap_or_default()
+                        && message.agent_id.as_deref() == data["agentId"].as_str()
+                })
+                .map(|(_, message)| message.clone())
+        }))
+    }
+
+    pub fn finish_agent(&self, session_id: &str, data: &Value) -> Result<Vec<Message>> {
+        let Some(agent_id) = data["agentId"].as_str() else {
+            return Ok(Vec::new());
+        };
+        let mut turns = self.0.lock().map_err(|_| Error::SessionStatePoisoned)?;
+        let Some(turn) = turns.get_mut(session_id) else {
+            return Ok(Vec::new());
+        };
+        let mut finished = Vec::new();
+        let mut remaining = Vec::new();
+        for pending in turn.messages.drain(..) {
+            if pending.1.agent_id.as_deref() == Some(agent_id) {
+                finished.push(pending.1.clone());
+                turn.settled_messages.push(pending);
+            } else {
+                remaining.push(pending);
+            }
+        }
+        turn.messages = remaining;
+        if let Some(activities) = turn.activities.get_mut(&Some(agent_id.to_owned())) {
+            finished.extend(activities.settle());
+        }
+        let status = if data["event"] == "subagent.failed" || data["cancelled"] == true {
+            crate::model::ActivityStatus::Interrupted
+        } else {
+            crate::model::ActivityStatus::Completed
+        };
+        finished.extend(turn.reasoning.close(Some(agent_id), status));
+        Ok(finished)
+    }
+
     pub fn completed(&self, session_id: &str, data: &Value) -> Result<()> {
         let mut turns = self.0.lock().map_err(|_| Error::SessionStatePoisoned)?;
         if let Some(turn) = turns.get_mut(session_id) {
             let id = data["id"].as_str().unwrap_or_default();
             let content = data["content"].as_str().unwrap_or_default();
+            let agent_id = data["agentId"].as_str();
+            turn.settled_messages.retain(|(pending_id, message)| {
+                pending_id != id || message.agent_id.as_deref() != agent_id
+            });
             turn.messages.retain(|(pending_id, message)| {
+                if message.agent_id.as_deref() != agent_id {
+                    return true;
+                }
                 if !id.is_empty() && !pending_id.is_empty() {
                     pending_id != id
                 } else {
@@ -125,6 +187,8 @@ impl ActiveTurns {
             .entry(message.session_id.clone())
             .or_default()
             .activities
+            .entry(message.agent_id.clone())
+            .or_insert_with(|| Activities::new(message.agent_id.clone()))
             .assistant(message, data);
         Ok(())
     }
@@ -135,17 +199,38 @@ impl ActiveTurns {
             .entry(session_id.to_owned())
             .or_default()
             .activities
+            .entry(data["agentId"].as_str().map(str::to_owned))
+            .or_insert_with(|| Activities::new(data["agentId"].as_str().map(str::to_owned)))
             .intent(data);
         Ok(())
     }
 
     pub fn tool(&self, session_id: &str, data: &Value) -> Result<Option<Message>> {
         let mut turns = self.0.lock().map_err(|_| Error::SessionStatePoisoned)?;
+        let turn = turns.entry(session_id.to_owned()).or_default();
+        turn.agents.task(data);
+        Ok(turn
+            .activities
+            .entry(data["agentId"].as_str().map(str::to_owned))
+            .or_insert_with(|| Activities::new(data["agentId"].as_str().map(str::to_owned)))
+            .tool(session_id, data))
+    }
+
+    pub fn agent(&self, session_id: &str, data: &Value) -> Result<Option<Message>> {
+        let mut turns = self.0.lock().map_err(|_| Error::SessionStatePoisoned)?;
         Ok(turns
             .entry(session_id.to_owned())
             .or_default()
-            .activities
-            .tool(session_id, data))
+            .agents
+            .update(session_id, data))
+    }
+
+    pub fn agent_saved(&self, message: &Message) -> Result<()> {
+        let mut turns = self.0.lock().map_err(|_| Error::SessionStatePoisoned)?;
+        if let Some(turn) = turns.get_mut(&message.session_id) {
+            turn.agents.saved(message);
+        }
+        Ok(())
     }
 
     pub fn permission(&self, session_id: &str, data: &Value) -> Result<()> {
@@ -178,7 +263,8 @@ impl ActiveTurns {
             turn.messages
                 .into_iter()
                 .map(|(_, message)| message)
-                .chain(turn.activities.finish())
+                .chain(turn.activities.into_values().flat_map(Activities::finish))
+                .chain(turn.agents.finish())
                 .chain(turn.reasoning.finish())
                 .collect()
         }))
@@ -195,8 +281,21 @@ impl ActiveTurns {
                         stream: turn
                             .messages
                             .iter()
+                            .filter(|(_, message)| message.agent_id.is_none())
                             .map(|(_, message)| message.content.as_str())
                             .collect(),
+                        agent_streams: turn.messages.iter().fold(
+                            HashMap::new(),
+                            |mut streams, (_, message)| {
+                                if let Some(agent_id) = &message.agent_id {
+                                    streams
+                                        .entry(agent_id.clone())
+                                        .or_insert_with(String::new)
+                                        .push_str(&message.content);
+                                }
+                                streams
+                            },
+                        ),
                         permissions: turn.permissions.clone(),
                     },
                 )

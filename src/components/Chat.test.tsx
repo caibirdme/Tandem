@@ -90,6 +90,93 @@ afterEach(() => {
   setLocale('en');
 });
 
+describe('Multi-agent composer and transcript', () => {
+  it('offers an unchecked Multi-agent option in Work and no Multi-agent option in Chat', () => {
+    const work = renderToStaticMarkup(<Chat {...props} />);
+    const chat = renderToStaticMarkup(<Chat {...props} project={undefined} />);
+    const checkbox = work.match(/<input[^>]*type="checkbox"[^>]*>/)?.[0];
+    expect(checkbox).toBeDefined();
+    expect(checkbox).not.toContain('checked');
+    expect(work).toContain(
+      'Let the AI split your task and run independent parts with multiple agents.',
+    );
+    expect(chat).not.toContain('fleet-toggle');
+  });
+
+  it('disables Multi-agent changes while a turn is running', () => {
+    const markup = renderToStaticMarkup(
+      <Chat {...props} conversation={{ ...emptyConversation, status: 'running' }} />,
+    );
+    expect(markup.match(/<input[^>]*type="checkbox"[^>]*>/)?.[0]).toContain('disabled');
+  });
+
+  it('groups workers by user turn and keeps their traces out of the main conversation', () => {
+    const user: Message = {
+      id: 'user-1',
+      sessionId: 'session',
+      role: 'user',
+      content: 'Review the project',
+      createdAt: '2026-10-21T10:00:00Z',
+      attachments: [],
+    };
+    const worker = (id: string): Message => ({
+      ...user,
+      id: `summary-${id}`,
+      role: 'agent',
+      content: '',
+      agent: {
+        id,
+        toolCallId: `call-${id}`,
+        name: id,
+        displayName: `Worker ${id}`,
+        description: '',
+        status: 'running',
+      },
+    });
+    const markup = renderToStaticMarkup(
+      <Chat
+        {...props}
+        conversation={{
+          ...emptyConversation,
+          agentStreams: { a: 'Private child stream' },
+          messages: [
+            user,
+            worker('a'),
+            {
+              ...user,
+              id: 'child-message',
+              role: 'assistant',
+              agentId: 'a',
+              content: 'Private child output',
+            },
+            {
+              ...user,
+              id: 'child-tool',
+              role: 'activity',
+              agentId: 'a',
+              content: 'Private child tools',
+              activity: { status: 'running', tools: [] },
+            },
+            worker('b'),
+            { ...user, id: 'main-message', role: 'assistant', content: 'Main response' },
+            { ...user, id: 'user-2', content: 'Another review' },
+            worker('c'),
+          ],
+        }}
+      />,
+    );
+    expect(markup.match(/class="fleet-card"/g)).toHaveLength(2);
+    expect(markup).toContain('2 running');
+    expect(markup).toContain('Worker a');
+    expect(markup).toContain('Worker b');
+    expect(markup).toContain('Worker c');
+    expect(markup).toContain('Main response');
+    expect(markup).not.toContain('Private child output');
+    expect(markup).not.toContain('Private child stream');
+    expect(markup).not.toContain('Private child tools');
+  });
+});
+
 describe('skill and thinking transcript rendering', () => {
   const user: Message = {
     id: 'user-skill',
@@ -692,7 +779,7 @@ describe('grouped activity timeline', () => {
     expect(summary).not.toContain('tool calls');
     expect(summary).not.toContain('activity-count');
     expect(summary).not.toContain('Read the chat component');
-    expect(markup).toContain('Read the chat component');
+    expect(markup).toContain('Viewing file: Chat.tsx');
     expect(markup).toContain('Read the conversation state');
     expect(markup).toContain('Arguments');
     expect(markup).toContain('src/components/Chat.tsx');

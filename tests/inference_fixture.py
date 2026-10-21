@@ -76,6 +76,36 @@ class Fixture:
             )
             for item in following
         )
+        if "fixture:fleet-worker-" in prompt:
+            worker = "first" if "fixture:fleet-worker-first" in prompt else "second"
+            if not completed_tool:
+                if "fleet-permission" in prompt and worker == "first":
+                    return {"name": "create", "arguments": {
+                        "path": str(self.workspace.parent / "fleet-denied.txt"),
+                        "file_text": "must not be written\n",
+                    }}
+                if "fleet-cancel" in prompt:
+                    names = {tool.get("function", tool).get("name") for tool in body.get("tools", [])}
+                    powershell = "powershell" in names and "bash" not in names
+                    return {"name": "powershell" if powershell else "bash", "arguments": {
+                        "command": "Start-Sleep -Seconds 30" if powershell else "sleep 30",
+                        "description": "Wait for Fleet cancellation",
+                    }}
+                return {"name": "view", "arguments": {
+                    "path": str(self.workspace / f"fleet-{worker}.txt"),
+                }}
+            return "TANDEM_FLEET_WORKER_" + worker.upper() + "_OK"
+        if "fixture:fleet" in prompt:
+            if not completed_tool:
+                return [{"name": "task", "arguments": {
+                    "agent_type": "general-purpose", "mode": "sync",
+                    "name": f"fleet-{worker}",
+                    "description": f"Inspect the {worker} Fleet file",
+                    "prompt": f"fixture:fleet-worker-{worker} Read the assigned file and report its contents."
+                              + (" fleet-permission" if "fixture:fleet-permission" in prompt else "")
+                              + (" fleet-cancel" if "fixture:fleet-cancel" in prompt else ""),
+                }} for worker in ("first", "second")]
+            return "TANDEM_FLEET_OK"
         if "fixture:thinking" in prompt:
             return "TANDEM_THINKING_HELD_OK" if "fixture:thinking-held" in prompt else "TANDEM_THINKING_OK"
         if "fixture:grouped-activity" in prompt:

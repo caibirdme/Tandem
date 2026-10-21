@@ -16,6 +16,7 @@ _Keep project conversations, model selection, and permission controls together i
 - **Include images and files.** Paste an image or drop files into the composer, review the previews, and send them with your message.
 - **Work where your files are.** Open a local directory or connect to a Linux or macOS host over SSH. The agent can read and edit files and run commands.
 - **Choose how the agent works.** Approve each tool permission request or grant full access for a work session. Switch models and choose reasoning effort for each conversation.
+- **Delegate independent work.** Select **Multi-agent** in the Work composer to let the main agent coordinate subagents. Open an agent from its collaboration card to inspect its output and tool calls.
 
 ## Install
 

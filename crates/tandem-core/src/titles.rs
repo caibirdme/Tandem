@@ -380,6 +380,9 @@ mod tests {
             activity: None,
             reasoning: None,
             selected_skills: Vec::new(),
+            agent_id: None,
+            agent: None,
+            fleet: false,
             interrupted,
         })?;
         Ok(())

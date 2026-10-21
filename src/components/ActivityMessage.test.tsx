@@ -2,6 +2,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { setLocale } from '../i18n';
+import type { ToolActivity } from '../lib/types';
 import { ActivityMessage } from './ActivityMessage';
 
 function activityMarkup(names: string[], content = '') {
@@ -113,4 +114,111 @@ describe('activity category disclosure', () => {
       expect(summary).not.toContain('tool call');
     },
   );
+});
+
+function toolMarkup(tool: Partial<ToolActivity> & Pick<ToolActivity, 'name'>) {
+  return renderToStaticMarkup(
+    <ActivityMessage
+      content=""
+      activity={{
+        status: 'running',
+        tools: [{ toolCallId: 'file-action', status: 'running', ...tool }],
+      }}
+    />,
+  );
+}
+
+function toolHeading(markup: string) {
+  return markup.match(
+    /<details class="activity-tool [^"]+"><summary>.*?<span class="activity-title">(.*?)<\/span>/,
+  )?.[1];
+}
+
+describe('file tool row titles', () => {
+  it.each([
+    { name: 'view', path: '/a/b/c/a.py', expected: 'Viewing file: a.py' },
+    { name: 'builtin:view', path: '/a/b/c/a.py', expected: 'Viewing file: a.py' },
+    { name: 'read_file', path: 'relative/path/report.md', expected: 'Viewing file: report.md' },
+    { name: 'edit', path: '/a/b/c/a.py', expected: 'Editing file: a.py' },
+    { name: 'builtin:edit', path: 'C:\\project\\src\\main.ts', expected: 'Editing file: main.ts' },
+    {
+      name: 'edit_file',
+      path: '\\\\server\\share\\src\\main.ts',
+      expected: 'Editing file: main.ts',
+    },
+    { name: 'view', path: 'C:/project\\src/main.ts', expected: 'Viewing file: main.ts' },
+    { name: 'edit', path: 'my file.py', expected: 'Editing file: my file.py' },
+  ])('shows only the basename for $name $path', ({ name, path, expected }) => {
+    const markup = toolMarkup({ name, title: 'Generic runtime title', arguments: { path } });
+    expect(toolHeading(markup)).toBe(expected);
+    expect(markup).toContain('Arguments');
+    expect(markup).toContain(path.replaceAll('\\', '\\\\'));
+    expect(markup).not.toContain('Generic runtime title');
+  });
+
+  it.each([
+    { command: 'view', expected: 'Viewing file: a.py' },
+    { command: 'str_replace', expected: 'Editing file: a.py' },
+    { command: 'insert', expected: 'Editing file: a.py' },
+    { command: 'undo_edit', expected: 'Editing file: a.py' },
+  ])('uses the universal editor’s $command action', ({ command, expected }) => {
+    expect(
+      toolHeading(
+        toolMarkup({ name: 'str_replace_editor', arguments: { command, path: '/a/b/a.py' } }),
+      ),
+    ).toBe(expected);
+  });
+
+  it.each([
+    undefined,
+    null,
+    '/a/b/a.py',
+    [],
+    { path: 42 },
+    { path: {} },
+    { path: '' },
+    { path: '   ' },
+    { path: '/a/b/' },
+    { path: '/' },
+    { path: '.' },
+    { path: '..' },
+    { fileName: '/a/b/a.py' },
+  ])('keeps the existing title for missing or malformed arguments %j', (args) => {
+    const markup = toolMarkup({
+      name: 'view',
+      title: 'Read source',
+      ...(args === undefined ? {} : { arguments: args }),
+    });
+    expect(toolHeading(markup)).toBe('Read source');
+  });
+
+  it.each(['bash', 'grep', 'create', 'apply_patch', 'mcp_reader/view'])(
+    'does not infer a file action for unrelated %s tools',
+    (name) => {
+      expect(
+        toolHeading(
+          toolMarkup({ name, title: 'Existing title', arguments: { path: '/a/b/a.py' } }),
+        ),
+      ).toBe('Existing title');
+    },
+  );
+
+  it('keeps the universal editor’s title when its action is missing or unknown', () => {
+    for (const args of [{ path: '/a/b/a.py' }, { path: '/a/b/a.py', command: 'create' }])
+      expect(
+        toolHeading(
+          toolMarkup({ name: 'str_replace_editor', title: 'Editor action', arguments: args }),
+        ),
+      ).toBe('Editor action');
+  });
+
+  it('translates file action titles and escapes filenames', () => {
+    setLocale('zh-CN');
+    expect(toolHeading(toolMarkup({ name: 'view', arguments: { path: '/a/b/a.py' } }))).toBe(
+      '查看文件：a.py',
+    );
+    expect(toolHeading(toolMarkup({ name: 'edit', arguments: { path: '/a/b/<a>.py' } }))).toBe(
+      '编辑文件：&lt;a&gt;.py',
+    );
+  });
 });

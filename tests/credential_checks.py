@@ -56,11 +56,35 @@ def contains_key(path, marker):
 def database_contains_unexpected_key(path, marker):
     """Read committed SQLite data, including WAL, exempting exactly one column."""
 
+    try:
+        return _database_contains_unexpected_key(path, marker)
+    except sqlite3.OperationalError:
+        wal = path.with_name(path.name + "-wal")
+        with path.open("rb") as database:
+            database.seek(18)
+            wal_database = database.read(2) == b"\x02\x02"
+        if not wal_database or wal.exists():
+            raise
+        # Some SQLite builds cannot open a checkpointed WAL database read-only
+        # after its last writer removes the sidecars. There is no WAL to merge
+        # in that case. Never use this retry while a WAL exists or appears.
+        try:
+            return _database_contains_unexpected_key(path, marker, immutable=True)
+        finally:
+            if wal.exists():
+                raise sqlite3.OperationalError(
+                    "WAL appeared during the checkpointed database scan"
+                )
+
+
+def _database_contains_unexpected_key(path, marker, *, immutable=False):
+
     def contains(value):
         data = value if isinstance(value, bytes) else str(value).encode()
         return marker in data
 
-    with closing(sqlite3.connect(path.as_uri() + "?mode=ro", uri=True)) as connection:
+    options = "?mode=ro&immutable=1" if immutable else "?mode=ro"
+    with closing(sqlite3.connect(path.as_uri() + options, uri=True)) as connection:
         connection.execute("BEGIN")
         schema = connection.execute(
             "SELECT type, name, sql FROM sqlite_schema"

@@ -7,6 +7,7 @@ export interface ConversationMessage extends Message {
 export interface Conversation {
   messages: ConversationMessage[];
   stream: string;
+  agentStreams: Record<string, string>;
   permissions: Permission[];
   status: SessionStatus;
   error: string | null;
@@ -15,6 +16,7 @@ export interface Conversation {
 export const emptyConversation: Conversation = {
   messages: [],
   stream: '',
+  agentStreams: {},
   permissions: [],
   status: 'idle',
   error: null,
@@ -89,25 +91,28 @@ function applyStatus(state: Conversation, status: SessionStatus): Conversation {
   return {
     ...state,
     status,
+    agentStreams: status === 'running' ? state.agentStreams : {},
     messages:
       status === 'running'
         ? state.messages
         : state.messages.map((message) =>
-            message.activity?.status === 'running'
-              ? {
-                  ...message,
-                  activity: {
-                    status: message.activity.tools.some((tool) => tool.status === 'error')
-                      ? 'error'
-                      : 'interrupted',
-                    tools: message.activity.tools.map((tool) =>
-                      tool.status === 'running' ? { ...tool, status: 'interrupted' } : tool,
-                    ),
-                  },
-                }
-              : message.reasoning?.status === 'running'
-                ? { ...message, reasoning: { status: 'interrupted' } }
-                : message,
+            message.agent?.status === 'running'
+              ? { ...message, agent: { ...message.agent, status: 'interrupted' } }
+              : message.activity?.status === 'running'
+                ? {
+                    ...message,
+                    activity: {
+                      status: message.activity.tools.some((tool) => tool.status === 'error')
+                        ? 'error'
+                        : 'interrupted',
+                      tools: message.activity.tools.map((tool) =>
+                        tool.status === 'running' ? { ...tool, status: 'interrupted' } : tool,
+                      ),
+                    },
+                  }
+                : message.reasoning?.status === 'running'
+                  ? { ...message, reasoning: { status: 'interrupted' } }
+                  : message,
           ),
     permissions: status === 'running' ? state.permissions : [],
     error: status === 'running' ? null : state.error,
@@ -117,12 +122,27 @@ function applyStatus(state: Conversation, status: SessionStatus): Conversation {
 export function reduceEvent(state: Conversation, event: RuntimeEvent): Conversation {
   switch (event.kind) {
     case 'delta':
+      if (event.data.agentId)
+        return {
+          ...state,
+          agentStreams: {
+            ...state.agentStreams,
+            [event.data.agentId]:
+              (state.agentStreams[event.data.agentId] ?? '') + event.data.content,
+          },
+          status: 'running',
+        };
       return { ...state, stream: state.stream + event.data.content, status: 'running' };
-    case 'message':
+    case 'message': {
+      const agentStreams = { ...state.agentStreams };
+      if (event.data.role === 'assistant' && event.data.agentId)
+        delete agentStreams[event.data.agentId];
       return {
         ...receiveMessages(state, [event.data]),
-        stream: event.data.role === 'assistant' ? '' : state.stream,
+        agentStreams,
+        stream: event.data.role === 'assistant' && !event.data.agentId ? '' : state.stream,
       };
+    }
     case 'permission':
       return {
         ...state,

@@ -35,6 +35,7 @@ from pathlib import Path
 
 from acceptance_support import Application, activity_tools, debug_binary, require_context_usage
 from activity_acceptance import check_grouped_activity
+from fleet_acceptance import check_fleet, check_stdio_fleet
 from credential_checks import require_local_secret, require_provider_key, scan_for_key
 from inference_fixture import (
     FIXTURE_KEY,
@@ -112,6 +113,7 @@ def check_stdio(binary, home, endpoint, fixture):
                     for event in events), 'stdio final response missing')
         check_stdio_skills(server, fixture, options, home)
         check_stdio_attachments(server, fixture, options)
+        check_stdio_fleet(server, fixture, options)
         for protocol, model in (('openai-responses', 'gpt-4.1'),
                                 ('anthropic', 'claude-sonnet-4.5')):
             attachment_options = {
@@ -601,6 +603,8 @@ def check_ssh(remote_server, dev_server, root, endpoint, fixture):
         app.command('save_preferences', telemetry={'enabled': True, 'endpoint': endpoint,
                     'protocol': 'http/json', 'captureContent': False}, cliPath=None)
         project = app.command('create_project', name='SSH work', path=str(workspace), connection=ssh.connection)
+        fleet_session, _ = check_fleet(app, fixture, project, provider, 'gpt-4.1', workspace)
+        app.command('delete_session', sessionId=fleet_session['id'])
         grouped_session, _ = check_grouped_activity(app, project, provider, 'gpt-4.1', workspace)
         app.command('delete_session', sessionId=grouped_session['id'])
         for session, _inputs, _marker, _metadata in check_attachments(app, fixture, project, provider, 'gpt-4.1'):
@@ -703,14 +707,14 @@ def main():
         checks = []
         try:
             check_stdio(remote_server, root / 'stdio-home', endpoint_url, fixture)
-            checks.append('stdio: real SDK streaming, native Anthropic thinking deltas and completion with opaque signatures excluded, image/text attachments on all protocols and PDF on Responses/Anthropic, attachment-only preparation and direct sends in Chat and Work, project skill discovery and invocation, same-session cold resume with a new provider/model and original history, reasoning changes and reset on the provider wire, EOF cleanup, malformed/oversized input, OTLP flush')
+            checks.append('stdio: real SDK streaming, Fleet worker lifecycle and isolated output/tools with ordinary tools restored after opt-out, native Anthropic thinking deltas and completion with opaque signatures excluded, image/text attachments on all protocols and PDF on Responses/Anthropic, attachment-only preparation and direct sends in Chat and Work, project skill discovery and invocation, same-session cold resume with a new provider/model and original history, reasoning changes and reset on the provider wire, EOF cleanup, malformed/oversized input, OTLP flush')
             if os.name == 'posix':
                 check_daemon(remote_server, endpoint_url, fixture)
                 checks.append('Unix daemon: five simultaneous proxy connections share one daemon and Copilot CLI; concurrent turns, session and approval isolation, prompt abort, proxy EOF/kill isolation, same-CLI reconnect with preserved history, shared CLI failure propagation and explicit recovery, and no interrupted-turn replay')
             if not arguments.skip_ssh:
                 require(os.name == 'posix', 'Use --skip-ssh on hosts without a POSIX SSH daemon')
                 check_ssh(remote_server, dev_server, root, endpoint_url, fixture)
-                checks.append('OpenSSH: strict host trust, key rejection, concurrent atomic deployments share one daemon and CLI, literal directories, image/text attachments, grouped tool activity, confirmed skill selection metadata, repeated skill discovery reuses idle work without new SSH connections, remote tools, reconnect/resume, native thinking history and cancellation, core session reasoning changes, pending approval, and native-default reset with complete history')
+                checks.append('OpenSSH: strict host trust, key rejection, concurrent atomic deployments share one daemon and CLI, literal directories, Fleet opt-in and isolated worker traces/permissions/cancellation, image/text attachments, grouped tool activity, confirmed skill selection metadata, repeated skill discovery reuses idle work without new SSH connections, remote tools, reconnect/resume, native thinking history and cancellation, core session reasoning changes, pending approval, and native-default reset with complete history')
             print(json.dumps({'result': 'passed', 'checks': checks, 'inferenceRequests': len(fixture.requests),
                               'telemetryExports': len(fixture.exports)}, indent=2))
         finally:

@@ -30,6 +30,10 @@ flowchart LR
 
 `copilot-runtime` adapts only the official SDK. The SDK handles model requests, tool execution, context compaction, and session recovery. The application owns tool allowlists, permission requests, provider mapping, and telemetry parameters; it does not maintain a second agent loop.
 
+Fleet is an explicit per-submission option for Work. Before inference, the runtime updates the SDK session's tool allowlist under the submission reservation: Fleet adds delegation and coordination tools; an ordinary submission restores the Work list. Fleet submissions call the SDK's `session.fleet.start` RPC with the prepared prompt and attachments. The SDK owns task decomposition and worker scheduling. Chat rejects Fleet. Local and SSH submissions carry the same option and retain the conversation's existing approval policy.
+
+Subagent lifecycle events become durable `agent` messages, updated in place. Worker text, reasoning, and tool activity carry `agentId` and remain separate from the main response. Active-turn snapshots include separate worker streams so reconnecting clients can recover partial output. Each turn's Fleet card lists its workers and opens an individual trace without moving the main transcript. Terminal events and restart recovery settle unfinished worker state as interrupted; completed traces remain in conversation history.
+
 `tandem-remote` owns system SSH, platform detection, atomic deployment, and bidirectional JSON RPC with request IDs. Each remote Work conversation opens an SSH channel running `tandem-server --proxy`. The proxy forwards bounded frames through a private Unix socket to a shared `tandem-server --daemon`; it does not start an SDK or CLI. Provider keys pass through SSH and the socket in memory; they are not written to remote preference files or process arguments.
 
 ### Shared remote runtime

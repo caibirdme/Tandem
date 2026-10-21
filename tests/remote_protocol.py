@@ -95,11 +95,11 @@ class StdioServer:
             self.children.update(child_processes(self.process.pid))
         return response['value']
 
-    def turn(self, session_id, prompt, selected_skills=(), attachments=()):
+    def turn(self, session_id, prompt, selected_skills=(), attachments=(), fleet=False):
         while not self.events.empty():
             self.events.get_nowait()
         self.command('send_agent', sessionId=session_id, content=prompt,
-                     selectedSkills=list(selected_skills), attachments=list(attachments))
+                     selectedSkills=list(selected_skills), attachments=list(attachments), fleet=fleet)
         return self.receive_turn(session_id)
 
     def prepared_turn(self, session_id, prepared_id):

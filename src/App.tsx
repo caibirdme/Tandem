@@ -115,6 +115,7 @@ export function App() {
     skills: SelectedSkill[],
     reasoningEffort: ReasoningEffort,
     attachments: AttachmentInput[],
+    fleet: boolean,
   ) {
     if (!effectiveSelection) {
       setSettingsOpen(true);
@@ -149,7 +150,7 @@ export function App() {
         const confirmedMode = await tandem.changePermissionMode(target.id, permissionMode);
         if (confirmedMode !== permissionMode) throw new Error(t('app.permissionUnconfirmed'));
       }
-      await tandem.send(target.id, content, skills, attachments);
+      await tandem.send(target.id, content, skills, attachments, fleet);
     } finally {
       setSendingScopes((current) => {
         const next = new Set(current);

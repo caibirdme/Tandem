@@ -186,6 +186,12 @@ impl HostedSession {
         let selected = selected_skills(payload)?;
         let attachments = message_attachments(payload)?;
         let content = required(payload, "content")?;
+        let fleet = match payload.get("fleet") {
+            Some(value) => value
+                .as_bool()
+                .ok_or(ServerError::InvalidBoolean { field: "fleet" })?,
+            None => false,
+        };
         let id = if command == "prepare_agent_message" {
             Some(required(payload, "preparedId")?)
         } else {
@@ -200,7 +206,7 @@ impl HostedSession {
         let prepared = tokio::select! {
             biased;
             () = self.cancelled_after(generation) => return Err(ServerError::PreparedMessageUnavailable),
-            result = self.agent.prepare_message(content, &selected, &attachments) => result?,
+            result = self.agent.prepare_message(content, &selected, &attachments, fleet) => result?,
         };
         if let Some(id) = id {
             let mut submission = self.submission();

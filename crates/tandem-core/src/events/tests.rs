@@ -483,3 +483,281 @@ async fn plain_progress_is_absorbed_and_shell_output_does_not_duplicate_snapshot
     );
     Ok(())
 }
+
+async fn streaming_fleet_application() -> Result<(TempDir, Arc<App>, String)> {
+    let (directory, app, id) = application().await?;
+    for worker in ["worker-a", "worker-b"] {
+        receive(
+            &app,
+            &id,
+            EventKind::Agent,
+            json!({
+                "event":"subagent.started", "agentId":worker,
+                "toolCallId":format!("dispatch-{worker}"), "agentName":"explore",
+                "agentDisplayName":"Explore", "agentDescription":"Inspect a module",
+                "model":"fixture"
+            }),
+        );
+    }
+    for (worker, content) in [
+        (None, "Parent"),
+        (Some("worker-a"), "Alpha"),
+        (Some("worker-b"), "Beta"),
+    ] {
+        let mut delta = json!({"messageId":"same-sdk-id","content":content});
+        let mut intent = json!({"intent":content});
+        let mut started = json!({"event":"tool.execution_start", "details":{"toolCallId":"same-call-id","toolName":"view","arguments":{"path":content}}});
+        if let Some(worker) = worker {
+            delta["agentId"] = json!(worker);
+            intent["agentId"] = json!(worker);
+            started["agentId"] = json!(worker);
+        }
+        receive(&app, &id, EventKind::Delta, delta);
+        receive(&app, &id, EventKind::Intent, intent);
+        receive(&app, &id, EventKind::Tool, started);
+    }
+    Ok((directory, app, id))
+}
+
+#[tokio::test]
+async fn fleet_outputs_and_tools_stay_scoped_across_live_snapshots_and_history() -> Result<()> {
+    let (directory, app, id) = streaming_fleet_application().await?;
+    let active = app.turns.snapshot()?;
+    assert_eq!(active[&id].stream, "Parent");
+    assert_eq!(active[&id].agent_streams["worker-a"], "Alpha");
+    assert_eq!(active[&id].agent_streams["worker-b"], "Beta");
+    receive(
+        &app,
+        &id,
+        EventKind::Message,
+        json!({"id":"same-sdk-id","content":"Alpha result","agentId":"worker-a"}),
+    );
+    assert!(
+        !app.turns.snapshot()?[&id]
+            .agent_streams
+            .contains_key("worker-a")
+    );
+    assert_eq!(app.turns.snapshot()?[&id].stream, "Parent");
+    assert_eq!(app.turns.snapshot()?[&id].agent_streams["worker-b"], "Beta");
+    receive(
+        &app,
+        &id,
+        EventKind::Agent,
+        json!({"event":"subagent.completed","toolCallId":"dispatch-worker-a","agentId":"worker-a","agentName":"explore"}),
+    );
+    receive(&app, &id, EventKind::Status, json!({"state":"idle"}));
+    assert!(app.turns.snapshot()?.is_empty());
+    let saved = app.messages(&id)?;
+    let agents: Vec<_> = saved
+        .iter()
+        .filter_map(|message| message.agent.as_ref())
+        .collect();
+    assert_eq!(agents.len(), 2);
+    assert_eq!(
+        agents
+            .iter()
+            .find(|agent| agent.id == "worker-a")
+            .context("completed agent")?
+            .status,
+        crate::model::ActivityStatus::Completed
+    );
+    assert_eq!(
+        agents
+            .iter()
+            .find(|agent| agent.id == "worker-b")
+            .context("interrupted agent")?
+            .status,
+        crate::model::ActivityStatus::Interrupted
+    );
+    for worker in [None, Some("worker-a"), Some("worker-b")] {
+        let activity = saved
+            .iter()
+            .find(|message| message.activity.is_some() && message.agent_id.as_deref() == worker)
+            .context("scoped tool activity")?;
+        assert_eq!(
+            activity.activity.as_ref().context("activity")?.tools.len(),
+            1
+        );
+    }
+    let alpha = saved
+        .iter()
+        .find(|message| message.content == "Alpha result")
+        .context("alpha reply")?;
+    assert_eq!(alpha.agent_id.as_deref(), Some("worker-a"));
+    assert!(!alpha.interrupted);
+    let beta = saved
+        .iter()
+        .find(|message| message.content == "Beta" && message.role == MessageRole::Assistant)
+        .context("partial beta reply")?;
+    assert_eq!(beta.agent_id.as_deref(), Some("worker-b"));
+    assert!(beta.interrupted);
+    drop(app);
+    let reopened = App::open(AppOptions::local(directory.path().into()))?;
+    assert_eq!(reopened.messages(&id)?.len(), saved.len());
+    Ok(())
+}
+
+#[tokio::test]
+async fn unfinished_agents_are_interrupted_on_restart() -> Result<()> {
+    let (directory, app, id) = application().await?;
+    receive(
+        &app,
+        &id,
+        EventKind::Agent,
+        json!({"event":"subagent.started","toolCallId":"dispatch","agentId":"worker","agentName":"explore"}),
+    );
+    receive(
+        &app,
+        &id,
+        EventKind::ReasoningDelta,
+        json!({"agentId":"worker","reasoningId":"reasoning","content":"Inspecting"}),
+    );
+    let worker = app
+        .messages(&id)?
+        .into_iter()
+        .find(|message| message.role == MessageRole::Reasoning)
+        .context("worker reasoning")?;
+    assert_eq!(worker.agent_id.as_deref(), Some("worker"));
+    drop(app);
+    let reopened = App::open(AppOptions::local(directory.path().into()))?;
+    let saved = reopened.messages(&id)?;
+    assert_eq!(
+        saved
+            .iter()
+            .find_map(|message| message.agent.as_ref())
+            .context("agent")?
+            .status,
+        crate::model::ActivityStatus::Interrupted
+    );
+    assert!(
+        saved
+            .iter()
+            .filter(|message| message.role == MessageRole::Reasoning)
+            .all(|message| message.interrupted)
+    );
+    assert!(reopened.store.title_exchange(&id)?.is_none());
+    Ok(())
+}
+
+#[tokio::test]
+async fn fleet_is_opt_in_and_rejected_for_chat_before_starting_the_runtime() -> Result<()> {
+    let (_directory, app, id) = application().await?;
+    let request: crate::Request = serde_json::from_value(
+        json!({"command":"send_message","payload":{"sessionId":id,"content":"Research","messageId":Uuid::new_v4()}}),
+    )?;
+    assert!(matches!(
+        request,
+        crate::Request::SendMessage(crate::SendMessageRequest { fleet: false, .. })
+    ));
+    let error = app
+        .send_message(&id, "Research".into(), Uuid::new_v4(), &[], &[], true)
+        .await
+        .err()
+        .context("Chat must reject Fleet")?;
+    assert!(matches!(error, Error::ChatFleetMode));
+    assert!(app.messages(&id)?.is_empty());
+    assert_eq!(app.store.session(&id)?.status, SessionStatus::Idle);
+    Ok(())
+}
+
+#[tokio::test]
+async fn worker_replies_never_replace_the_parent_reply_in_title_generation() -> Result<()> {
+    let (_directory, app, id) = application().await?;
+    let user: Message = serde_json::from_value(json!({
+        "id":Uuid::new_v4(), "sessionId":id, "role":"user", "content":"Parent question",
+        "attachments":[], "createdAt":now()
+    }))?;
+    app.store.append_message(&user)?;
+    receive(
+        &app,
+        &id,
+        EventKind::Message,
+        json!({"id":"parent-reply", "content":"Parent answer"}),
+    );
+    receive(
+        &app,
+        &id,
+        EventKind::Message,
+        json!({"id":"worker-reply", "content":"Worker details", "agentId":"worker"}),
+    );
+    assert_eq!(
+        app.store.title_exchange(&id)?,
+        Some(("Parent question".into(), "Parent answer".into()))
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_worker_terminal_event_settles_only_its_output_and_late_text_reuses_the_checkpoint()
+-> Result<()> {
+    let (_directory, app, id) = streaming_fleet_application().await?;
+    receive(
+        &app,
+        &id,
+        EventKind::ReasoningDelta,
+        json!({"reasoningId":"worker-thought","agentId":"worker-a","content":"Inspecting"}),
+    );
+    receive(
+        &app,
+        &id,
+        EventKind::Agent,
+        json!({
+            "event":"subagent.failed", "toolCallId":"dispatch-worker-a", "agentId":"worker-a",
+            "agentName":"explore", "error":"Worker stopped"
+        }),
+    );
+    let active = app.turns.snapshot()?;
+    assert_eq!(active[&id].stream, "Parent");
+    assert_eq!(active[&id].agent_streams["worker-b"], "Beta");
+    assert!(!active[&id].agent_streams.contains_key("worker-a"));
+    let history = app.messages(&id)?;
+    let checkpoint = history
+        .iter()
+        .find(|message| {
+            message.role == MessageRole::Assistant
+                && message.agent_id.as_deref() == Some("worker-a")
+        })
+        .context("partial worker output")?;
+    assert_eq!(checkpoint.content, "Alpha");
+    assert!(checkpoint.interrupted);
+    for message in history
+        .iter()
+        .filter(|message| message.agent_id.as_deref() == Some("worker-a"))
+    {
+        assert!(
+            message
+                .activity
+                .as_ref()
+                .is_none_or(|activity| activity.status != crate::model::ActivityStatus::Running)
+        );
+        assert!(
+            message
+                .reasoning
+                .as_ref()
+                .is_none_or(|reasoning| reasoning.status != crate::model::ActivityStatus::Running)
+        );
+    }
+    assert!(history.iter().any(|message| {
+        message.agent_id.as_deref() == Some("worker-b")
+            && message
+                .activity
+                .as_ref()
+                .is_some_and(|activity| activity.status == crate::model::ActivityStatus::Running)
+    }));
+    receive(
+        &app,
+        &id,
+        EventKind::Message,
+        json!({"id":"same-sdk-id","agentId":"worker-a","content":"Final Alpha"}),
+    );
+    let updated = app.messages(&id)?;
+    let final_output = updated
+        .iter()
+        .find(|message| message.id == checkpoint.id)
+        .context("updated worker output")?;
+    assert_eq!(final_output.content, "Final Alpha");
+    assert!(!final_output.interrupted);
+    assert_eq!(updated.len(), history.len());
+    assert_eq!(app.turns.snapshot()?[&id].agent_streams["worker-b"], "Beta");
+    Ok(())
+}

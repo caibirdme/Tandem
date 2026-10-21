@@ -1,11 +1,12 @@
 """Credential storage exemptions stay narrow; only disposable markers are used."""
 
+import shutil
 import sqlite3
 import tempfile
 import unittest
 from contextlib import closing
 from pathlib import Path
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from credential_checks import require_provider_key, scan_for_key
 
@@ -71,6 +72,64 @@ class CredentialScanTests(unittest.TestCase):
                     scan_for_key(root, MARKER, allow_local_vault=True),
                     ["data/tandem.sqlite3"],
                 )
+
+    def test_checkpointed_wal_without_sidecars_keeps_the_same_narrow_exemption(self):
+        for leak in (False, True):
+            with (
+                self.subTest(leak=leak),
+                tempfile.TemporaryDirectory() as temporary,
+                tempfile.TemporaryDirectory() as source_directory,
+            ):
+                root = Path(temporary)
+                (root / "data").mkdir()
+                source = Path(source_directory) / "checkpoint.sqlite3"
+                with closing(sqlite3.connect(source)) as connection:
+                    connection.executescript("""
+                        PRAGMA journal_mode=WAL;
+                        CREATE TABLE provider_secrets(id TEXT, secret TEXT);
+                        CREATE TABLE messages(data TEXT);
+                    """)
+                    connection.execute(
+                        "INSERT INTO provider_secrets VALUES('provider', ?)", (MARKER,)
+                    )
+                    if leak:
+                        connection.execute("INSERT INTO messages VALUES(?)", (MARKER,))
+                    connection.commit()
+                    connection.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+                database = root / "data" / "tandem.sqlite3"
+                shutil.copyfile(source, database)
+                self.assertEqual(database.read_bytes()[18:20], b"\x02\x02")
+                self.assertFalse(database.with_name(database.name + "-wal").exists())
+                self.assertEqual(
+                    scan_for_key(root, MARKER, allow_local_vault=True),
+                    ["data/tandem.sqlite3"] if leak else [],
+                )
+
+    def test_unreadable_or_new_wal_cannot_use_the_checkpointed_database_exemption(self):
+        for wal_exists in (False, True):
+            with (
+                self.subTest(wal_exists=wal_exists),
+                tempfile.TemporaryDirectory() as temporary,
+            ):
+                root = Path(temporary)
+                (root / "data").mkdir()
+                database = root / "data" / "tandem.sqlite3"
+                database.write_bytes(b"SQLite format 3\x00" + b"\x00" * 2 + b"\x02\x02")
+                wal = database.with_name(database.name + "-wal")
+                if wal_exists:
+                    wal.write_bytes(b"")
+
+                def scan(_path, _marker, *, immutable=False):
+                    if not immutable:
+                        raise sqlite3.OperationalError("Fixture readonly failure")
+                    wal.write_bytes(b"")
+                    return False
+
+                with patch("credential_checks._database_contains_unexpected_key", side_effect=scan):
+                    self.assertEqual(
+                        scan_for_key(root, MARKER, allow_local_vault=True),
+                        ["data/tandem.sqlite3"],
+                    )
 
     def test_schema_and_other_database_files_are_not_exempt(self):
         for filename, statement in [

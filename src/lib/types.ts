@@ -90,7 +90,10 @@ export interface Session {
 export interface Message {
   id: string;
   sessionId: string;
-  role: 'user' | 'assistant' | 'activity' | 'reasoning' | 'tool' | 'system';
+  role: 'user' | 'assistant' | 'activity' | 'reasoning' | 'tool' | 'system' | 'agent';
+  agentId?: string;
+  agent?: Subagent;
+  fleet?: boolean;
   interrupted?: boolean;
   content: string;
   createdAt: string;
@@ -107,13 +110,27 @@ export interface RuntimeStatus {
 }
 export interface Snapshot {
   titleGenerations: string[];
-  activeTurns: Record<string, { stream: string; permissions: Permission[] }>;
+  activeTurns: Record<
+    string,
+    { stream: string; agentStreams: Record<string, string>; permissions: Permission[] }
+  >;
   settings: Settings;
   projects: Project[];
   sessions: Session[];
   runtime: RuntimeStatus;
 }
 export type ActivityStatus = 'running' | 'completed' | 'error' | 'interrupted';
+export interface Subagent {
+  id: string;
+  toolCallId: string;
+  name: string;
+  displayName: string;
+  description: string;
+  status: ActivityStatus;
+  model?: string;
+  error?: string;
+  parentAgentId?: string;
+}
 export interface Activity {
   status: ActivityStatus;
   tools: ToolActivity[];
@@ -134,7 +151,7 @@ export interface Permission {
   description: string;
 }
 export type RuntimeEvent = { sessionId: string } & (
-  | { kind: 'delta'; data: { content: string } }
+  | { kind: 'delta'; data: { content: string; agentId?: string } }
   | { kind: 'message'; data: Message }
   | { kind: 'permission'; data: Permission }
   | { kind: 'status'; data: { status: SessionStatus } }
@@ -199,6 +216,7 @@ export interface Commands {
       messageId: string;
       selectedSkills?: SelectedSkill[];
       attachments?: AttachmentInput[];
+      fleet?: boolean;
     };
     result: null;
   };

@@ -16,7 +16,10 @@ mod summary;
 
 use std::{
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
     time::Duration,
 };
 
@@ -32,7 +35,10 @@ pub use error::{ConfigurationError, Error, SkillError, SummaryError};
 pub use events::{ContextUsage, EventKind, RuntimeEvent};
 use github_copilot_sdk::{
     CliProgram, Client, ClientInfo, ClientMode, ClientOptions, MessageOptions, ResumeSessionConfig,
-    SessionConfig, SystemMessageConfig, session::Session, subscription::RecvErrorKind,
+    SessionConfig, SystemMessageConfig,
+    rpc::{FleetStartRequest, SessionUpdateOptionsParams},
+    session::Session,
+    subscription::RecvErrorKind,
 };
 use lifecycle::SessionLifecycle;
 pub use permissions::ApprovalDecision;
@@ -70,6 +76,14 @@ const WORK_TOOLS: &[&str] = &[
     "builtin:report_intent",
     "builtin:task_complete",
     "builtin:skill",
+];
+
+const FLEET_TOOLS: &[&str] = &[
+    "builtin:task",
+    "builtin:read_agent",
+    "builtin:write_agent",
+    "builtin:list_agents",
+    "builtin:sql",
 ];
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -327,6 +341,7 @@ fn create_config(
     config.provider = Some(options.provider.to_sdk(&options.model)?);
     config.model_capabilities = options.model.to_sdk_capabilities()?;
     config.streaming = Some(true);
+    config.include_sub_agent_streaming_events = Some(true);
     config.available_tools = Some(tools_for(&options.mode));
     config.system_message = Some(system_message(options, &directory));
     config.skill_directories = Some(skills::directories(&options.mode, &directory));
@@ -356,6 +371,7 @@ fn resume_config(
     config.provider = Some(options.provider.to_sdk(&options.model)?);
     config.model_capabilities = options.model.to_sdk_capabilities()?;
     config.streaming = Some(true);
+    config.include_sub_agent_streaming_events = Some(true);
     config.available_tools = Some(tools_for(&options.mode));
     config.system_message = Some(system_message(options, &directory));
     config.skill_directories = Some(skills::directories(&options.mode, &directory));
@@ -380,6 +396,7 @@ pub struct AgentSession {
     skill_directory: Option<PathBuf>,
     provider_protocol: ProviderProtocol,
     submission: Arc<Mutex<()>>,
+    fleet_enabled: AtomicBool,
 }
 
 /// A validated message reserved for exactly one live session instance.
@@ -388,6 +405,7 @@ pub struct AgentSession {
 /// submission reservation without creating a user message or an active turn.
 pub struct PreparedMessage {
     message: MessageOptions,
+    fleet: bool,
     owner: Arc<SessionLifecycle>,
     reservation: OwnedMutexGuard<()>,
 }
@@ -463,6 +481,7 @@ impl AgentSession {
             skill_directory,
             provider_protocol,
             submission: Arc::new(Mutex::new(())),
+            fleet_enabled: AtomicBool::new(false),
         }
     }
 
@@ -513,7 +532,9 @@ impl AgentSession {
         selected: &[SkillSelection],
         attachments: &[MessageAttachment],
     ) -> Result<String> {
-        let prepared = self.prepare_message(prompt, selected, attachments).await?;
+        let prepared = self
+            .prepare_message(prompt, selected, attachments, false)
+            .await?;
         self.send_prepared(prepared).await
     }
 
@@ -530,9 +551,13 @@ impl AgentSession {
         prompt: &str,
         selected: &[SkillSelection],
         attachments: &[MessageAttachment],
+        fleet: bool,
     ) -> Result<PreparedMessage> {
         if !self.is_connected() {
             return Err(Error::Disconnected);
+        }
+        if fleet && self.skill_directory.is_none() {
+            return Err(ConfigurationError::FleetUnavailableInChat.into());
         }
         validate_attachments(attachments)?;
         for attachment in attachments {
@@ -572,6 +597,7 @@ impl AgentSession {
         }
         Ok(PreparedMessage {
             message,
+            fleet,
             owner: self.lifecycle.clone(),
             reservation,
         })
@@ -581,22 +607,83 @@ impl AgentSession {
     ///
     /// # Errors
     /// Returns an error for a different session instance, a disconnected session,
-    /// overlapping inference, or failed SDK submission.
+    /// overlapping inference, or failed SDK submission. Fleet requests return
+    /// an empty identifier because the SDK does not provide a message ID.
     pub async fn send_prepared(&self, prepared: PreparedMessage) -> Result<String> {
         prepared.validate_owner(&self.lifecycle)?;
         let PreparedMessage {
             message,
+            fleet,
             owner: _,
             reservation: _reservation,
         } = prepared;
+        self.configure_fleet_tools(fleet).await?;
         self.lifecycle.begin_turn()?;
-        match self.session.send(message).await {
+        let result = async {
+            if fleet {
+                let attachments = message
+                    .attachments
+                    .map(|items| {
+                        items
+                            .into_iter()
+                            .map(serde_json::to_value)
+                            .collect::<std::result::Result<Vec<_>, _>>()
+                    })
+                    .transpose()
+                    .map_err(Error::Serialization)?;
+                let mut request = FleetStartRequest::default();
+                request.prompt = Some(message.prompt);
+                request.attachments = attachments;
+                request.wait = Some(false);
+                self.session
+                    .rpc()
+                    .fleet()
+                    .start(request)
+                    .await
+                    .map_err(Error::from)
+                    .and_then(|result| {
+                        if result.started {
+                            Ok(String::new())
+                        } else {
+                            Err(Error::FleetNotStarted)
+                        }
+                    })
+            } else {
+                self.session.send(message).await.map_err(Error::from)
+            }
+        }
+        .await;
+        match result {
             Ok(id) => Ok(id),
             Err(error) => {
                 self.lifecycle.finish_turn();
-                Err(error.into())
+                Err(error)
             }
         }
+    }
+
+    async fn configure_fleet_tools(&self, fleet: bool) -> Result<()> {
+        if self.fleet_enabled.load(Ordering::Acquire) == fleet {
+            return Ok(());
+        }
+        let mut tools: Vec<String> = WORK_TOOLS.iter().map(|tool| (*tool).into()).collect();
+        if fleet {
+            tools.extend(FLEET_TOOLS.iter().map(|tool| (*tool).into()));
+        }
+        let result = self
+            .session
+            .rpc()
+            .options()
+            .update(SessionUpdateOptionsParams {
+                available_tools: Some(tools),
+                ..Default::default()
+            })
+            .await?;
+        if !result.success {
+            return Err(Error::FleetToolsRejected);
+        }
+        self.fleet_enabled.store(fleet, Ordering::Release);
+        Ok(())
     }
 
     /// Stops generation and denies any pending permissions.
@@ -661,6 +748,7 @@ mod tests {
         let submission = Arc::new(Mutex::new(()));
         let prepared = PreparedMessage {
             message: MessageOptions::new("Test message"),
+            fleet: false,
             owner: owner.clone(),
             reservation: submission
                 .clone()
@@ -725,6 +813,8 @@ mod tests {
                     .is_some_and(|tools| tools.iter().any(|tool| tool == "builtin:skill"))
             );
             assert_eq!(fresh.available_tools, resumed.available_tools);
+            assert_eq!(fresh.include_sub_agent_streaming_events, Some(true));
+            assert_eq!(resumed.include_sub_agent_streaming_events, Some(true));
             for (prompt, handler) in [
                 (fresh.system_message, fresh.permission_handler),
                 (resumed.system_message, resumed.permission_handler),

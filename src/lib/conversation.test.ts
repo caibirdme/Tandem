@@ -30,6 +30,60 @@ const reasoning: Message = {
 };
 
 describe('conversation stream reconciliation', () => {
+  it('keeps interleaved worker streams separate from the main response', () => {
+    let state = emptyConversation;
+    for (const [agentId, content] of [
+      [undefined, 'Main'],
+      ['worker-1', 'First'],
+      ['worker-2', 'Second'],
+      ['worker-1', ' result'],
+    ] as const) {
+      state = reduceEvent(state, {
+        sessionId: message.sessionId,
+        kind: 'delta',
+        data: { content, ...(agentId ? { agentId } : {}) },
+      });
+    }
+    expect(state.stream).toBe('Main');
+    expect(state.agentStreams).toEqual({ 'worker-1': 'First result', 'worker-2': 'Second' });
+    state = reduceEvent(state, {
+      sessionId: message.sessionId,
+      kind: 'message',
+      data: { ...message, agentId: 'worker-1' },
+    });
+    expect(state.stream).toBe('Main');
+    expect(state.agentStreams).toEqual({ 'worker-2': 'Second' });
+    state = reduceEvent(state, {
+      sessionId: message.sessionId,
+      kind: 'message',
+      data: { ...message, id: 'main' },
+    });
+    expect(state.stream).toBe('');
+    expect(state.agentStreams).toEqual({ 'worker-2': 'Second' });
+  });
+
+  it('settles running workers on interruption while retaining completed worker history', () => {
+    const agent: Message = {
+      ...message,
+      role: 'agent',
+      agent: {
+        id: 'worker-1',
+        toolCallId: 'call-1',
+        name: 'explore',
+        displayName: 'Explore',
+        description: 'Inspect the project',
+        status: 'running',
+      },
+    };
+    const state = reduceEvent(
+      { ...emptyConversation, agentStreams: { 'worker-1': 'Partial' }, messages: [agent] },
+      { sessionId: message.sessionId, kind: 'status', data: { status: 'idle' } },
+    );
+    expect(state.agentStreams).toEqual({});
+    expect(state.messages[0]?.agent?.status).toBe('interrupted');
+    expect(state.messages[0]?.agent?.description).toBe('Inspect the project');
+  });
+
   it.each([
     {
       name: 'replaces streaming content with persisted assistant response',

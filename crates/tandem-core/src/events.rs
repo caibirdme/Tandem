@@ -61,27 +61,26 @@ impl App {
                 return Ok(None);
             }
             EventKind::Message => {
-                let content = data["content"].as_str().unwrap_or_default();
-                if content.is_empty() {
-                    self.turns.completed(&event.session_id, &data)?;
+                let Some(message) = self.persist_assistant_message(event)? else {
                     return Ok(None);
-                }
-                let message = Message {
-                    id: Uuid::new_v4().to_string(),
-                    session_id: event.session_id.clone(),
-                    role: MessageRole::Assistant,
-                    content: content.into(),
-                    attachments: Vec::new(),
-                    created_at: now(),
-                    sequence: None,
-                    activity: None,
-                    reasoning: None,
-                    selected_skills: Vec::new(),
-                    interrupted: false,
                 };
-                let message = self.store.append_message(&message)?;
-                self.turns.completed(&event.session_id, &data)?;
-                self.turns.assistant(message.clone(), &data)?;
+                data = serde_json::to_value(message)?;
+                "message"
+            }
+            EventKind::Agent => {
+                let Some(message) = self.turns.agent(&event.session_id, &data)? else {
+                    return Ok(None);
+                };
+                let message = self.store.save_agent(&message)?;
+                self.turns.agent_saved(&message)?;
+                if matches!(
+                    data["event"].as_str(),
+                    Some("subagent.completed" | "subagent.failed")
+                ) {
+                    self.save_finished_messages(
+                        self.turns.finish_agent(&event.session_id, &data)?,
+                    )?;
+                }
                 data = serde_json::to_value(message)?;
                 "message"
             }
@@ -138,6 +137,44 @@ impl App {
             }
         };
         Ok(Some((kind, data)))
+    }
+
+    fn persist_assistant_message(&self, event: &RuntimeEvent) -> Result<Option<Message>> {
+        let data = &event.data;
+        let content = data["content"].as_str().unwrap_or_default();
+        if content.is_empty() {
+            self.turns.completed(&event.session_id, data)?;
+            return Ok(None);
+        }
+        let checkpoint = self.turns.checkpointed_message(&event.session_id, data)?;
+        let message = Message {
+            id: checkpoint
+                .as_ref()
+                .map_or_else(|| Uuid::new_v4().to_string(), |message| message.id.clone()),
+            session_id: event.session_id.clone(),
+            role: MessageRole::Assistant,
+            content: content.into(),
+            attachments: Vec::new(),
+            created_at: checkpoint
+                .as_ref()
+                .map_or_else(now, |message| message.created_at.clone()),
+            sequence: None,
+            activity: None,
+            reasoning: None,
+            selected_skills: Vec::new(),
+            agent_id: data["agentId"].as_str().map(str::to_owned),
+            agent: None,
+            fleet: false,
+            interrupted: false,
+        };
+        let message = if checkpoint.is_some() {
+            self.store.save_assistant(&message)?
+        } else {
+            self.store.append_message(&message)?
+        };
+        self.turns.completed(&event.session_id, data)?;
+        self.turns.assistant(message.clone(), data)?;
+        Ok(Some(message))
     }
 
     fn finish_reasoning_phase(&self, event: &RuntimeEvent) -> Result<()> {
@@ -226,13 +263,22 @@ impl App {
     }
 
     pub(crate) fn persist_interrupted(&self, id: &str) -> Result<()> {
-        for message in self.turns.finish(id)? {
+        self.save_finished_messages(self.turns.finish(id)?)
+    }
+
+    fn save_finished_messages(&self, messages: Vec<Message>) -> Result<()> {
+        for message in messages {
             let message = match message.role {
                 MessageRole::Activity => self.store.save_activity(&message)?,
                 MessageRole::Reasoning => self.store.save_reasoning(&message)?,
+                MessageRole::Agent => self.store.save_agent(&message)?,
                 _ => self.store.append_message(&message)?,
             };
-            self.emit(id, "message", serde_json::to_value(message)?);
+            self.emit(
+                &message.session_id,
+                "message",
+                serde_json::to_value(&message)?,
+            );
         }
         Ok(())
     }

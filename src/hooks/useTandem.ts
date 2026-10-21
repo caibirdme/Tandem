@@ -282,6 +282,7 @@ export function useTandem() {
       content: string,
       skills: SelectedSkill[] = [],
       attachments: AttachmentInput[] = [],
+      fleet = false,
     ) => {
       const changes = permissionChanges.current;
       const models = modelChanges.current;
@@ -298,6 +299,7 @@ export function useTandem() {
         sessionId,
         content,
         role: 'user',
+        fleet,
         createdAt: new Date().toISOString(),
         selectedSkills: skills,
         attachments: attachments.map((attachment, index) => ({
@@ -316,6 +318,7 @@ export function useTandem() {
           messageId,
           selectedSkills: skills,
           attachments,
+          fleet,
         });
       } catch (reason) {
         update({

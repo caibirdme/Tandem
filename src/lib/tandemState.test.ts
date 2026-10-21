@@ -182,7 +182,7 @@ describe('workspace state transitions', () => {
       snapshot: {
         ...snapshot,
         sessions: [{ ...session, status: 'running' }],
-        activeTurns: { [session.id]: { stream: '', permissions: [] } },
+        activeTurns: { [session.id]: { stream: '', agentStreams: {}, permissions: [] } },
       },
       protectedIds: new Set(),
     });
@@ -426,7 +426,7 @@ describe('workspace state transitions', () => {
           },
         ],
         sessions: [work, other, ...(scope === 'project' ? [anotherWork] : [])],
-        activeTurns: { [work.id]: { stream: 'Partial', permissions: [] } },
+        activeTurns: { [work.id]: { stream: 'Partial', agentStreams: {}, permissions: [] } },
       };
       let state = reduceTandem(initialTandemState, {
         type: 'snapshotReceived',

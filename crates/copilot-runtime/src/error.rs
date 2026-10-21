@@ -31,6 +31,8 @@ pub enum ConfigurationError {
     EmptyPrompt,
     #[error("prepared message belongs to a different session; prepare it again for this session")]
     PreparedForDifferentSession,
+    #[error("Multi-agent mode is only available in Work sessions")]
+    FleetUnavailableInChat,
 }
 
 /// Safe title-inference failures. Upstream failures may contain private input,
@@ -90,6 +92,14 @@ pub enum Error {
     Busy,
     #[error("Copilot runtime is disconnected; start a new connection before sending")]
     Disconnected,
+    #[error(
+        "Copilot could not enable multi-agent tool permissions. Reconnect the session and try again."
+    )]
+    FleetToolsRejected,
+    #[error("Copilot did not start multi-agent mode. Reconnect the session and try again.")]
+    FleetNotStarted,
+    #[error("Cannot encode the multi-agent request: {0}")]
+    Serialization(#[from] serde_json::Error),
     #[error("Copilot runtime did not complete startup within thirty seconds")]
     StartupTimeout,
     #[error("Copilot runtime did not acknowledge cancellation within ten seconds")]

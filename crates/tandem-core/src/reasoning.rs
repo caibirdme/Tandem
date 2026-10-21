@@ -86,6 +86,9 @@ impl Reasonings {
                     ActivityStatus::Running
                 },
             }),
+            agent_id: agent_id.map(str::to_owned),
+            agent: None,
+            fleet: false,
             interrupted: false,
         };
         self.0.push(Block {
