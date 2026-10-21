@@ -39,6 +39,7 @@ import {
   skillPickerKey,
 } from '../lib/skillMentions';
 import type { SkillDraft, SkillInputEdit } from '../lib/skillMentions';
+import { groupThinkingMessages } from '../lib/thinkingMessages';
 import type {
   AttachmentInput,
   ModelSelection,
@@ -164,6 +165,9 @@ export function Chat(props: ChatProps) {
       turnAgents.push(message.agent);
     }
   }
+  const displayMessages = groupThinkingMessages(
+    mainMessages.filter((message) => message.role !== 'agent' || fleetGroups.has(message.id)),
+  );
   const inspectingAgent = Object.values(selectedAgents).some(Boolean);
   const permissionMode = props.project
     ? (props.session?.permissionMode ?? draftPermissionMode)
@@ -196,7 +200,17 @@ export function Chat(props: ChatProps) {
   const hasActiveReasoning = mainMessages.some(
     (message) => message.reasoning?.status === 'running',
   );
-  const waitingThinkingKey = mainMessages.at(-1)?.id ?? props.session?.id ?? 'new';
+  const waitingForThinking =
+    running &&
+    !props.conversation.stream &&
+    !hasActiveReasoning &&
+    (!hasActiveActivity || props.conversation.permissions.length > 0);
+  const lastMessage = displayMessages.at(-1);
+  const continueThinking =
+    waitingForThinking &&
+    props.conversation.permissions.length === 0 &&
+    lastMessage?.role === 'reasoning';
+  const waitingThinkingKey = lastMessage?.id ?? props.session?.id ?? 'new';
   const currentProvider = props.providers.find(
     (provider) => provider.id === props.selection?.providerId,
   );
@@ -583,7 +597,7 @@ export function Chat(props: ChatProps) {
                 {t('chat.historyLoading')}
               </div>
             )}
-            {mainMessages.map((message, index) =>
+            {displayMessages.map((message, index) =>
               message.role === 'user' ? (
                 <div className="user-message" key={message.id}>
                   <div>
@@ -619,10 +633,14 @@ export function Chat(props: ChatProps) {
                 <ThinkingMessage
                   key={message.id}
                   content={message.content}
-                  status={message.reasoning?.status ?? 'completed'}
+                  status={
+                    continueThinking && message === lastMessage
+                      ? 'running'
+                      : (message.reasoning?.status ?? 'completed')
+                  }
                   defaultExpanded={
                     waitingThinking.after ===
-                      (mainMessages[index - 1]?.id ?? props.session?.id ?? 'new') &&
+                      (displayMessages[index - 1]?.id ?? props.session?.id ?? 'new') &&
                     waitingThinking.expanded
                   }
                 />
@@ -657,10 +675,8 @@ export function Chat(props: ChatProps) {
                 <Markdown content={props.conversation.stream} />
               </article>
             )}
-            {running &&
-              !props.conversation.stream &&
-              !hasActiveReasoning &&
-              (!hasActiveActivity || props.conversation.permissions.length > 0) &&
+            {waitingForThinking &&
+              !continueThinking &&
               (props.conversation.permissions.length ? (
                 <div className="thinking">
                   <span />
