@@ -54,9 +54,11 @@ import type {
 import { ActivityMessage } from './ActivityMessage';
 import { DraftAttachments, MessageAttachments } from './Attachments';
 import { ContextUsageIndicator } from './ContextUsageIndicator';
+import { SentMessageContent } from './MessageContent';
 import { PermissionModeSelector } from './PermissionModeSelector';
 import { ReasoningEffortSelector } from './ReasoningEffortSelector';
 import { SkillPicker } from './SkillPicker';
+import { ThinkingMessage } from './ThinkingMessage';
 import { Modal, Notice, Spinner } from './ui';
 
 interface ChatProps {
@@ -131,6 +133,7 @@ export function Chat(props: ChatProps) {
   const [draftPermissionMode, setDraftPermissionMode] = useState<PermissionMode>('ask');
   const [draftReasoningEffort, setDraftReasoningEffort] = useState<ReasoningEffort>(null);
   const [jumpVisible, setJumpVisible] = useState(false);
+  const [waitingThinking, setWaitingThinking] = useState({ after: '', expanded: false });
   const [pendingPermission, setPendingPermission] = useState<string | null>(null);
   const [localError, setLocalError] = useState<string | null>(null);
   const [workPermissionPromptOpen, setWorkPermissionPromptOpen] = useState(false);
@@ -173,6 +176,10 @@ export function Chat(props: ChatProps) {
   const hasActiveActivity = props.conversation.messages.some(
     (message) => message.activity?.status === 'running',
   );
+  const hasActiveReasoning = props.conversation.messages.some(
+    (message) => message.reasoning?.status === 'running',
+  );
+  const waitingThinkingKey = props.conversation.messages.at(-1)?.id ?? props.session?.id ?? 'new';
   const currentProvider = props.providers.find(
     (provider) => provider.id === props.selection?.providerId,
   );
@@ -553,12 +560,17 @@ export function Chat(props: ChatProps) {
                 {t('chat.historyLoading')}
               </div>
             )}
-            {props.conversation.messages.map((message) =>
+            {props.conversation.messages.map((message, index) =>
               message.role === 'user' ? (
                 <div className="user-message" key={message.id}>
                   <div>
                     <MessageAttachments message={message} />
-                    {message.content && <p>{message.content}</p>}
+                    {message.content && (
+                      <SentMessageContent
+                        content={message.content}
+                        selectedSkills={message.selectedSkills ?? []}
+                      />
+                    )}
                   </div>
                 </div>
               ) : message.role === 'activity' ? (
@@ -566,6 +578,17 @@ export function Chat(props: ChatProps) {
                   key={message.id}
                   content={message.content}
                   activity={message.activity}
+                />
+              ) : message.role === 'reasoning' ? (
+                <ThinkingMessage
+                  key={message.id}
+                  content={message.content}
+                  status={message.reasoning?.status ?? 'completed'}
+                  defaultExpanded={
+                    waitingThinking.after ===
+                      (props.conversation.messages[index - 1]?.id ?? props.session?.id ?? 'new') &&
+                    waitingThinking.expanded
+                  }
                 />
               ) : message.role === 'assistant' ? (
                 <article className="assistant-message" key={message.id}>
@@ -600,18 +623,28 @@ export function Chat(props: ChatProps) {
             )}
             {running &&
               !props.conversation.stream &&
-              (!hasActiveActivity || props.conversation.permissions.length > 0) && (
+              !hasActiveReasoning &&
+              (!hasActiveActivity || props.conversation.permissions.length > 0) &&
+              (props.conversation.permissions.length ? (
                 <div className="thinking">
                   <span />
                   <span />
                   <span />
-                  <small>
-                    {props.conversation.permissions.length
-                      ? t('chat.awaitingApproval')
-                      : t('chat.thinking')}
-                  </small>
+                  <small>{t('chat.awaitingApproval')}</small>
                 </div>
-              )}
+              ) : (
+                <ThinkingMessage
+                  key={`waiting:${waitingThinkingKey}`}
+                  content=""
+                  status="running"
+                  defaultExpanded={
+                    waitingThinking.after === waitingThinkingKey && waitingThinking.expanded
+                  }
+                  onExpandedChange={(expanded) =>
+                    setWaitingThinking({ after: waitingThinkingKey, expanded })
+                  }
+                />
+              ))}
             {props.conversation.permissions.map((request) => (
               <div className="permission-card" key={request.requestId}>
                 <div className="permission-heading">

@@ -113,18 +113,18 @@ export function ActivityMessage({
 }) {
   const { t } = useI18n();
   if (!activity) return null;
+  const intent = content.trim();
   const failedTools = activity.tools.filter((tool) => tool.status === 'error');
   return (
     <section
       className={`activity-message ${activity.status}`}
       aria-busy={activity.status === 'running'}
     >
+      {intent && <p className="activity-intent">{intent}</p>}
       <details className="activity-group">
         <summary>
-          <ChevronRight className="activity-chevron" size={16} aria-hidden="true" />
-          <span className="activity-title">
-            {content.trim() || t(fallbackHeading(activity.tools))}
-          </span>
+          <ChevronRight className="activity-chevron" size={13} aria-hidden="true" />
+          <span className="activity-title">{t(fallbackHeading(activity.tools))}</span>
           <span className="activity-group-status">
             <ActivityStatusLabel status={activity.status} />
           </span>

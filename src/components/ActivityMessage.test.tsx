@@ -4,8 +4,8 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { setLocale } from '../i18n';
 import { ActivityMessage } from './ActivityMessage';
 
-function heading(names: string[], content = '') {
-  const markup = renderToStaticMarkup(
+function activityMarkup(names: string[], content = '') {
+  return renderToStaticMarkup(
     <ActivityMessage
       content={content}
       activity={{
@@ -18,7 +18,10 @@ function heading(names: string[], content = '') {
       }}
     />,
   );
-  return markup.match(/<span class="activity-title">(.*?)<\/span>/)?.[1];
+}
+
+function heading(names: string[], content = '') {
+  return activityMarkup(names, content).match(/<span class="activity-title">(.*?)<\/span>/)?.[1];
 }
 
 afterEach(() => setLocale('en'));
@@ -53,10 +56,13 @@ describe('conservative activity fallback headings', () => {
     expect(heading(names, '  ')).toBe(expected);
   });
 
-  it('always prefers the reported intent over tool categories', () => {
-    expect(heading(['view', 'grep'], 'Tracing how approvals are requested')).toBe(
-      'Tracing how approvals are requested',
+  it('keeps the reported intent above the tool category disclosure', () => {
+    const content = 'Tracing how approvals are requested';
+    const markup = activityMarkup(['view', 'grep'], content);
+    expect(markup).toContain(
+      `<p class="activity-intent">${content}</p><details class="activity-group">`,
     );
+    expect(heading(['view', 'grep'], content)).toBe('Inspecting the project');
   });
 
   it('translates inferred headings using the selected locale', () => {
@@ -67,7 +73,7 @@ describe('conservative activity fallback headings', () => {
   });
 });
 
-describe('intent disclosure', () => {
+describe('activity category disclosure', () => {
   it.each([
     { status: 'running', label: 'Running' },
     { status: 'completed', label: 'Completed' },
@@ -90,12 +96,14 @@ describe('intent disclosure', () => {
       )?.[1];
 
       expect(markup).toContain(`class="activity-message ${status}"`);
+      expect(markup).toContain(
+        '<p class="activity-intent">Checking the conversation layout</p><details class="activity-group">',
+      );
       expect(markup).not.toMatch(/<details[^>]*\bopen(?:=|\s|>)/);
       expect(summary).toMatch(/^<svg\b[^>]*aria-hidden="true"[^>]*>/);
       expect(summary).toMatch(/class="[^"]*activity-chevron[^"]*"/);
-      expect(summary).toContain(
-        '</svg><span class="activity-title">Checking the conversation layout',
-      );
+      expect(summary).toContain('</svg><span class="activity-title">Agent activity</span>');
+      expect(summary).not.toContain('Checking the conversation layout');
       expect(summary).toContain(
         `<span class="activity-group-status"><span class="activity-status ${status}">${label}</span></span>`,
       );

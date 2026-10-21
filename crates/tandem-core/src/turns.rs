@@ -8,6 +8,7 @@ use crate::{
     activities::Activities,
     app::now,
     model::{ActiveTurnView, Message, MessageRole},
+    reasoning::{ReasoningUpdate, Reasonings},
 };
 
 #[derive(Default)]
@@ -15,6 +16,7 @@ struct ActiveTurn {
     messages: Vec<(String, Message)>,
     permissions: Vec<Value>,
     activities: Activities,
+    reasoning: Reasonings,
 }
 
 /// Only unfinished output and live approvals belong here; durable text lives in SQLite.
@@ -22,6 +24,52 @@ struct ActiveTurn {
 pub(crate) struct ActiveTurns(Mutex<HashMap<String, ActiveTurn>>);
 
 impl ActiveTurns {
+    pub fn reasoning(
+        &self,
+        session_id: &str,
+        data: &Value,
+        complete: bool,
+    ) -> Result<Vec<ReasoningUpdate>> {
+        let mut turns = self.0.lock().map_err(|_| Error::SessionStatePoisoned)?;
+        Ok(turns
+            .entry(session_id.to_owned())
+            .or_default()
+            .reasoning
+            .update(session_id, data, complete))
+    }
+
+    pub fn close_reasoning(&self, session_id: &str, data: &Value) -> Result<Vec<Message>> {
+        let mut turns = self.0.lock().map_err(|_| Error::SessionStatePoisoned)?;
+        Ok(turns.get_mut(session_id).map_or_else(Vec::new, |turn| {
+            turn.reasoning.close(
+                data["agentId"].as_str(),
+                crate::model::ActivityStatus::Completed,
+            )
+        }))
+    }
+
+    pub fn reasoning_saved(&self, message: &Message) -> Result<()> {
+        let mut turns = self.0.lock().map_err(|_| Error::SessionStatePoisoned)?;
+        if let Some(turn) = turns.get_mut(&message.session_id) {
+            turn.reasoning.saved(message);
+        }
+        Ok(())
+    }
+
+    pub fn pause_reasoning(&self, session_id: &str) -> Result<Vec<Message>> {
+        let mut turns = self.0.lock().map_err(|_| Error::SessionStatePoisoned)?;
+        Ok(turns
+            .get_mut(session_id)
+            .map_or_else(Vec::new, |turn| turn.reasoning.pause()))
+    }
+
+    pub fn reasoning_messages(&self, session_id: &str) -> Result<Vec<Message>> {
+        let turns = self.0.lock().map_err(|_| Error::SessionStatePoisoned)?;
+        Ok(turns
+            .get(session_id)
+            .map_or_else(Vec::new, |turn| turn.reasoning.messages()))
+    }
+
     pub fn delta(&self, session_id: &str, data: &Value) -> Result<()> {
         let Some(content) = data["content"]
             .as_str()
@@ -46,6 +94,8 @@ impl ActiveTurns {
                     created_at: now(),
                     sequence: None,
                     activity: None,
+                    reasoning: None,
+                    selected_skills: Vec::new(),
                     interrupted: true,
                 },
             ));
@@ -129,6 +179,7 @@ impl ActiveTurns {
                 .into_iter()
                 .map(|(_, message)| message)
                 .chain(turn.activities.finish())
+                .chain(turn.reasoning.finish())
                 .collect()
         }))
     }

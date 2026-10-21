@@ -193,7 +193,7 @@ impl App {
                 self.set_session_reasoning_effort(&session_id, reasoning_effort)
                     .await?,
             ),
-            Request::Messages { session_id } => response(self.store.messages(&session_id)?),
+            Request::Messages { session_id } => response(self.messages(&session_id)?),
             Request::GetAttachment {
                 session_id,
                 attachment_id,

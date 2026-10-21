@@ -1,5 +1,15 @@
 # Verification record
 
+## Conversation skills, thinking, and activity layout (2026-10-21)
+
+Developed from `main` in `.worktrees/conversation-progress`, carrying the Windows NSIS-only installer change below. Selected skills now render as inline icon chips and remain on confirmed and reopened user messages because validated skill identities are stored with those messages. Ordinary `$` text stays plain. Intent sentences stay visible above a smaller, collapsed tool-category disclosure.
+
+Explicit SDK reasoning events now reach local and SSH conversations as ordinary `reasoning` message updates with stable identities and lifecycle status. The collapsed thinking header opens a three-line scroll area. Streaming follows the latest text only while the reader is at the bottom; scrolling upward preserves the reading position. An open waiting panel stays expanded when the first partial or complete thinking text arrives. Providers that do not share thinking text display a waiting placeholder instead.
+
+The core checkpoints the first thinking chunk and lifecycle transitions, with live text overlaid on history reads. Completion, permission waiting, cancellation, errors, and restart recovery finalize thinking status. Background output, progress, and completion from older tools do not end a newer thinking block. Context7 was unavailable; event fields were checked against the installed SDK 1.0.24 generated types and the official [streaming event reference](https://docs.github.com/en/copilot/how-tos/copilot-sdk/features/streaming-events). Opaque and encrypted reasoning fields are excluded.
+
+Frontend type checking and strict lint, Rust workspace compilation, strict Clippy across all targets, Rust formatting, changed-file frontend/document formatting, and whitespace checks passed. The user explicitly requested that tests be skipped for this follow-up. No test suites, provider/SSH integration, UI execution, or desktop packaging were run for these changes. Focused test sources and existing activity expectations were updated but not executed. Earlier installer verification below remains the record for its separate change.
+
 ## Windows NSIS-only installers (2026-10-21)
 
 Developed from `main` in `.worktrees/windows-setup-only`. Windows builds automatically merge `src-tauri/tauri.windows.conf.json` and select NSIS as their only installer target. Desktop artifacts now upload only DMG and NSIS packages. The CI packaging filter includes platform-specific Tauri configuration, and the README, release notes, and development instructions point Windows users to `x64-setup.exe`. macOS configuration is unchanged.

@@ -38,6 +38,108 @@ fn tool(app: &Arc<App>, session_id: &str, event: &str, details: Value) {
 }
 
 #[tokio::test]
+async fn reasoning_stream_restores_live_text_and_persists_one_completed_message() -> Result<()> {
+    let (directory, app, id) = application().await?;
+    for content in ["Inspecting ", "the files"] {
+        receive(
+            &app,
+            &id,
+            EventKind::ReasoningDelta,
+            json!({"reasoningId":"reasoning-1","content":content}),
+        );
+    }
+    let checkpoint = app.store.messages(&id)?;
+    let live = app.messages(&id)?;
+    assert_eq!(checkpoint.len(), 1);
+    assert_eq!(checkpoint[0].content, "Inspecting ");
+    assert_eq!(live[0].content, "Inspecting the files");
+    assert_eq!(live[0].sequence, checkpoint[0].sequence);
+    receive(
+        &app,
+        &id,
+        EventKind::Intent,
+        json!({"intent":"Read the source"}),
+    );
+    let completed = app.store.messages(&id)?;
+    assert_eq!(completed[0].id, checkpoint[0].id);
+    assert_eq!(completed[0].content, "Inspecting the files");
+    assert_eq!(
+        completed[0].reasoning.as_ref().context("reasoning")?.status,
+        crate::model::ActivityStatus::Completed,
+    );
+    receive(
+        &app,
+        &id,
+        EventKind::Reasoning,
+        json!({"reasoningId":"reasoning-1","content":"Inspected the files"}),
+    );
+    receive(&app, &id, EventKind::Status, json!({"state":"idle"}));
+    assert_eq!(app.store.messages(&id)?.len(), 1);
+    drop(app);
+    let reopened = App::open(AppOptions::local(directory.path().into()))?;
+    let saved = reopened.store.messages(&id)?;
+    assert_eq!(saved[0].id, checkpoint[0].id);
+    assert_eq!(saved[0].content, "Inspected the files");
+    Ok(())
+}
+
+#[tokio::test]
+async fn earlier_tool_updates_do_not_finish_streaming_reasoning() -> Result<()> {
+    let (_directory, app, id) = application().await?;
+    tool(
+        &app,
+        &id,
+        "tool.execution_start",
+        json!({"toolCallId":"earlier-tool","toolName":"bash"}),
+    );
+    receive(
+        &app,
+        &id,
+        EventKind::ReasoningDelta,
+        json!({"reasoningId":"reasoning-1","content":"Inspecting"}),
+    );
+    for event in [
+        "tool.execution_partial_result",
+        "tool.execution_progress",
+        "tool.shell_output",
+        "tool.execution_complete",
+    ] {
+        tool(
+            &app,
+            &id,
+            event,
+            json!({"toolCallId":"earlier-tool","progressMessage":"Running","text":"output","success":true}),
+        );
+        receive(
+            &app,
+            &id,
+            EventKind::ReasoningDelta,
+            json!({"reasoningId":"reasoning-1","content":" more"}),
+        );
+        let checkpoint = app.store.messages(&id)?;
+        assert_eq!(checkpoint[1].content, "Inspecting");
+        let live = app.messages(&id)?;
+        assert_eq!(
+            live[1].reasoning.as_ref().context("reasoning")?.status,
+            crate::model::ActivityStatus::Running,
+        );
+    }
+    tool(
+        &app,
+        &id,
+        "tool.execution_start",
+        json!({"toolCallId":"next-tool","toolName":"view"}),
+    );
+    let completed = app.store.messages(&id)?;
+    assert_eq!(completed[1].content, "Inspecting more more more more");
+    assert_eq!(
+        completed[1].reasoning.as_ref().context("reasoning")?.status,
+        crate::model::ActivityStatus::Completed,
+    );
+    Ok(())
+}
+
+#[tokio::test]
 async fn progress_becomes_an_ordered_group_and_parallel_completions_keep_their_owner() -> Result<()>
 {
     let (_directory, app, id) = application().await?;

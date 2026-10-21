@@ -1134,6 +1134,14 @@ button {
   font-size: 12px;
   min-width: 0;
 }
+.activity-intent {
+  margin: 0 0 3px;
+  color: #63665f;
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 .activity-group > summary,
 .activity-tool > summary {
   display: flex;
@@ -1167,15 +1175,11 @@ button {
   line-height: 1.6;
 }
 .activity-group > summary > .activity-title {
-  color: #63665f;
-  font-size: 13px;
+  font-size: 11px;
 }
 .activity-group > summary {
-  align-items: flex-start;
-  gap: 10px;
-}
-.activity-group > summary > .activity-chevron {
-  margin-top: 2px;
+  gap: 5px;
+  padding: 6px 0;
 }
 .activity-group-status {
   position: absolute;
@@ -1189,7 +1193,7 @@ button {
   border: 0;
 }
 @supports (background-clip: text) or (-webkit-background-clip: text) {
-  .activity-message.running > .activity-group > summary > .activity-title {
+  .activity-message.running > .activity-intent {
     background-image: linear-gradient(
       100deg,
       #63665f 40%,
@@ -2431,7 +2435,7 @@ select {
   }
 }
 @media (prefers-reduced-motion: reduce), (forced-colors: active) {
-  .activity-message.running > .activity-group > summary > .activity-title {
+  .activity-message.running > .activity-intent {
     animation: none;
     background-image: none;
     color: #63665f;
