@@ -21,6 +21,13 @@ const activity: Message = {
     tools: [{ toolCallId: 'read-1', name: 'read_file', status: 'running' }],
   },
 };
+const reasoning: Message = {
+  ...message,
+  id: 'reasoning-1',
+  role: 'reasoning',
+  content: 'Inspecting',
+  reasoning: { status: 'running' },
+};
 
 describe('conversation stream reconciliation', () => {
   it.each([
@@ -107,6 +114,49 @@ describe('conversation stream reconciliation', () => {
       status: 'interrupted',
       tools: [{ status: 'interrupted' }],
     });
+  });
+});
+
+describe('thinking timeline reconciliation', () => {
+  it('replaces streamed thinking in place without mixing it into the assistant answer', () => {
+    const updated = { ...reasoning, content: 'Inspecting the project files' };
+    const state = reduceEvent(
+      { ...emptyConversation, status: 'running', messages: [reasoning], stream: 'The answer' },
+      { sessionId: message.sessionId, kind: 'message', data: updated },
+    );
+    expect(state.messages).toEqual([updated]);
+    expect(state.stream).toBe('The answer');
+  });
+
+  it.each([
+    { kind: 'status', data: { status: 'idle' } },
+    { kind: 'error', data: { message: 'Connection lost' } },
+  ] satisfies Omit<RuntimeEvent, 'sessionId'>[])(
+    'stops unfinished thinking after a $kind event while preserving its text',
+    (event) => {
+      const completed: Message = {
+        ...reasoning,
+        id: 'reasoning-completed',
+        reasoning: { status: 'completed' },
+      };
+      const state = reduceEvent(
+        { ...emptyConversation, status: 'running', messages: [completed, reasoning] },
+        { ...event, sessionId: message.sessionId } as RuntimeEvent,
+      );
+      expect(state.messages[0]).toBe(completed);
+      expect(state.messages[1]?.reasoning?.status).toBe('interrupted');
+      expect(state.messages[1]?.content).toBe(reasoning.content);
+    },
+  );
+
+  it('keeps live thinking when an overlapping history request returns an earlier chunk', () => {
+    const live = { ...reasoning, content: 'Inspecting the project files' };
+    const restored = receiveMessages(
+      { ...emptyConversation, status: 'running', messages: [live] },
+      [reasoning],
+      new Set([reasoning.id]),
+    );
+    expect(restored.messages).toEqual([live]);
   });
 });
 

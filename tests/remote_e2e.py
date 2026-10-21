@@ -47,6 +47,8 @@ from model_switch_acceptance import require_wire_history
 from reasoning_acceptance import (
     check_pending_reasoning_change,
     check_reasoning_turn,
+    check_thinking_text,
+    require_runtime_thinking,
     require_wire_effort,
     set_effort,
     wire_effort,
@@ -296,6 +298,15 @@ def check_stdio_reasoning(server, fixture, endpoint):
         transcript.extend(({'role': 'user', 'content': prompt},
                            {'role': 'assistant', 'content': response}))
         server.command('disconnect_agent', sessionId=options['sessionId'])
+    thinking = session_options(str(uuid.uuid4()), endpoint)
+    thinking['provider'].update(protocol='anthropic', baseUrl=endpoint)
+    thinking['model'].update(id='claude-sonnet-4.5', reasoningEffort='high')
+    server.command('start_agent', options=thinking, resume=False)
+    events = server.turn(thinking['sessionId'], 'fixture:thinking Expose native thinking through remote stdio.')
+    require_runtime_thinking(events)
+    require(any(event['kind'] == 'message' and event['data'].get('content') == 'TANDEM_THINKING_OK'
+                for event in events), 'Remote thinking contaminated the final assistant answer')
+    server.command('disconnect_agent', sessionId=thinking['sessionId'])
 
 
 class IsolatedSsh:
@@ -499,6 +510,14 @@ def check_ssh_reasoning(app, fixture, directory, endpoint, project):
     check_reasoning_turn(app, fixture, work,
                          'fixture:chat Reset SSH reasoning to the original native default.', native_effort)
     app.command('delete_session', sessionId=work['id'])
+    thinking_provider = app.command('save_provider', provider={
+        'id': '', 'name': 'SSH thinking text acceptance', 'protocol': 'anthropic',
+        'baseUrl': endpoint,
+        'models': [{'id': 'claude-sonnet-4.5', 'name': 'Thinking fixture',
+                    'contextWindow': 128000, 'maxOutputTokens': 4096}],
+    }, apiKey=FIXTURE_KEY)
+    thinking = check_thinking_text(app, fixture, thinking_provider, 'claude-sonnet-4.5', project['id'])
+    app.command('delete_session', sessionId=thinking['session']['id'])
 
 
 def check_ssh(remote_server, dev_server, root, endpoint, fixture):
@@ -638,11 +657,11 @@ def main():
         checks = []
         try:
             check_stdio(remote_server, root / 'stdio-home', endpoint_url, fixture)
-            checks.append('stdio: real SDK streaming, image/text attachments on all protocols and PDF on Responses/Anthropic, attachment-only preparation and direct sends in Chat and Work, project skill discovery and invocation, same-session cold resume with a new provider/model and original history, reasoning changes and reset on the provider wire, EOF cleanup, malformed/oversized input, OTLP flush')
+            checks.append('stdio: real SDK streaming, native Anthropic thinking deltas and completion with opaque signatures excluded, image/text attachments on all protocols and PDF on Responses/Anthropic, attachment-only preparation and direct sends in Chat and Work, project skill discovery and invocation, same-session cold resume with a new provider/model and original history, reasoning changes and reset on the provider wire, EOF cleanup, malformed/oversized input, OTLP flush')
             if not arguments.skip_ssh:
                 require(os.name == 'posix', 'Use --skip-ssh on hosts without a POSIX SSH daemon')
                 check_ssh(remote_server, dev_server, root, endpoint_url, fixture)
-                checks.append('OpenSSH: strict host trust, key rejection, atomic deployment, literal directories, image/text attachments, grouped tool activity, project skills, remote tools, reconnect/resume, core session reasoning changes, pending approval, and native-default reset with complete history')
+                checks.append('OpenSSH: strict host trust, key rejection, atomic deployment, literal directories, image/text attachments, grouped tool activity, confirmed skill selection metadata, remote tools, reconnect/resume, native thinking history and cancellation, core session reasoning changes, pending approval, and native-default reset with complete history')
             print(json.dumps({'result': 'passed', 'checks': checks, 'inferenceRequests': len(fixture.requests),
                               'telemetryExports': len(fixture.exports)}, indent=2))
         finally:
