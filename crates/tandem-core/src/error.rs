@@ -110,6 +110,8 @@ pub enum Error {
     InvalidSkillCatalog(#[source] EventDecodeError),
     #[error("Skills can only be selected for project work.")]
     ChatSkillSelection,
+    #[error("Multi-agent mode is only available for project work.")]
+    ChatFleetMode,
     #[error("The prepared message belongs to a different session. Send the message again.")]
     PreparedTurnMismatch,
     #[error("Conversation event forwarding has stopped")]
@@ -190,16 +192,8 @@ impl Error {
                 ErrorCode::NotFound
             }
             Self::Remote(error) => error.code().into(),
-            Self::Runtime(copilot_runtime::Error::Skills(error)) => match error {
-                copilot_runtime::SkillError::PreparationTimeout
-                | copilot_runtime::SkillError::DiscoveryTimeout => ErrorCode::Unavailable,
-                _ => ErrorCode::InvalidInput,
-            },
-            Self::Runtime(
-                copilot_runtime::Error::InvalidConfiguration(_)
-                | copilot_runtime::Error::Attachments(_),
-            )
-            | Self::Attachment(_)
+            Self::Runtime(error) => runtime_error_code(error),
+            Self::Attachment(_)
             | Self::ConversationAttachmentProtocol { .. }
             | Self::Validation(_)
             | Self::InvalidProviderId(_)
@@ -208,12 +202,12 @@ impl Error {
             | Self::ChatPermissionMode
             | Self::WorkSessionRequired
             | Self::InvalidMessage
+            | Self::ChatFleetMode
             | Self::ChatSkillSelection
             | Self::TitleNotSingleLine
             | Self::InvalidTitleFormat
             | Self::TitleExchangeRequired => ErrorCode::InvalidInput,
-            Self::Runtime(copilot_runtime::Error::UnknownApproval)
-            | Self::Storage(
+            Self::Storage(
                 StorageError::ProviderNotFound { .. }
                 | StorageError::ProjectNotFound { .. }
                 | StorageError::SessionNotFound { .. }
@@ -224,7 +218,9 @@ impl Error {
             Self::Storage(
                 StorageError::ProviderInUse { .. }
                 | StorageError::ActivityConflict { .. }
-                | StorageError::ReasoningConflict { .. },
+                | StorageError::ReasoningConflict { .. }
+                | StorageError::AgentConflict { .. }
+                | StorageError::AssistantConflict { .. },
             )
             | Self::ConversationsRunning
             | Self::ProjectRunning
@@ -235,8 +231,7 @@ impl Error {
             | Self::ModelChangeRunning
             | Self::ConversationRunning
             | Self::TitleConfigurationUpdating
-            | Self::TitleQueueFull
-            | Self::Runtime(copilot_runtime::Error::Busy) => ErrorCode::Conflict,
+            | Self::TitleQueueFull => ErrorCode::Conflict,
             Self::DataDirectoryUnavailable
             | Self::HomeDirectoryUnavailable
             | Self::DirectoryUnavailable(_)
@@ -250,16 +245,7 @@ impl Error {
             | Self::ForwardingStopped(_)
             | Self::CompletionTimeout(_)
             | Self::ShuttingDown
-            | Self::TitleTimeout(_)
-            | Self::Runtime(
-                copilot_runtime::Error::Sdk(_)
-                | copilot_runtime::Error::Io(_)
-                | copilot_runtime::Error::Disconnected
-                | copilot_runtime::Error::StartupTimeout
-                | copilot_runtime::Error::AbortTimeout
-                | copilot_runtime::Error::Shutdown(_)
-                | copilot_runtime::Error::Summary(_),
-            ) => ErrorCode::Unavailable,
+            | Self::TitleTimeout(_) => ErrorCode::Unavailable,
             Self::Storage(
                 StorageError::OpenDatabase { .. }
                 | StorageError::Database(_)
@@ -283,6 +269,32 @@ impl Error {
             | Self::SessionStatePoisoned
             | Self::TitleStatePoisoned => ErrorCode::Internal,
         }
+    }
+}
+
+fn runtime_error_code(error: &copilot_runtime::Error) -> ErrorCode {
+    use copilot_runtime::Error as RuntimeError;
+    match error {
+        RuntimeError::Skills(error) => match error {
+            copilot_runtime::SkillError::PreparationTimeout
+            | copilot_runtime::SkillError::DiscoveryTimeout => ErrorCode::Unavailable,
+            _ => ErrorCode::InvalidInput,
+        },
+        RuntimeError::InvalidConfiguration(_) | RuntimeError::Attachments(_) => {
+            ErrorCode::InvalidInput
+        }
+        RuntimeError::UnknownApproval => ErrorCode::NotFound,
+        RuntimeError::Busy => ErrorCode::Conflict,
+        RuntimeError::Serialization(_) => ErrorCode::Internal,
+        RuntimeError::Sdk(_)
+        | RuntimeError::Io(_)
+        | RuntimeError::Disconnected
+        | RuntimeError::FleetToolsRejected
+        | RuntimeError::FleetNotStarted
+        | RuntimeError::StartupTimeout
+        | RuntimeError::AbortTimeout
+        | RuntimeError::Shutdown(_)
+        | RuntimeError::Summary(_) => ErrorCode::Unavailable,
     }
 }
 

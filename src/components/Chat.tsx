@@ -50,10 +50,12 @@ import type {
   RuntimeStatus,
   Session,
   SelectedSkill,
+  Subagent,
 } from '../lib/types';
 import { ActivityMessage } from './ActivityMessage';
 import { DraftAttachments, MessageAttachments } from './Attachments';
 import { ContextUsageIndicator } from './ContextUsageIndicator';
+import { FleetCard } from './FleetCard';
 import { SentMessageContent } from './MessageContent';
 import { PermissionModeSelector } from './PermissionModeSelector';
 import { ReasoningEffortSelector } from './ReasoningEffortSelector';
@@ -93,6 +95,7 @@ interface ChatProps {
     skills: SelectedSkill[],
     reasoningEffort: ReasoningEffort,
     attachments: AttachmentInput[],
+    fleet: boolean,
   ) => Promise<void>;
   onAbort: () => void;
   onPermission: (requestId: string, approved: boolean) => Promise<void>;
@@ -132,6 +135,8 @@ export function Chat(props: ChatProps) {
   const skillsSelectable = !skillCatalog.loading && props.connected && matchingSkills.length > 0;
   const [draftPermissionMode, setDraftPermissionMode] = useState<PermissionMode>('ask');
   const [draftReasoningEffort, setDraftReasoningEffort] = useState<ReasoningEffort>(null);
+  const [fleet, setFleet] = useState(false);
+  const [selectedAgents, setSelectedAgents] = useState<Record<string, string | null>>({});
   const [jumpVisible, setJumpVisible] = useState(false);
   const [waitingThinking, setWaitingThinking] = useState({ after: '', expanded: false });
   const [pendingPermission, setPendingPermission] = useState<string | null>(null);
@@ -146,6 +151,20 @@ export function Chat(props: ChatProps) {
   const stickToBottom = useRef(true);
   const running =
     props.sending || props.conversation.status === 'running' || props.session?.status === 'running';
+  const mainMessages = props.conversation.messages.filter((message) => !message.agentId);
+  const fleetGroups = new Map<string, Subagent[]>();
+  let turnAgents: Subagent[] | undefined;
+  for (const message of mainMessages) {
+    if (message.role === 'user') turnAgents = undefined;
+    else if (message.role === 'agent' && message.agent) {
+      if (!turnAgents) {
+        turnAgents = [];
+        fleetGroups.set(message.id, turnAgents);
+      }
+      turnAgents.push(message.agent);
+    }
+  }
+  const inspectingAgent = Object.values(selectedAgents).some(Boolean);
   const permissionMode = props.project
     ? (props.session?.permissionMode ?? draftPermissionMode)
     : 'ask';
@@ -173,13 +192,11 @@ export function Chat(props: ChatProps) {
     props.conversation.stream ||
     props.conversation.failedSend,
   );
-  const hasActiveActivity = props.conversation.messages.some(
-    (message) => message.activity?.status === 'running',
-  );
-  const hasActiveReasoning = props.conversation.messages.some(
+  const hasActiveActivity = mainMessages.some((message) => message.activity?.status === 'running');
+  const hasActiveReasoning = mainMessages.some(
     (message) => message.reasoning?.status === 'running',
   );
-  const waitingThinkingKey = props.conversation.messages.at(-1)?.id ?? props.session?.id ?? 'new';
+  const waitingThinkingKey = mainMessages.at(-1)?.id ?? props.session?.id ?? 'new';
   const currentProvider = props.providers.find(
     (provider) => provider.id === props.selection?.providerId,
   );
@@ -226,9 +243,14 @@ export function Chat(props: ChatProps) {
   );
 
   useEffect(() => {
-    if (stickToBottom.current && transcript.current)
+    if (stickToBottom.current && !inspectingAgent && transcript.current)
       transcript.current.scrollTop = transcript.current.scrollHeight;
-  }, [props.conversation.messages, props.conversation.stream, props.conversation.permissions]);
+  }, [
+    props.conversation.messages,
+    props.conversation.stream,
+    props.conversation.permissions,
+    inspectingAgent,
+  ]);
   useEffect(() => {
     textarea.current?.focus();
   }, []);
@@ -345,6 +367,7 @@ export function Chat(props: ChatProps) {
         props.project ? selectedSkills(savedDraft) : [],
         reasoningEffort,
         inputs,
+        Boolean(props.project && fleet),
       );
       attachmentDraft.remove(savedAttachments.map((item) => item.id));
     } catch (reason) {
@@ -560,7 +583,7 @@ export function Chat(props: ChatProps) {
                 {t('chat.historyLoading')}
               </div>
             )}
-            {props.conversation.messages.map((message, index) =>
+            {mainMessages.map((message, index) =>
               message.role === 'user' ? (
                 <div className="user-message" key={message.id}>
                   <div>
@@ -573,6 +596,19 @@ export function Chat(props: ChatProps) {
                     )}
                   </div>
                 </div>
+              ) : message.role === 'agent' ? (
+                fleetGroups.has(message.id) && (
+                  <FleetCard
+                    key={message.id}
+                    agents={fleetGroups.get(message.id) ?? []}
+                    messages={props.conversation.messages}
+                    streams={props.conversation.agentStreams}
+                    selectedAgentId={selectedAgents[message.id] ?? null}
+                    onSelect={(id) =>
+                      setSelectedAgents((current) => ({ ...current, [message.id]: id }))
+                    }
+                  />
+                )
               ) : message.role === 'activity' ? (
                 <ActivityMessage
                   key={message.id}
@@ -586,7 +622,7 @@ export function Chat(props: ChatProps) {
                   status={message.reasoning?.status ?? 'completed'}
                   defaultExpanded={
                     waitingThinking.after ===
-                      (props.conversation.messages[index - 1]?.id ?? props.session?.id ?? 'new') &&
+                      (mainMessages[index - 1]?.id ?? props.session?.id ?? 'new') &&
                     waitingThinking.expanded
                   }
                 />
@@ -1046,6 +1082,17 @@ export function Chat(props: ChatProps) {
                     else setDraftPermissionMode(mode);
                   }}
                 />
+              )}
+              {props.project && (
+                <label className="fleet-toggle" title={t('fleet.toggleHint')}>
+                  <input
+                    type="checkbox"
+                    checked={fleet}
+                    disabled={permissionModeDisabled || uploading || workPermissionPromptOpen}
+                    onChange={(event) => setFleet(event.currentTarget.checked)}
+                  />
+                  {t('fleet.title')}
+                </label>
               )}
             </div>
             {running && !props.session ? (

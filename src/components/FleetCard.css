@@ -1,0 +1,229 @@
+.fleet-toggle {
+  display: inline-flex;
+  flex-direction: row;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 7px;
+  border-radius: 6px;
+  color: #61645d;
+  cursor: pointer;
+  font-size: 0.6875rem;
+  white-space: nowrap;
+}
+.fleet-toggle:has(input:checked) {
+  background: #edf2e9;
+  color: #486144;
+}
+.fleet-toggle:hover:not(:has(input:disabled)) {
+  background: #f0f3eb;
+}
+.fleet-toggle:has(input:disabled) {
+  cursor: default;
+  opacity: 0.7;
+}
+.fleet-toggle input {
+  width: 12px;
+  height: 12px;
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: inherit;
+}
+.fleet-card {
+  margin: 20px 0 28px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fdfefb;
+}
+.fleet-card-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 14px;
+  color: var(--secondary);
+  font-size: 0.6875rem;
+}
+.fleet-card-heading strong {
+  color: #4e5b47;
+  font-weight: 600;
+}
+.fleet-card-heading > span {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 0.625rem;
+}
+.fleet-agent-list {
+  max-height: 260px;
+  padding: 0 6px 6px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.fleet-agent-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  border-radius: 7px;
+  padding: 10px 8px;
+  text-align: left;
+}
+.fleet-agent-row:hover,
+.fleet-agent-row.selected {
+  background: #f0f4eb;
+}
+.fleet-agent-row:focus-visible {
+  outline-offset: -2px;
+}
+.fleet-agent-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  border: 1px solid #e4e9df;
+  border-radius: 8px;
+  background: #f4f6f0;
+  color: #718064;
+}
+.fleet-agent-identity {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+.fleet-agent-identity strong,
+.fleet-agent-identity > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fleet-agent-identity strong {
+  font-size: 0.75rem;
+  font-weight: 550;
+  color: #505b48;
+}
+.fleet-agent-identity > span {
+  font-size: 0.625rem;
+  color: var(--secondary);
+}
+.fleet-agent-status {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 5px;
+  color: var(--secondary);
+  font-size: 0.625rem;
+}
+.fleet-agent-status.running {
+  color: #70825f;
+}
+.fleet-agent-status.completed {
+  color: #68805c;
+}
+.fleet-agent-status.error {
+  color: #a7604b;
+}
+.fleet-agent-chevron {
+  color: var(--muted);
+  transition: transform 0.15s;
+}
+.fleet-agent-row.selected .fleet-agent-chevron {
+  transform: rotate(90deg);
+}
+.fleet-inspector {
+  border-top: 1px solid var(--line);
+  background: #fcfcf9;
+}
+.fleet-inspector-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 14px;
+  border-bottom: 1px solid #edf0e7;
+}
+.fleet-back-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 0;
+  color: var(--secondary);
+  font-size: 0.625rem;
+}
+.fleet-back-button:hover {
+  color: var(--accent);
+}
+.fleet-agent-model {
+  color: var(--muted);
+  font-size: 0.625rem;
+  overflow-wrap: anywhere;
+}
+.fleet-agent-output {
+  max-height: 440px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0 16px;
+  scrollbar-gutter: stable;
+}
+.fleet-agent-output:focus-visible {
+  outline-offset: -3px;
+}
+.fleet-agent-output .activity-message,
+.fleet-agent-output .thinking-message {
+  margin-top: 16px;
+  margin-bottom: 16px;
+}
+.fleet-agent-message {
+  margin: 18px 0;
+}
+.fleet-agent-message .markdown {
+  font-size: 0.75rem;
+}
+.fleet-empty-output,
+.fleet-agent-error {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 22px 0;
+  color: var(--secondary);
+  font-size: 0.6875rem;
+  line-height: 1.7;
+}
+.fleet-agent-error {
+  align-items: flex-start;
+  color: #a7604b;
+  overflow-wrap: anywhere;
+}
+.fleet-agent-error > svg {
+  margin-top: 4px;
+}
+.fleet-agent-tool-output {
+  overflow-x: auto;
+  font-size: 0.6875rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 550px) {
+  .fleet-agent-row {
+    gap: 7px;
+    padding-left: 5px;
+    padding-right: 5px;
+  }
+  .fleet-agent-avatar {
+    width: 24px;
+    height: 24px;
+  }
+  .fleet-agent-status {
+    gap: 3px;
+    font-size: 0.5625rem;
+  }
+  .fleet-agent-output {
+    max-height: 55dvh;
+    padding-right: 12px;
+    padding-left: 12px;
+  }
+}

@@ -73,13 +73,20 @@ describe('reconnecting to a running or completed session', () => {
       {},
       {
         sessions: [{ ...session, status: 'running' }],
-        activeTurns: { [session.id]: { stream: 'Current output', permissions: [permission] } },
+        activeTurns: {
+          [session.id]: {
+            stream: 'Current output',
+            agentStreams: { 'worker-1': 'Worker output' },
+            permissions: [permission],
+          },
+        },
       },
       new Set(),
     );
     expect(restored[session.id]).toMatchObject({
       status: 'running',
       stream: 'Current output',
+      agentStreams: { 'worker-1': 'Worker output' },
       permissions: [permission],
     });
   });

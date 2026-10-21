@@ -69,13 +69,36 @@ function fallbackHeading(tools: ToolActivity[]): MessageKey {
   return 'chat.activityTitle';
 }
 
+function fileToolHeading(tool: ToolActivity) {
+  const args = tool.arguments;
+  if (typeof args !== 'object' || args === null || Array.isArray(args) || !('path' in args)) return;
+  if (typeof args.path !== 'string') return;
+  const name = args.path.split(/[\\/]/u).at(-1);
+  if (!name?.trim() || name === '.' || name === '..') return;
+
+  let action = tool.name.replace(/^builtin:/u, '');
+  if (action === 'str_replace_editor') {
+    const command = 'command' in args ? args.command : undefined;
+    if (command === 'view') action = 'view';
+    else if (command === 'str_replace' || command === 'insert' || command === 'undo_edit')
+      action = 'edit';
+    else return;
+  }
+  if (action === 'view' || action === 'read_file')
+    return { key: 'chat.toolViewingFile' as const, name };
+  if (action === 'edit' || action === 'edit_file')
+    return { key: 'chat.toolEditingFile' as const, name };
+}
+
 function ToolDetails({ tool }: { tool: ToolActivity }) {
   const { t } = useI18n();
+  const file = fileToolHeading(tool);
+  const title = file ? t(file.key, { name: file.name }) : tool.title || tool.name;
   return (
     <details className={`activity-tool ${tool.status}`}>
       <summary>
         <StatusIcon status={tool.status} />
-        <span className="activity-title">{tool.title || tool.name}</span>
+        <span className="activity-title">{title}</span>
         <ActivityStatusLabel status={tool.status} />
         <ChevronRight className="activity-chevron" size={13} />
       </summary>

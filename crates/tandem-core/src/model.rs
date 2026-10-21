@@ -311,6 +311,7 @@ pub enum MessageRole {
     System,
     Activity,
     Reasoning,
+    Agent,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -362,12 +363,36 @@ pub struct AttachmentMetadata {
     pub size: usize,
 }
 
+/// A worker's lifecycle, persisted independently from its transcript.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Subagent {
+    pub id: String,
+    pub tool_call_id: String,
+    pub name: String,
+    pub display_name: String,
+    pub description: String,
+    pub status: ActivityStatus,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parent_agent_id: Option<String>,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Message {
     pub id: String,
     pub session_id: String,
     pub role: MessageRole,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agent_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agent: Option<Subagent>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub fleet: bool,
     pub content: String,
     pub attachments: Vec<AttachmentMetadata>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -387,6 +412,7 @@ pub struct Message {
 #[serde(rename_all = "camelCase")]
 pub struct ActiveTurnView {
     pub stream: String,
+    pub agent_streams: std::collections::HashMap<String, String>,
     pub permissions: Vec<serde_json::Value>,
 }
 

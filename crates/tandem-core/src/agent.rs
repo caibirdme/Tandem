@@ -55,11 +55,12 @@ impl AgentHandle {
         content: &str,
         selected_skills: &[SkillSelection],
         attachments: &[MessageAttachment],
+        fleet: bool,
     ) -> Result<PreparedTurn> {
         match self {
             Self::Local(agent) => Ok(PreparedTurn::Local(Box::new(
                 agent
-                    .prepare_message(content, selected_skills, attachments)
+                    .prepare_message(content, selected_skills, attachments, fleet)
                     .await?,
             ))),
             Self::Remote {
@@ -70,7 +71,7 @@ impl AgentHandle {
                 transport
                     .request(
                         "prepare_agent_message",
-                        json!({"sessionId":session_id,"preparedId":id,"content":content,"selectedSkills":selected_skills,"attachments":attachments}),
+                        json!({"sessionId":session_id,"preparedId":id,"content":content,"selectedSkills":selected_skills,"attachments":attachments,"fleet":fleet}),
                     )
                     .await?;
                 Ok(PreparedTurn::Remote {

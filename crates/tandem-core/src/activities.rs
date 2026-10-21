@@ -16,6 +16,7 @@ struct ProgressMessage {
 
 #[derive(Default)]
 pub(crate) struct Activities {
+    agent_id: Option<String>,
     messages: Vec<Message>,
     current: Option<usize>,
     intent: Option<String>,
@@ -25,6 +26,13 @@ pub(crate) struct Activities {
 }
 
 impl Activities {
+    pub fn new(agent_id: Option<String>) -> Self {
+        Self {
+            agent_id,
+            ..Self::default()
+        }
+    }
+
     pub fn intent(&mut self, data: &Value) {
         if let Some(intent) = data["intent"]
             .as_str()
@@ -148,6 +156,9 @@ impl Activities {
             }),
             reasoning: None,
             selected_skills: Vec::new(),
+            agent_id: self.agent_id.clone(),
+            agent: None,
+            fleet: false,
             interrupted: false,
         });
         let index = self.messages.len() - 1;
@@ -155,15 +166,18 @@ impl Activities {
         index
     }
 
-    pub fn finish(self) -> Vec<Message> {
+    pub fn settle(&mut self) -> Vec<Message> {
         self.messages
-            .into_iter()
-            .filter_map(|mut message| {
+            .iter_mut()
+            .filter_map(|message| {
                 let activity = message.activity.as_mut()?;
                 let changed = interrupt_activity(activity);
-                changed.then_some(message)
+                changed.then(|| message.clone())
             })
             .collect()
+    }
+    pub fn finish(mut self) -> Vec<Message> {
+        self.settle()
     }
 }
 

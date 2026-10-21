@@ -41,6 +41,12 @@ pub enum StorageError {
     ActivityConflict { id: String },
     #[error("Cannot update reasoning {id}: its conversation or message role does not match.")]
     ReasoningConflict { id: String },
+    #[error("Cannot update agent {id}: its conversation or message role does not match.")]
+    AgentConflict { id: String },
+    #[error(
+        "Cannot update assistant message {id}: its conversation or message role does not match."
+    )]
+    AssistantConflict { id: String },
 }
 
 type Result<T> = std::result::Result<T, StorageError>;
@@ -111,6 +117,16 @@ impl Store {
                 reasoning.status = ActivityStatus::Interrupted;
                 message.interrupted = true;
                 store.save_reasoning(&message)?;
+            }
+        }
+        for mut message in store.list::<Message>(
+            "SELECT data FROM messages WHERE json_extract(data,'$.role')='agent'
+             AND json_extract(data,'$.agent.status')='running'",
+        )? {
+            if let Some(agent) = message.agent.as_mut() {
+                agent.status = ActivityStatus::Interrupted;
+                message.interrupted = true;
+                store.save_agent(&message)?;
             }
         }
         Ok(store)
@@ -416,6 +432,69 @@ impl Store {
         })
     }
 
+    pub fn save_assistant(&self, message: &Message) -> Result<Message> {
+        if message.role != MessageRole::Assistant {
+            return Err(StorageError::AssistantConflict {
+                id: message.id.clone(),
+            });
+        }
+        self.with(|db| {
+            let changed = db.execute(
+                "INSERT INTO messages(id,session_id,data) VALUES(?1,?2,?3)
+                 ON CONFLICT(id) DO UPDATE SET data=excluded.data
+                 WHERE messages.session_id=excluded.session_id
+                 AND json_extract(messages.data,'$.role')='assistant'
+                 AND json_extract(excluded.data,'$.role')='assistant'
+                 AND json_extract(messages.data,'$.agentId') IS json_extract(excluded.data,'$.agentId')",
+                params![message.id, message.session_id, serde_json::to_string(message)?],
+            )?;
+            if changed == 0 {
+                return Err(StorageError::AssistantConflict { id: message.id.clone() });
+            }
+            let mut saved = message.clone();
+            saved.sequence = Some(db.query_row(
+                "SELECT rowid FROM messages WHERE id=?1 AND session_id=?2",
+                [&message.id, &message.session_id],
+                |row| row.get(0),
+            )?);
+            Ok(saved)
+        })
+    }
+
+    pub fn save_agent(&self, message: &Message) -> Result<Message> {
+        if message.role != MessageRole::Agent || message.agent.is_none() {
+            return Err(StorageError::AgentConflict {
+                id: message.id.clone(),
+            });
+        }
+        self.with(|db| {
+            let changed = db.execute(
+                "INSERT INTO messages(id,session_id,data) VALUES(?1,?2,?3)
+                 ON CONFLICT(id) DO UPDATE SET data=excluded.data
+                 WHERE messages.session_id=excluded.session_id
+                 AND json_extract(messages.data,'$.role')='agent'
+                 AND json_extract(excluded.data,'$.role')='agent'",
+                params![
+                    message.id,
+                    message.session_id,
+                    serde_json::to_string(message)?
+                ],
+            )?;
+            if changed == 0 {
+                return Err(StorageError::AgentConflict {
+                    id: message.id.clone(),
+                });
+            }
+            let mut saved = message.clone();
+            saved.sequence = Some(db.query_row(
+                "SELECT rowid FROM messages WHERE id=?1 AND session_id=?2",
+                [&message.id, &message.session_id],
+                |row| row.get(0),
+            )?);
+            Ok(saved)
+        })
+    }
+
     pub fn attachment(&self, session_id: &str, attachment_id: &str) -> Result<MessageAttachment> {
         self.session(session_id)?;
         self.with(|db| {
@@ -458,7 +537,8 @@ impl Store {
                         substr(json_extract(data,'$.content'),1,6000),
                         coalesce(json_extract(data,'$.interrupted'),0)
                  FROM messages WHERE session_id=?1
-                 AND json_extract(data,'$.role') IN ('user','assistant') ORDER BY rowid",
+                 AND json_extract(data,'$.role') IN ('user','assistant')
+                 AND json_extract(data,'$.agentId') IS NULL ORDER BY rowid",
             )?;
             let mut rows = query.query([session_id])?;
             let mut user = None;
@@ -553,6 +633,9 @@ mod tests {
             activity: None,
             reasoning: None,
             selected_skills: Vec::new(),
+            agent_id: None,
+            agent: None,
+            fleet: false,
             interrupted: false,
         }
     }

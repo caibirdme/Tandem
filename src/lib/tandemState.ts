@@ -307,6 +307,7 @@ export function reduceTandem(state: TandemState, action: TandemAction): TandemSt
         messages: [...conversation.messages, action.message],
         status: 'running',
         stream: '',
+        agentStreams: {},
         permissions: [],
         error: null,
         failedSend: null,

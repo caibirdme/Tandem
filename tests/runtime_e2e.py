@@ -45,6 +45,7 @@ from reasoning_acceptance import (
     check_thinking_text,
 )
 from activity_acceptance import check_grouped_activity
+from fleet_acceptance import check_fleet
 
 
 def check_custom_provider_paths(app, fixture, fixture_url, project):
@@ -311,6 +312,8 @@ def main():
                 connection={"kind": "local"},
             )
             attachment_states = []
+            fleet_session, fleet_history = check_fleet(app, fixture, project, provider, model, workspace)
+            summary.append("fleet: explicit opt-in, two real subagents, isolated output and tool traces, durable cards, and default tools restored on the next ordinary turn")
             for attachment_provider, attachment_model in providers.values():
                 attachment_states.extend(check_attachments(
                     app, fixture, project, attachment_provider, attachment_model,
@@ -526,6 +529,8 @@ def main():
             )
             require(app.command("messages", sessionId=grouped_session["id"]) == grouped_history,
                     "Server restart lost activity groups or their tool details")
+            require(app.command("messages", sessionId=fleet_session["id"]) == fleet_history,
+                    "Server restart lost Fleet agents, output, or tool history")
             restored_context = next(session["contextUsage"]
                                     for session in app.command("snapshot")["sessions"]
                                     if session["id"] == work["id"])

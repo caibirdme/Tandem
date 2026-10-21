@@ -56,6 +56,7 @@ export function reconcileConversations(
     next[session.id] = {
       ...reconciled,
       stream: turn?.stream ?? '',
+      agentStreams: turn?.agentStreams ?? {},
       permissions: turn?.permissions ?? [],
     };
   }

@@ -14,6 +14,7 @@ pub enum EventKind {
     ReasoningDelta,
     Intent,
     Tool,
+    Agent,
     Permission,
     Status,
     #[serde(rename = "context_usage")]
@@ -61,31 +62,15 @@ impl RuntimeEvent {
         event: SessionEvent,
         context_window: i64,
     ) -> Option<Self> {
+        if child_session_event(&event) {
+            return None;
+        }
         let (kind, mut data) = match event.event_type.as_str() {
             "assistant.message_delta" => (
                 EventKind::Delta,
                 json!({"content": event.data.get("deltaContent"), "messageId": event.data.get("messageId")}),
             ),
-            "assistant.message" => {
-                let mut data = json!({
-                    "content": event.data.get("content"),
-                    "id": event.data.get("messageId").unwrap_or(&json!(event.id)),
-                });
-                for field in [
-                    "phase",
-                    "toolRequests",
-                    "turnId",
-                    "apiCallId",
-                    "chunkIndex",
-                    "chunkCount",
-                    "originatingMessageId",
-                ] {
-                    if let Some(value) = event.data.get(field) {
-                        data[field] = value.clone();
-                    }
-                }
-                (EventKind::Message, data)
-            }
+            "assistant.message" => (EventKind::Message, assistant_message_data(&event)),
             "assistant.intent" => (
                 EventKind::Intent,
                 json!({"intent": event.data.get("intent")}),
@@ -128,6 +113,12 @@ impl RuntimeEvent {
                 (EventKind::ContextUsage, json!(usage))
             }
             "session.error" => (EventKind::Error, event.data),
+            "subagent.started" | "subagent.completed" | "subagent.failed" => {
+                let mut data = event.data;
+                data.as_object_mut()?
+                    .insert("event".into(), json!(event.event_type));
+                (EventKind::Agent, data)
+            }
             kind if kind.starts_with("tool.") => (
                 EventKind::Tool,
                 json!({"event": event.event_type, "details": event.data}),
@@ -142,6 +133,7 @@ impl RuntimeEvent {
                 | EventKind::ReasoningDelta
                 | EventKind::Intent
                 | EventKind::Tool
+                | EventKind::Agent
         ) {
             data["eventId"] = json!(event.id);
             data["timestamp"] = json!(event.timestamp);
@@ -157,9 +149,90 @@ impl RuntimeEvent {
     }
 }
 
+fn child_session_event(event: &SessionEvent) -> bool {
+    event.agent_id.as_deref().is_some_and(|id| !id.is_empty())
+        && matches!(
+            event.event_type.as_str(),
+            "session.idle" | "assistant.turn_start" | "session.error" | "session.usage_info"
+        )
+}
+
+fn assistant_message_data(event: &SessionEvent) -> Value {
+    let mut data = json!({
+        "content": event.data.get("content"),
+        "id": event.data.get("messageId").unwrap_or(&json!(event.id)),
+    });
+    for field in [
+        "phase",
+        "toolRequests",
+        "turnId",
+        "apiCallId",
+        "chunkIndex",
+        "chunkCount",
+        "originatingMessageId",
+        "parentToolCallId",
+    ] {
+        if let Some(value) = event.data.get(field) {
+            data[field] = value.clone();
+        }
+    }
+    data
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn subagent_lifecycle_and_output_keep_distinct_worker_identities()
+    -> Result<(), serde_json::Error> {
+        for name in ["subagent.started", "subagent.completed", "subagent.failed"] {
+            for worker in ["worker-1", "worker-2"] {
+                let sdk = serde_json::from_value(json!({
+                    "id":format!("event-{worker}"), "timestamp":"2026-10-21T00:00:00Z",
+                    "type":name, "agentId":worker,
+                    "data":{"toolCallId":"spawn-1", "agentName":"researcher", "parentId":"parent-1", "model":"fixture-model", "cancelled":true},
+                }))?;
+                let adapted = RuntimeEvent::from_sdk("session-1", sdk, 200_000);
+                let event = adapted.as_ref();
+                assert_eq!(event.map(|event| event.kind), Some(EventKind::Agent));
+                assert_eq!(
+                    event.map(|event| &event.data["agentId"]),
+                    Some(&json!(worker))
+                );
+                assert_eq!(
+                    event.map(|event| &event.data["toolCallId"]),
+                    Some(&json!("spawn-1"))
+                );
+                assert_eq!(
+                    event.map(|event| &event.data["parentId"]),
+                    Some(&json!("parent-1"))
+                );
+                assert_eq!(event.map(|event| &event.data["event"]), Some(&json!(name)));
+                assert_eq!(event.map(RuntimeEvent::ends_turn), Some(false));
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn worker_session_events_cannot_finish_or_overwrite_the_parent_turn()
+    -> Result<(), serde_json::Error> {
+        for name in [
+            "session.idle",
+            "assistant.turn_start",
+            "session.error",
+            "session.usage_info",
+        ] {
+            let sdk = serde_json::from_value(json!({
+                "id":"child-event", "timestamp":"2026-10-21T00:00:00Z",
+                "type":name, "agentId":"worker-1",
+                "data":{"message":"Worker error", "currentTokens":100,"tokenLimit":200_000},
+            }))?;
+            assert!(RuntimeEvent::from_sdk("session-1", sdk, 200_000).is_none());
+        }
+        Ok(())
+    }
 
     #[test]
     fn sdk_events_preserve_identity_and_only_terminal_events_finish_turns()

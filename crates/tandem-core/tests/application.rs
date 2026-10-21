@@ -3,7 +3,8 @@ use std::sync::Arc;
 use anyhow::{Context, Result};
 use serde_json::{Value, json};
 use tandem_core::{
-    App, AppOptions, MemoryVault, Request, SecretError, SecretStore, model::Provider,
+    App, AppOptions, MemoryVault, Request, SecretError, SecretStore, SendMessageRequest,
+    model::Provider,
 };
 use tandem_remote::ArtifactLocator;
 use tempfile::TempDir;
@@ -50,13 +51,14 @@ async fn application_failures_remain_typed_through_dispatch() -> Result<()> {
     );
 
     let invalid = application
-        .dispatch(Request::SendMessage {
+        .dispatch(Request::SendMessage(SendMessageRequest {
+            fleet: false,
             session_id: "missing".into(),
             content: " ".into(),
             message_id: uuid::Uuid::new_v4(),
             selected_skills: Vec::new(),
             attachments: Vec::new(),
-        })
+        }))
         .await;
     assert!(matches!(invalid, Err(Error::InvalidMessage)));
 
@@ -119,9 +121,9 @@ fn send_message_requires_valid_client_identity() -> Result<()> {
         }));
         assert_eq!(request.is_ok(), valid);
         if valid {
-            let Request::SendMessage {
+            let Request::SendMessage(SendMessageRequest {
                 message_id: parsed, ..
-            } = request?
+            }) = request?
             else {
                 anyhow::bail!("expected a send request");
             };
@@ -157,9 +159,9 @@ fn selected_skills_require_structured_names_and_paths() -> Result<()> {
         }));
         assert_eq!(request.is_ok(), valid);
         if valid {
-            let Request::SendMessage {
+            let Request::SendMessage(SendMessageRequest {
                 selected_skills, ..
-            } = request?
+            }) = request?
             else {
                 anyhow::bail!("expected a send request");
             };

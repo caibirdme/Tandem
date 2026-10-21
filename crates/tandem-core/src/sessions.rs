@@ -33,6 +33,7 @@ struct UserMessage<'a> {
     selected_skills: &'a [SkillSelection],
     attachments: &'a [MessageAttachment],
     attachment_bytes: Vec<Vec<u8>>,
+    fleet: bool,
 }
 
 impl Drop for Submission<'_> {
@@ -154,9 +155,13 @@ impl App {
         message_id: Uuid,
         selected_skills: &[SkillSelection],
         attachments: &[MessageAttachment],
+        fleet: bool,
     ) -> Result<()> {
         if (content.trim().is_empty() && attachments.is_empty()) || content.len() > 500_000 {
             return Err(Error::InvalidMessage);
+        }
+        if fleet && self.store.session(session_id)?.project_id.is_none() {
+            return Err(Error::ChatFleetMode);
         }
         let attachment_bytes = validate_attachments(attachments)?;
         if !selected_skills.is_empty() && self.store.session(session_id)?.project_id.is_none() {
@@ -217,6 +222,7 @@ impl App {
                     selected_skills,
                     attachments,
                     attachment_bytes,
+                    fleet,
                 },
                 &mut submission,
             )
@@ -247,6 +253,7 @@ impl App {
                 &request.content,
                 request.selected_skills,
                 request.attachments,
+                request.fleet,
             )
             .await?;
         let completion = self
@@ -280,6 +287,9 @@ impl App {
             sequence: None,
             activity: None,
             reasoning: None,
+            agent_id: None,
+            agent: None,
+            fleet: request.fleet,
             interrupted: false,
         };
         let message = self
@@ -878,6 +888,9 @@ mod tests {
             activity: None,
             reasoning: None,
             selected_skills: Vec::new(),
+            agent_id: None,
+            agent: None,
+            fleet: false,
             interrupted: true,
         })?;
         app.set_status(&work.id, SessionStatus::Error)?;
@@ -919,6 +932,9 @@ mod tests {
                 activity: None,
                 reasoning: None,
                 selected_skills: Vec::new(),
+                agent_id: None,
+                agent: None,
+                fleet: false,
                 interrupted: false,
             })?;
         }

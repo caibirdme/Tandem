@@ -1,5 +1,6 @@
 use std::{
     path::PathBuf,
+    sync::atomic::{AtomicU64, Ordering},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
@@ -71,9 +72,11 @@ struct TestDirectory(PathBuf);
 
 impl TestDirectory {
     fn new() -> TestResult<Self> {
+        static NEXT_DIRECTORY: AtomicU64 = AtomicU64::new(0);
         let timestamp = SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos();
+        let sequence = NEXT_DIRECTORY.fetch_add(1, Ordering::Relaxed);
         let directory = std::env::temp_dir().join(format!(
-            "tandem-message-test-{}-{timestamp}",
+            "tandem-message-test-{}-{timestamp}-{sequence}",
             std::process::id()
         ));
         std::fs::create_dir(&directory)?;
@@ -197,7 +200,7 @@ async fn attachment_only_and_skill_messages_reach_sdk_with_original_blobs() -> T
                 .await?;
             let prompt = if work { "Review this" } else { "" };
             let prepared = session
-                .prepare_message(prompt, &selected, &attachments)
+                .prepare_message(prompt, &selected, &attachments, false)
                 .await?;
             assert!(!session.lifecycle.is_running());
             let id = session.send_prepared(prepared).await?;
@@ -250,7 +253,7 @@ async fn unsupported_pdf_is_rejected_before_the_sdk_receives_a_message() -> Test
         let attachment =
             MessageAttachment::from_bytes("report.pdf", "application/octet-stream", b"%PDF-1.4");
         assert!(matches!(
-            session.prepare_message("", &[], &[attachment]).await,
+            session.prepare_message("", &[], &[attachment], false).await,
             Err(Error::Attachments(
                 AttachmentError::PdfUnsupportedByProvider
             ))
@@ -270,6 +273,193 @@ async fn unsupported_pdf_is_rejected_before_the_sdk_receives_a_message() -> Test
         .reply("session.detach", json!({"success":true}))
         .await?;
     submit.await??;
+    Ok(())
+}
+
+async fn serve_empty_skills(server: &mut SdkServer) -> TestResult {
+    server
+        .reply("session.skills.reload", json!({"warnings":[],"errors":[]}))
+        .await?;
+    server
+        .reply("session.skills.ensureLoaded", json!({}))
+        .await?;
+    server
+        .reply("session.skills.list", json!({"skills":[]}))
+        .await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn fleet_is_explicit_and_restores_the_tool_boundary_for_the_next_turn() -> TestResult {
+    let directory = TestDirectory::new()?;
+    let canonical = std::fs::canonicalize(&directory.0)?;
+    let (client_writer, reader) = duplex(65_536);
+    let (writer, client_reader) = duplex(65_536);
+    let runtime = Runtime {
+        client: Client::from_streams(client_reader, client_writer, canonical.clone())?,
+        chat_directory: canonical.clone(),
+    };
+    let attachment = MessageAttachment::from_bytes("notes.txt", "text/plain", b"Fleet attachment");
+    let expected_attachment = json!({"type":"blob", "data":attachment.data, "mimeType":"text/plain", "displayName":"notes.txt"});
+    let submit = tokio::spawn(async move {
+        let session = runtime
+            .create_session(session_options(canonical, true))
+            .await?;
+        for fleet in [false, true, false] {
+            let prepared = session
+                .prepare_message(
+                    "Inspect independent packages",
+                    &[],
+                    std::slice::from_ref(&attachment),
+                    fleet,
+                )
+                .await?;
+            assert!(!session.lifecycle.is_running());
+            session.send_prepared(prepared).await?;
+            // The real runtime closes this lifecycle through session.idle.
+            session.lifecycle.finish_turn();
+        }
+        session.disconnect().await
+    });
+    let mut server = SdkServer {
+        reader: BufReader::new(reader),
+        writer,
+    };
+    let create = server
+        .reply("session.create", json!({"sessionId":"attachment-session"}))
+        .await?;
+    let initial = create["params"]["availableTools"]
+        .as_array()
+        .ok_or("missing tools")?;
+    assert!(!initial.contains(&json!("builtin:task")));
+    for fleet in [false, true, false].into_iter().enumerate() {
+        let (index, enabled) = fleet;
+        serve_empty_skills(&mut server).await?;
+        if index > 0 {
+            let update = server
+                .reply("session.options.update", json!({"success":true}))
+                .await?;
+            let tools = update["params"]["availableTools"]
+                .as_array()
+                .ok_or("missing updated tools")?;
+            for name in ["task", "read_agent", "write_agent", "list_agents", "sql"] {
+                assert_eq!(tools.contains(&json!(format!("builtin:{name}"))), enabled);
+            }
+        }
+        let request = if enabled {
+            server
+                .reply("session.fleet.start", json!({"started":true}))
+                .await?
+        } else {
+            server
+                .reply("session.send", json!({"messageId":"ordinary-message"}))
+                .await?
+        };
+        assert_eq!(request["params"]["prompt"], "Inspect independent packages");
+        assert_eq!(
+            request["params"]["attachments"],
+            json!([expected_attachment])
+        );
+        if enabled {
+            assert_eq!(request["params"]["wait"], false);
+        }
+    }
+    server
+        .reply("session.detach", json!({"success":true}))
+        .await?;
+    submit.await??;
+    Ok(())
+}
+
+#[tokio::test]
+async fn fleet_cannot_expand_chat_capabilities() -> TestResult {
+    let directory = TestDirectory::new()?;
+    let (client_writer, reader) = duplex(65_536);
+    let (writer, client_reader) = duplex(65_536);
+    let runtime = Runtime {
+        client: Client::from_streams(client_reader, client_writer, directory.0.clone())?,
+        chat_directory: directory.0.clone(),
+    };
+    let submit = tokio::spawn(async move {
+        let session = runtime
+            .create_session(session_options(directory.0.clone(), false))
+            .await?;
+        assert!(matches!(
+            session
+                .prepare_message("Parallel research", &[], &[], true)
+                .await,
+            Err(Error::InvalidConfiguration(
+                crate::ConfigurationError::FleetUnavailableInChat
+            ))
+        ));
+        assert!(!session.lifecycle.is_running());
+        session.disconnect().await
+    });
+    let mut server = SdkServer {
+        reader: BufReader::new(reader),
+        writer,
+    };
+    server
+        .reply("session.create", json!({"sessionId":"attachment-session"}))
+        .await?;
+    server
+        .reply("session.detach", json!({"success":true}))
+        .await?;
+    submit.await??;
+    Ok(())
+}
+
+#[tokio::test]
+async fn rejected_fleet_setup_never_starts_inference_and_releases_the_reservation() -> TestResult {
+    for tool_update_succeeds in [false, true] {
+        let directory = TestDirectory::new()?;
+        let canonical = std::fs::canonicalize(&directory.0)?;
+        let (client_writer, reader) = duplex(65_536);
+        let (writer, client_reader) = duplex(65_536);
+        let runtime = Runtime {
+            client: Client::from_streams(client_reader, client_writer, canonical.clone())?,
+            chat_directory: canonical.clone(),
+        };
+        let submit = tokio::spawn(async move {
+            let session = runtime
+                .create_session(session_options(canonical, true))
+                .await?;
+            let prepared = session
+                .prepare_message("Parallel research", &[], &[], true)
+                .await?;
+            let error = session.send_prepared(prepared).await;
+            assert!(matches!(
+                (tool_update_succeeds, error),
+                (false, Err(Error::FleetToolsRejected)) | (true, Err(Error::FleetNotStarted))
+            ));
+            assert!(!session.lifecycle.is_running());
+            assert!(session.submission.try_lock().is_ok());
+            session.disconnect().await
+        });
+        let mut server = SdkServer {
+            reader: BufReader::new(reader),
+            writer,
+        };
+        server
+            .reply("session.create", json!({"sessionId":"attachment-session"}))
+            .await?;
+        serve_empty_skills(&mut server).await?;
+        server
+            .reply(
+                "session.options.update",
+                json!({"success":tool_update_succeeds}),
+            )
+            .await?;
+        if tool_update_succeeds {
+            server
+                .reply("session.fleet.start", json!({"started":false}))
+                .await?;
+        }
+        server
+            .reply("session.detach", json!({"success":true}))
+            .await?;
+        submit.await??;
+    }
     Ok(())
 }
 
