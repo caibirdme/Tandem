@@ -1,5 +1,15 @@
 # Verification record
 
+## Windows NSIS-only installers (2026-10-21)
+
+Developed from `main` in `.worktrees/windows-setup-only`. Windows builds automatically merge `src-tauri/tauri.windows.conf.json` and select NSIS as their only installer target. Desktop artifacts now upload only DMG and NSIS packages. The CI packaging filter includes platform-specific Tauri configuration, and the README, release notes, and development instructions point Windows users to `x64-setup.exe`. macOS configuration is unchanged.
+
+Context7 was unavailable. Platform-specific configuration merging was checked against the official [Tauri configuration reference](https://v2.tauri.app/reference/config/#platform-specific-configuration), and installer formats against the official [Windows installer guide](https://v2.tauri.app/distribute/windows-installer/).
+
+`just` was unavailable on this host, so the commands from `just check`, `just check-workspace`, and `just build` ran directly. Formatting, strict frontend lint and type checks, strict workspace Clippy, workspace dependency checks, production frontend and service builds, all 356 frontend tests, 157 Rust tests, and 34 Python tests passed. All three workflows passed Actionlint 1.7.12; its archive matched the official release checksum. ShellCheck was unavailable. Session, provider, and permission behavior did not change, so service integration was not repeated.
+
+The commands from `just desktop-build` passed on Windows x64. Tauri automatically selected NSIS and reported exactly one bundle, `Tandem_0.0.2_x64-setup.exe` (168.34 MiB). Existing MSI files in the shared build cache retained their hashes and timestamps; this build created or updated no MSI package. The installer was not installed and the native application was not launched. macOS and the cross-compiled remote resources were not built locally; their existing CI build steps are unchanged.
+
 ## Copilot SDK 1.x dependency range (2026-10-21)
 
 Continued PR #15 in `.worktrees/conversation-attachments`. The SDK dependency now uses `github-copilot-sdk = "1"` from crates.io, with `Cargo.lock` resolving `1.0.24`; no unrelated package was updated. The published crate bundles Copilot CLI `1.0.101`. Settings, runtime version reporting, dependency instructions, and current documentation reflect these versions. The obsolete `enable_github_cache_store` title-session setting was removed because SDK 1.0.24 no longer exposes it; the existing tool, discovery, session-store, and telemetry restrictions remain in place.

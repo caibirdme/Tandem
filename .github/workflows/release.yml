@@ -60,7 +60,7 @@ jobs:
           GH_REPO: ${{ github.repository }}
           TAG: ${{ github.ref_name }}
           NOTES: |
-            - On Mac, download `.dmg` (Apple silicon only). On Windows, download `x64-setup.exe` or `.msi`.
+            - On Mac, download `.dmg` (Apple silicon only). On Windows, download `x64-setup.exe`.
             - The macOS package is not signed or notarized by Apple. After dragging Tandem into Applications, run `xattr -dr com.apple.quarantine /Applications/Tandem.app` in Terminal before opening it for the first time.
         run: |
           gh release view "$TAG" > /dev/null 2>&1 ||

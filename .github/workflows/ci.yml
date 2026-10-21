@@ -71,7 +71,7 @@ jobs:
               - '!.github/workflows/release.yml'
             bundle:
               - '.github/workflows/bundle.yml'
-              - 'src-tauri/tauri.conf.json'
+              - 'src-tauri/tauri*.conf.json'
               - 'src-tauri/icons/**'
               - 'src-tauri/remote/**'
               - 'src-tauri/build.rs'

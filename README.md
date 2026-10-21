@@ -21,10 +21,10 @@ _Keep project conversations, model selection, and permission controls together i
 
 Download an installer from [Releases](https://github.com/caibirdme/Tandem/releases):
 
-| System                | Installer                 |
-| --------------------- | ------------------------- |
-| macOS (Apple Silicon) | `.dmg`                    |
-| Windows (x64)         | `x64-setup.exe` or `.msi` |
+| System                | Installer       |
+| --------------------- | --------------- |
+| macOS (Apple Silicon) | `.dmg`          |
+| Windows (x64)         | `x64-setup.exe` |
 
 On macOS, drag Tandem into Applications. The app is not signed or notarized by Apple; before opening it for the first time, run:
 

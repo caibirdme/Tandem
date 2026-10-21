@@ -112,6 +112,8 @@ Shared RPC definitions live in `tandem-protocol`, so the remote agent does not n
 
 `just desktop-build` first compiles `tandem-server` for the local platform, copies it into Tauri resources, and bundles the desktop application. `tandem-dev-server` is excluded from installers. macOS output is in `target/release/bundle/`. Local signing is ad hoc by default. For a formally signed release, override `bundle.macOS.signingIdentity` and configure notarization. Signing and notarization require a release account; no credentials are stored in this repository.
 
+On Windows, use the NSIS `x64-setup.exe` installer in `target/release/bundle/nsis/`. Tauri automatically merges `src-tauri/tauri.windows.conf.json`, which selects NSIS as the only Windows installer target.
+
 Use `CI=true just desktop-build` on a locked screen or in automation to skip DMG window decoration that requires Finder interaction.
 
 Released installers bundle remote agents for Linux x64 (`x86_64-unknown-linux-gnu`) and Apple Silicon macOS (`aarch64-apple-darwin`). The application also recognizes Linux arm64 and Intel Mac hosts, but installers do not contain those binaries and report a missing artifact when connecting. Build the required target yourself and use `scripts/prepare-remote.mjs <target>` to add it to resources.
@@ -136,7 +138,7 @@ The commands above use `0.0.2` as an example; use the version merged in step 1. 
 
 If version validation fails, correct all three manifests and synchronize `Cargo.lock` before merging. Rerunning the failed workflow uses its original commit, so a fix on `main` alone does not repair an existing tag. Use a new matching version and tag, or deliberately correct the existing tag and Release after reviewing their published state.
 
-The workflow builds Linux x64 `tandem-server` in an `ubuntu:22.04` container for compatibility with older glibc, and builds the Apple Silicon agent on macOS. Desktop jobs place both agents in resources and generate an Apple Silicon DMG plus Windows x64 MSI and NSIS installers. The development host is excluded.
+The workflow builds Linux x64 `tandem-server` in an `ubuntu:22.04` container for compatibility with older glibc, and builds the Apple Silicon agent on macOS. Desktop jobs place both agents in resources and generate an Apple Silicon DMG plus a Windows x64 NSIS `x64-setup.exe` installer. The development host is excluded.
 
 macOS uses ad hoc signing without an Apple account. Users must remove quarantine before first launch; see [Install](../README.md#install). To obtain installers without publishing a release, manually run **Desktop bundles** in Actions and download its artifacts. Rerunning a tag workflow replaces files with the same names in its Release.
 
