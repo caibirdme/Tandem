@@ -98,6 +98,12 @@ pub enum Error {
     RemoteEventStream(#[source] tokio::sync::broadcast::error::RecvError),
     #[error("The remote event format is invalid: {0}")]
     InvalidRemoteEvent(#[source] EventDecodeError),
+    #[error(
+        "The remote connection delivered an event for another session. Reconnect to resume this conversation."
+    )]
+    RemoteSessionMismatch,
+    #[error("The remote session did not disconnect in time. Its SSH connection has been closed.")]
+    RemoteDisconnectTimeout(#[source] tokio::time::error::Elapsed),
     #[error("The runtime returned an invalid session state: {0}")]
     InvalidRuntimeState(#[source] EventDecodeError),
     #[error("The remote skill catalog is invalid: {0}")]
@@ -238,6 +244,8 @@ impl Error {
             | Self::PermissionSessionDisconnected
             | Self::RuntimeEventStream(_)
             | Self::RemoteEventStream(_)
+            | Self::RemoteSessionMismatch
+            | Self::RemoteDisconnectTimeout(_)
             | Self::ForwardingStopped(_)
             | Self::CompletionTimeout(_)
             | Self::ShuttingDown

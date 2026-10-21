@@ -63,7 +63,7 @@ Log in once with your system terminal to confirm the host fingerprint and set up
 
 _Choose a remote directory in the project dialog, then start work with the same conversation and permission controls._
 
-Tandem prepares the remote agent over SSH without opening an additional remote network port. See the [SSH guide](docs/user-guide.md#ssh-projects) for supported hosts and setup details.
+Tandem prepares the remote agent over SSH without opening an additional remote network port. Multiple Work conversations on the same host share a background runtime while keeping independent connections and permissions. See the [SSH guide](docs/user-guide.md#ssh-projects) for supported hosts and setup details.
 
 ## Run from source
 

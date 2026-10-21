@@ -14,7 +14,7 @@ if [ -x "$HOME/.local/share/tandem/bin/tandem-server" ]; then
 fi
 "#;
 const RUNTIME_COMMAND: &str = r#"export PATH="$HOME/.local/share/tandem/bin:$HOME/.local/bin:$PATH"; exec "$HOME/.local/share/tandem/bin/tandem-server" --install-runtime"#;
-const SERVER_COMMAND: &str = r#"export PATH="$HOME/.local/share/tandem/bin:$HOME/.local/bin:$PATH"; exec "$HOME/.local/share/tandem/bin/tandem-server" --stdio"#;
+const SERVER_COMMAND: &str = r#"export PATH="$HOME/.local/share/tandem/bin:$HOME/.local/bin:$PATH"; exec "$HOME/.local/share/tandem/bin/tandem-server" --proxy"#;
 const PROBE_TIMEOUT: Duration = Duration::from_secs(30);
 const INSTALL_TIMEOUT: Duration = Duration::from_secs(180);
 const MAX_ARTIFACT_BYTES: u64 = 512 * 1024 * 1024;
@@ -165,7 +165,7 @@ impl RemoteClient {
         )
         .await?;
         let (platform, version) = parse_probe(&output)?;
-        let deployed = version.as_deref() != Some(VERSION);
+        let deployed = version.as_deref() != Some(&server_signature());
         if deployed {
             let artifact = self.artifacts.locate(&platform).await?;
             run(
@@ -193,16 +193,26 @@ impl RemoteClient {
         })
     }
 
-    /// Bootstrap and start a remote server, with all RPC traffic inside the SSH channel.
+    /// Bootstrap and attach a proxy to the shared remote daemon over SSH.
     ///
     /// # Errors
     /// Returns a bootstrap or process startup error.
     pub async fn connect(&self) -> Result<RemoteTransport, RemoteError> {
         self.bootstrap().await?;
-        self.open_transport()
+        let transport = self.open_transport()?;
+        let result = transport
+            .request("server_info", serde_json::Value::Null)
+            .await;
+        match result {
+            Ok(value) if valid_server_info(&value) => Ok(transport),
+            result => {
+                transport.shutdown().await;
+                Err(result.err().unwrap_or(RemoteError::ServerVersionMismatch))
+            }
+        }
     }
 
-    /// Start a previously bootstrapped server without repeating deployment checks.
+    /// Attach a proxy to a previously bootstrapped daemon without deployment checks.
     ///
     /// # Errors
     /// Returns an error if the system SSH executable cannot be launched.
@@ -281,8 +291,18 @@ actual_version=$("$temporary" --version)
 [ "$actual_version" = {} ] || {{ printf '%s\n' 'tandem-server version mismatch' >&2; exit 1; }}
 mv -f "$temporary" "$destination/tandem-server"
 "#,
-        shell_quote(&format!("tandem-server {VERSION}"))
+        shell_quote(&format!("tandem-server {}", server_signature()))
     )
+}
+
+fn server_signature() -> String {
+    format!("{VERSION} (protocol {})", tandem_protocol::PROTOCOL_VERSION)
+}
+
+fn valid_server_info(value: &serde_json::Value) -> bool {
+    value["protocolVersion"].as_u64() == Some(u64::from(tandem_protocol::PROTOCOL_VERSION))
+        && value["serverVersion"].as_str() == Some(VERSION)
+        && value["processId"].as_u64().is_some_and(|id| id > 0)
 }
 
 fn directory_command(path: &str, list: bool) -> Result<String, RemoteError> {
@@ -454,6 +474,29 @@ mod tests {
             assert_eq!(version.as_deref(), expected);
         }
         assert!(parse_probe(b"Welcome\nLinux\0x86_64\0").is_err());
+    }
+
+    #[test]
+    fn shared_daemon_requires_matching_protocol_and_release() {
+        let valid = serde_json::json!({
+            "protocolVersion": tandem_protocol::PROTOCOL_VERSION,
+            "serverVersion": VERSION,
+            "processId": 123,
+        });
+        assert!(valid_server_info(&valid));
+        for (field, invalid) in [
+            ("protocolVersion", serde_json::json!(0)),
+            ("protocolVersion", serde_json::Value::Null),
+            ("serverVersion", serde_json::json!("unrecognized")),
+            ("processId", serde_json::json!(0)),
+            ("processId", serde_json::json!("123")),
+        ] {
+            let mut value = valid.clone();
+            value[field] = invalid;
+            assert!(!valid_server_info(&value));
+        }
+        assert!(upload_command().contains(&format!("tandem-server {}", server_signature())));
+        assert!(SERVER_COMMAND.ends_with("--proxy"));
     }
 
     #[cfg(unix)]

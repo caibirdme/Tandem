@@ -247,6 +247,12 @@ impl Runtime {
         self.client.stop().await.map_err(Error::Shutdown)
     }
 
+    /// Terminates the CLI and releases its sessions when graceful shutdown fails
+    /// or is cancelled. This synchronous recovery cannot itself be cancelled.
+    pub fn force_stop(&self) {
+        self.client.force_stop();
+    }
+
     async fn directory_for(&self, mode: &SessionMode) -> Result<PathBuf> {
         let directory = match mode {
             SessionMode::Chat => &self.chat_directory,

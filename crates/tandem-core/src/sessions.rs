@@ -757,7 +757,10 @@ mod tests {
         ))?;
         let event_task = app.forward_events(
             session.id.clone(),
-            AgentEvents::Remote(incoming),
+            AgentEvents::Remote {
+                session_id: session.id.clone(),
+                incoming,
+            },
             completion.clone(),
         );
         tokio::time::timeout(std::time::Duration::from_secs(1), async {

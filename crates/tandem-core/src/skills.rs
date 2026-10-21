@@ -17,7 +17,7 @@ impl App {
             Connection::Ssh { .. } => {
                 let transport = self.remote_client(&project.connection)?.connect().await?;
                 let response = transport
-                    .request("list_project_skills", json!({"directory": project.path}))
+                    .request("list_project_skills", json!({"directory": project.path,"telemetry":self.store.preferences()?.telemetry}))
                     .await;
                 transport.shutdown().await;
                 let response = response?;

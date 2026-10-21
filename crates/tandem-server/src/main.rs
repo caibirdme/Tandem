@@ -1,35 +1,99 @@
 //! Remote Agent host. Stdout is reserved for the private stdio protocol.
 
+#[cfg(unix)]
+mod daemon;
 mod error;
 mod stdio;
 
 use error::{Result, ServerError};
 
-#[tokio::main]
-async fn main() -> Result<()> {
+fn main() -> Result<()> {
     tracing_subscriber::fmt()
         .with_writer(std::io::stderr)
         .with_env_filter("warn")
         .init();
-    match arguments(std::env::args().skip(1))? {
+    let mode = arguments(std::env::args().skip(1))?;
+    if print_information(&mode) {
+        return Ok(());
+    }
+    let mut builder = if matches!(mode, Mode::Proxy | Mode::InstallRuntime) {
+        tokio::runtime::Builder::new_current_thread()
+    } else {
+        tokio::runtime::Builder::new_multi_thread()
+    };
+    let runtime = builder.enable_all().build()?;
+    let result = runtime.block_on(run(mode));
+    // A remote socket can close while Tokio's blocking stdin reader is pending.
+    // Bound shutdown so that this reader cannot keep an SSH proxy alive forever.
+    runtime.shutdown_timeout(std::time::Duration::from_secs(1));
+    result
+}
+
+async fn run(mode: Mode) -> Result<()> {
+    match mode {
         Mode::Stdio => stdio::run(false).await,
-        Mode::InstallRuntime => stdio::run(true).await,
+        Mode::Proxy => run_proxy().await,
+        Mode::Daemon => run_daemon().await,
+        Mode::InstallRuntime => install_runtime().await,
+        Mode::Version | Mode::Help => Ok(()),
+    }
+}
+
+fn print_information(mode: &Mode) -> bool {
+    match mode {
         Mode::Version => {
-            println!("tandem-server {}", env!("CARGO_PKG_VERSION"));
-            Ok(())
+            println!(
+                "tandem-server {} (protocol {})",
+                env!("CARGO_PKG_VERSION"),
+                tandem_protocol::PROTOCOL_VERSION
+            );
+            true
         }
         Mode::Help => {
             println!(
-                "tandem-server [--stdio | --install-runtime | --version | --help]\n\nThe default mode is --stdio. For the development HTTP API, use tandem-dev-server."
+                "tandem-server [--proxy | --daemon | --stdio | --install-runtime | --version | --help]\n\nSSH connections use --proxy to connect to the shared Unix daemon. The default --stdio mode runs an isolated host. For the development HTTP API, use tandem-dev-server."
             );
-            Ok(())
+            true
         }
+        _ => false,
     }
+}
+
+#[cfg(unix)]
+async fn run_proxy() -> Result<()> {
+    daemon::proxy().await.map_err(Into::into)
+}
+
+#[cfg(unix)]
+async fn run_daemon() -> Result<()> {
+    daemon::run().await
+}
+
+#[cfg(unix)]
+async fn install_runtime() -> Result<()> {
+    daemon::install_runtime().await.map_err(Into::into)
+}
+
+#[cfg(not(unix))]
+fn run_proxy() -> std::future::Ready<Result<()>> {
+    std::future::ready(Err(ServerError::UnixOnlyMode))
+}
+
+#[cfg(not(unix))]
+fn run_daemon() -> std::future::Ready<Result<()>> {
+    std::future::ready(Err(ServerError::UnixOnlyMode))
+}
+
+#[cfg(not(unix))]
+async fn install_runtime() -> Result<()> {
+    stdio::run(true).await
 }
 
 #[derive(Debug, Eq, PartialEq)]
 enum Mode {
     Stdio,
+    Proxy,
+    Daemon,
     InstallRuntime,
     Version,
     Help,
@@ -40,6 +104,8 @@ fn arguments(arguments: impl IntoIterator<Item = String>) -> Result<Mode> {
     for argument in arguments {
         let requested = match argument.as_str() {
             "--stdio" => Mode::Stdio,
+            "--proxy" => Mode::Proxy,
+            "--daemon" => Mode::Daemon,
             "--install-runtime" => Mode::InstallRuntime,
             "--version" => Mode::Version,
             "--help" => Mode::Help,
@@ -66,6 +132,8 @@ mod tests {
         for (input, expected) in [
             (vec![], Mode::Stdio),
             (vec!["--stdio"], Mode::Stdio),
+            (vec!["--proxy"], Mode::Proxy),
+            (vec!["--daemon"], Mode::Daemon),
             (vec!["--install-runtime"], Mode::InstallRuntime),
             (vec!["--version"], Mode::Version),
             (vec!["--help"], Mode::Help),
@@ -82,6 +150,7 @@ mod tests {
             vec!["--data-dir", "state"],
             vec!["--ephemeral-secrets"],
             vec!["--stdio", "--install-runtime"],
+            vec!["--proxy", "--daemon"],
             vec!["--help", "--stdio"],
             vec!["--version", "--help"],
             vec!["unknown"],
