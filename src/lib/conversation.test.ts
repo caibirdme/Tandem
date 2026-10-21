@@ -160,6 +160,69 @@ describe('thinking timeline reconciliation', () => {
   });
 });
 
+describe('live message updates in ordered history', () => {
+  it('replaces live thinking without changing historical identities or the previous list', () => {
+    const history = Array.from({ length: 250 }, (_, index) => ({
+      ...message,
+      id: `answer-${String(index)}`,
+      sequence: index,
+    }));
+    const live = { ...reasoning, sequence: history.length };
+    const existing = mergeMessages([], [...history, live]);
+    const updated = { ...live, content: 'Inspecting the complete dependency graph' };
+    const next = mergeMessages(existing, [updated]);
+
+    expect(next).toEqual([...history, updated]);
+    expect(next.slice(0, history.length).every((item, index) => item === existing[index])).toBe(
+      true,
+    );
+    expect(next.at(-1)).toBe(updated);
+    expect(existing.at(-1)).toBe(live);
+  });
+
+  it('keeps a protected live update when stale history returns a single earlier chunk', () => {
+    const live = { ...reasoning, content: 'Inspecting the complete dependency graph' };
+    const existing = mergeMessages([], [live]);
+    const next = mergeMessages(existing, [reasoning], new Set([live.id]));
+
+    expect(next).toBe(existing);
+    expect(next[0]).toBe(live);
+  });
+
+  it.each([
+    {
+      name: 'persisted sequence changes',
+      first: { ...message, sequence: 1 },
+      live: { ...reasoning, sequence: 2 },
+      update: { ...reasoning, sequence: 0 },
+    },
+    {
+      name: 'unsequenced creation time changes',
+      first: message,
+      live: { ...reasoning, createdAt: '2026-10-17T00:00:01Z' },
+      update: { ...reasoning, createdAt: '2026-10-16T23:59:59Z' },
+    },
+  ])('restores chronological order when $name', ({ first, live, update }) => {
+    const existing = mergeMessages([], [first, live]);
+    expect(mergeMessages(existing, [update])).toEqual([update, first]);
+    expect(existing).toEqual([first, live]);
+  });
+
+  it('still sorts an unreconciled list when a live update keeps its ordering keys', () => {
+    const first = { ...message, sequence: 1 };
+    const live = { ...reasoning, sequence: 2 };
+    const updated = { ...live, content: 'Updated thinking' };
+    expect(mergeMessages([live, first], [updated])).toEqual([first, updated]);
+  });
+
+  it('removes a matching pending send when its confirmation was already reconciled', () => {
+    const confirmed: Message = { ...message, role: 'user' };
+    const pending = { ...confirmed, id: `pending:${confirmed.id}` };
+    const existing = mergeMessages([], [confirmed, pending]);
+    expect(mergeMessages(existing, [confirmed])).toEqual([confirmed]);
+  });
+});
+
 describe('activity timeline reconciliation', () => {
   it.each([
     {

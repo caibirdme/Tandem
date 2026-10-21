@@ -72,6 +72,10 @@ pub enum SkillError {
     UnsupportedInvocation { name: String },
     #[error("project skill preparation did not complete within fifteen seconds")]
     PreparationTimeout,
+    #[error(
+        "project skill discovery did not complete within fifteen seconds; reopen the skill list to retry"
+    )]
+    DiscoveryTimeout,
 }
 
 #[derive(Debug, thiserror::Error)]

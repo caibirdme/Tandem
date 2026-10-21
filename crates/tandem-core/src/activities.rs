@@ -204,8 +204,8 @@ fn update_tool(tool: &mut ToolActivity, data: &Value) {
         let output = tool
             .result
             .get_or_insert_with(|| Value::String(String::new()));
-        if let Some(previous) = output.as_str() {
-            *output = Value::String(format!("{previous}{text}"));
+        if let Value::String(previous) = output {
+            previous.push_str(text);
         }
     }
     if details["success"] == false || tool.error.is_some() {

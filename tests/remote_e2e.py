@@ -315,6 +315,8 @@ class IsolatedSsh:
         directory.mkdir()
         self.home = directory / 'remote-home'
         self.home.mkdir()
+        self.command_marker = directory / 'ssh-commands'
+        self.command_marker.write_bytes(b'')
         self.known_hosts = directory / 'known_hosts'
         self.known_hosts.write_text('')
         ssh = shutil.which('ssh')
@@ -330,6 +332,8 @@ class IsolatedSsh:
         remote_environment = {'HOME': str(self.home), 'XDG_CACHE_HOME': str(self.home / '.cache'),
                               'XDG_CONFIG_HOME': str(self.home / '.config'), 'XDG_STATE_HOME': str(self.home / '.state')}
         forced.write_text('import os, time\nfrom pathlib import Path\n'
+                          f'with open({str(self.command_marker)!r}, "ab", buffering=0) as marker:\n'
+                          '    marker.write(b"x")\n'
                           f'os.environ.update({remote_environment!r})\n'
                           f'os.chdir({str(self.home)!r})\n'
                           'delay = Path("delay-bootstrap")\n'
@@ -371,6 +375,10 @@ class IsolatedSsh:
         self.environment['PATH'] = str(wrapper_directory) + os.pathsep + self.environment.get('PATH', '')
         self.connection = {'kind': 'ssh', 'host': '127.0.0.1', 'port': self.port,
                            'user': getpass.getuser(), 'identityFile': str(directory / 'identity')}
+
+    def command_count(self):
+        """Count remote launches without recording commands or private payloads."""
+        return self.command_marker.stat().st_size
 
     def trust_fixture_key(self):
         key_type, key, *_ = (self.directory / 'host.pub').read_text().split()
@@ -572,6 +580,12 @@ def check_ssh(remote_server, dev_server, root, endpoint, fixture):
         first_work_events = app.turn(work, 'fixture:work-create Create verified.txt on the SSH host.')
         require(app.wait_title(work['id'], first_work_events) == 'Acceptance file operations', 'SSH work title was not summarized')
         require((workspace / 'verified.txt').read_text() == 'first version\n', 'Remote SDK tool did not create the file')
+        commands_before_skills = ssh.command_count()
+        skill_catalog = app.command('list_project_skills', projectId=project['id'])
+        require(app.command('list_project_skills', projectId=project['id']) == skill_catalog,
+                'Repeated skill discovery changed an unchanged project catalog')
+        require(ssh.command_count() == commands_before_skills,
+                'Skill discovery started a new SSH connection instead of reusing idle work')
         failed_tool = app.turn(work, 'fixture:work-create Attempt to create the already existing file.')
         require(any(tool['status'] == 'error' for tool in activity_tools(failed_tool)),
                 'Failed remote tool was presented as a successful completion')
@@ -661,7 +675,7 @@ def main():
             if not arguments.skip_ssh:
                 require(os.name == 'posix', 'Use --skip-ssh on hosts without a POSIX SSH daemon')
                 check_ssh(remote_server, dev_server, root, endpoint_url, fixture)
-                checks.append('OpenSSH: strict host trust, key rejection, atomic deployment, literal directories, image/text attachments, grouped tool activity, confirmed skill selection metadata, remote tools, reconnect/resume, native thinking history and cancellation, core session reasoning changes, pending approval, and native-default reset with complete history')
+                checks.append('OpenSSH: strict host trust, key rejection, atomic deployment, literal directories, image/text attachments, grouped tool activity, confirmed skill selection metadata, repeated skill discovery reuses idle work without new SSH connections, remote tools, reconnect/resume, native thinking history and cancellation, core session reasoning changes, pending approval, and native-default reset with complete history')
             print(json.dumps({'result': 'passed', 'checks': checks, 'inferenceRequests': len(fixture.requests),
                               'telemetryExports': len(fixture.exports)}, indent=2))
         finally:
