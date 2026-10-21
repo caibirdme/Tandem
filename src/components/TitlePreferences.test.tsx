@@ -7,6 +7,7 @@ import { TitlePreferences } from './TitlePreferences';
 const settings: Settings = {
   titleModel: null,
   cliPath: null,
+  fontSize: 'medium',
   telemetry: { enabled: false, endpoint: '', protocol: 'http/json', captureContent: false },
   providers: [
     {

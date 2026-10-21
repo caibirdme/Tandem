@@ -27,6 +27,7 @@ const snapshot: Snapshot = {
     titleModel: null,
     telemetry: { enabled: false, endpoint: '', protocol: 'http/json', captureContent: false },
     cliPath: null,
+    fontSize: 'medium',
   },
   runtime: { available: true, version: null, message: 'Ready' },
   activeTurns: {},

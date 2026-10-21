@@ -93,6 +93,11 @@ export const en = {
   'settings.telemetryLocation':
     'Local sessions export from this computer; remote work exports from the remote server. Make sure that environment can reach this endpoint.',
   'settings.generalDescription': 'Adjust your agent runtime and interface.',
+  'settings.fontSize': 'Font size',
+  'settings.fontSize.small': 'Small',
+  'settings.fontSize.medium': 'Medium (default)',
+  'settings.fontSize.large': 'Large',
+  'settings.fontSizeHint': 'Applies immediately to text throughout the app.',
   'settings.cliPath': 'Copilot CLI path (optional)',
   'settings.cliDefault': 'Uses the bundled Copilot CLI by default',
   'settings.cliHint':
@@ -109,6 +114,17 @@ export const en = {
   'project.localHint': 'Work on this computer',
   'project.remote': 'Remote project',
   'project.remoteHint': 'Connect to a server over SSH',
+  'project.sshSource': 'Connection setup',
+  'project.sshFromConfig': 'From SSH config',
+  'project.sshManual': 'Enter manually',
+  'project.sshConfigHost': 'Saved SSH host',
+  'project.sshChooseHost': 'Choose a host',
+  'project.sshHostsLoading': 'Loading SSH hosts…',
+  'project.sshRefreshHosts': 'Refresh SSH hosts',
+  'project.sshConfigHint':
+    'Uses the username, port, keys, and jump hosts from your local SSH config.',
+  'project.sshNoHosts':
+    'No saved hosts found in ~/.ssh/config. Add a Host entry or enter the connection manually.',
   'project.host': 'Host',
   'project.hostExample': 'dev.example.com or SSH alias',
   'project.port': 'Port',

@@ -4,12 +4,14 @@
 //! of trust. Tandem never supplies passwords or accepts an unknown host key.
 
 mod bootstrap;
+mod config;
 mod ssh;
 mod transport;
 
 pub use bootstrap::{
     ArtifactLocator, BootstrapReport, RemoteClient, RemoteDirectory, RemotePlatform,
 };
+pub use config::{SshConfigError, SshConfigLimit, list_ssh_hosts};
 pub use ssh::SshConnection;
 pub use tandem_protocol::RpcErrorCode;
 pub use transport::RemoteTransport;
@@ -123,6 +125,8 @@ pub enum DisconnectReason {
 /// Failures that can be handled without inspecting message text or credentials.
 #[derive(Debug, thiserror::Error)]
 pub enum RemoteError {
+    #[error("Could not read SSH hosts: {0}")]
+    SshConfig(#[from] SshConfigError),
     #[error("Invalid SSH connection: {0}")]
     InvalidConnection(#[from] ConnectionValidationError),
     #[error("SSH {operation} failed ({status}). {detail}")]
@@ -193,6 +197,7 @@ impl RemoteError {
                 RpcErrorCode::Internal
             }
             Self::ConnectionFailed { .. }
+            | Self::SshConfig(_)
             | Self::UnsupportedPlatform { .. }
             | Self::ArtifactMissing { .. }
             | Self::InvalidArtifact { .. }

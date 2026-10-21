@@ -209,6 +209,17 @@ pub struct Preferences {
     pub title_model: Option<TitleModel>,
     pub telemetry: Telemetry,
     pub cli_path: Option<String>,
+    pub font_size: FontSize,
+}
+
+/// Application-wide text sizing, independent of the agent runtime.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum FontSize {
+    Small,
+    #[default]
+    Medium,
+    Large,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -218,6 +229,7 @@ pub struct Settings {
     pub providers: Vec<Provider>,
     pub telemetry: Telemetry,
     pub cli_path: Option<String>,
+    pub font_size: FontSize,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -226,8 +238,8 @@ pub enum Connection {
     Local,
     Ssh {
         host: String,
-        port: u16,
-        user: String,
+        port: Option<u16>,
+        user: Option<String>,
         #[serde(rename = "identityFile")]
         identity_file: Option<String>,
     },

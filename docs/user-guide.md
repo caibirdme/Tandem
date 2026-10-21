@@ -100,10 +100,12 @@ Generation runs in the background without blocking tasks; manually edited titles
 ### Connect to a host
 
 1. Log in once from a system terminal to confirm the host fingerprint and configure a key or ssh-agent. Tandem uses system OpenSSH configuration and trusted host records; it does not store login passwords.
-2. Choose **Add project > Remote project**. Enter the host, port, username, and optional private key path, then click **Test connection**.
+2. Choose **Add project > Remote project**. Keep **From SSH config**, select a **Saved SSH host**, and click **Test connection**. The list reads `~/.ssh/config` (`%USERPROFILE%\.ssh\config` on Windows) and its included files. Use **Refresh SSH hosts** after editing the config. To enter a host, port, username, and optional private key path instead, choose **Enter manually**.
 3. Click the folder button (**Browse directories**) beside **Working directory**, select a remote folder, and click **Choose this directory**. Create the project, then start a work session in it.
 
-Connection test results appear immediately below **Test connection**. Editing the host, port, username, or key path clears the previous result. Enter the port directly; its input has no stepper arrows. Required fields use the same red **\*** markers, and **Create project** focuses any missing field before submitting.
+Saved hosts use their SSH alias directly, so OpenSSH applies the current username, port, identity files, ssh-agent, and `ProxyJump` or `ProxyCommand` configuration each time you connect. The picker lists explicit host names, not wildcard or negated patterns. Discovery follows static `Include` paths and globs; paths that require a destination such as `%h`, or another user's `~user` home, are left to OpenSSH at connection time. Missing configuration produces an empty list; manual entry remains available. Host discovery only reads files and does not execute configuration commands.
+
+Connection test results appear immediately below **Test connection**. Choosing another host or editing connection details clears the previous result. Enter a manual port directly; its input has no stepper arrows. Required fields use the same red **\*** markers, and **Create project** focuses any missing field before submitting.
 
 Directory browsing progress and errors stay beside the directory controls in the project dialog. On Windows, SSH runs in the background without opening a console window.
 
@@ -128,6 +130,10 @@ Supported content includes PNG, JPEG, GIF, WebP, and UTF-8 text or source files.
 ## Language
 
 The interface starts in English. To switch to Simplified Chinese, open **Settings > General > Language**. The change takes effect immediately and is remembered on this device after restarting the application.
+
+## Font size
+
+Open **Settings > General > Font size** and choose **Small**, **Medium**, or **Large**. Medium is the default and makes text about 15% larger than Small; Large makes it about 30% larger. The setting scales interface and conversation text, takes effect immediately without interrupting a running conversation, and is saved locally for the next launch.
 
 ## Telemetry
 

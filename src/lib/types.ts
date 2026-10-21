@@ -1,5 +1,6 @@
 export type ProviderProtocol = 'openai-completions' | 'openai-responses' | 'anthropic';
 export type ReasoningEffort = 'low' | 'medium' | 'high' | null;
+export type FontSize = 'small' | 'medium' | 'large';
 export interface Model {
   id: string;
   name: string;
@@ -30,10 +31,17 @@ export interface Settings {
   titleModel: ModelSelection | null;
   telemetry: Telemetry;
   cliPath: string | null;
+  fontSize: FontSize;
 }
 export type Connection =
   | { kind: 'local' }
-  | { kind: 'ssh'; host: string; port: number; user: string; identityFile: string | null };
+  | {
+      kind: 'ssh';
+      host: string;
+      port: number | null;
+      user: string | null;
+      identityFile: string | null;
+    };
 export interface Project {
   id: string;
   name: string;
@@ -146,6 +154,7 @@ export interface Commands {
   get_provider_api_key: { payload: { id: string }; result: string | null };
   delete_provider: { payload: { id: string }; result: null };
   save_preferences: { payload: { telemetry: Telemetry; cliPath: string | null }; result: null };
+  save_font_size: { payload: { fontSize: FontSize }; result: null };
   save_title_model: { payload: { titleModel: ModelSelection | null }; result: null };
   regenerate_title: { payload: { sessionId: string }; result: null };
   create_project: {
@@ -199,6 +208,7 @@ export interface Commands {
     result: null;
   };
   check_connection: { payload: { connection: Connection }; result: { message: string } };
+  list_ssh_hosts: { payload: Record<string, never>; result: string[] };
   browse_directory: {
     payload: { connection: Connection; path: string };
     result: DirectoryListing;

@@ -40,7 +40,7 @@
   background: #fff;
   box-shadow: 0 4px 20px #292b281a;
   color: var(--secondary);
-  font-size: 12px;
+  font-size: 0.75rem;
   font-variant-numeric: tabular-nums;
   line-height: 1.5;
   white-space: nowrap;
