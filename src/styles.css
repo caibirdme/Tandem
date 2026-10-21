@@ -1,4 +1,5 @@
 :root {
+  font-size: 115%;
   font-family:
     -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
   color: #292b28;
@@ -12,6 +13,12 @@
   --line: #e9e9e3;
   --accent: #4d6352;
   --sidebar: #f3f2ef;
+}
+:root[data-font-size='small'] {
+  font-size: 100%;
+}
+:root[data-font-size='large'] {
+  font-size: 130%;
 }
 * {
   box-sizing: border-box;
@@ -104,7 +111,7 @@ button {
   align-items: center;
   gap: 9px;
   padding: 2px 10px 29px;
-  font-size: 19px;
+  font-size: 1.1875rem;
   font-weight: 650;
   letter-spacing: -0.65px;
 }
@@ -146,7 +153,7 @@ button {
   background: #fbfbf8;
   box-shadow: 0 1px 2px #2e37270a;
   border: 1px solid #e4e4dc;
-  font-size: 13px;
+  font-size: 0.8125rem;
   font-weight: 530;
   text-align: left;
 }
@@ -156,7 +163,7 @@ button {
 }
 .shortcut {
   margin-left: auto;
-  font-size: 11px;
+  font-size: 0.6875rem;
   color: #787b74;
   font-weight: 400;
 }
@@ -175,13 +182,13 @@ button {
   align-items: center;
   padding: 0 11px 10px;
   height: 27px;
-  font-size: 11px;
+  font-size: 0.6875rem;
   font-weight: 550;
   color: #757871;
   letter-spacing: 0.5px;
 }
 .sidebar-empty {
-  font-size: 12px;
+  font-size: 0.75rem;
   color: #787b74;
   padding: 7px 12px 5px;
 }
@@ -207,7 +214,7 @@ button {
   align-items: center;
   gap: 7px;
   padding: 9px 11px;
-  font-size: 12px;
+  font-size: 0.75rem;
   text-align: left;
   min-width: 0;
   color: #686c62;
@@ -237,7 +244,7 @@ button {
   text-align: left;
   border-radius: 7px;
   color: #5e6459;
-  font-size: 12px;
+  font-size: 0.75rem;
 }
 .project-nav span {
   flex: 1;
@@ -254,13 +261,13 @@ button {
   border-left: 1px solid #dedfd6;
 }
 .project-sessions .session-select {
-  font-size: 11px;
+  font-size: 0.6875rem;
 }
 .project-new {
   display: flex;
   gap: 6px;
   align-items: center;
-  font-size: 11px;
+  font-size: 0.6875rem;
   color: #787b74;
   padding: 9px 10px;
 }
@@ -269,7 +276,7 @@ button {
   align-items: center;
   gap: 8px;
   color: #6a6d66;
-  font-size: 12px;
+  font-size: 0.75rem;
   margin-top: 3px;
   padding: 9px 11px;
   width: 100%;
@@ -296,13 +303,13 @@ button {
   color: #686b64;
 }
 .workspace-hint strong {
-  font-size: 10px;
+  font-size: 0.625rem;
   font-weight: 500;
   display: block;
   padding: 1px 0 5px;
 }
 .workspace-hint small {
-  font-size: 9px;
+  font-size: 0.5625rem;
   color: #787b74;
   letter-spacing: -0.2px;
 }
@@ -313,7 +320,7 @@ button {
   width: 100%;
   padding: 10px 12px;
   color: #5e615a;
-  font-size: 12px;
+  font-size: 0.75rem;
   border-radius: 8px;
 }
 .settings-button:hover {
@@ -356,7 +363,7 @@ button {
   display: flex;
   align-items: center;
   gap: 11px;
-  font-size: 12px;
+  font-size: 0.75rem;
   min-width: 0;
 }
 .topbar-title > .current-session-title {
@@ -387,7 +394,7 @@ button {
   display: inline-flex;
   gap: 6px;
   align-items: center;
-  font-size: 10px;
+  font-size: 0.625rem;
   color: #72756e;
   background: #f3f5ef;
   border: 1px solid #e7ebdf;
@@ -424,7 +431,7 @@ button {
   align-items: center;
   gap: 11px;
   color: #6d7069;
-  font-size: 12px;
+  font-size: 0.75rem;
   letter-spacing: 1.6px;
   margin-bottom: 25px;
 }
@@ -440,7 +447,7 @@ button {
   color: #6f726b;
 }
 .welcome h1 {
-  font-size: clamp(29px, 3.4vw, 42px);
+  font-size: clamp(1.8125rem, 3.4vw, 2.625rem);
   font-weight: 500;
   letter-spacing: -1.5px;
   line-height: 1.55;
@@ -449,7 +456,7 @@ button {
 }
 .welcome > p {
   color: #787b74;
-  font-size: 13px;
+  font-size: 0.8125rem;
   margin-top: 16px;
   line-height: 1.8;
 }
@@ -482,13 +489,13 @@ button {
   transform: translateY(-1px);
 }
 .suggestion strong {
-  font-size: 12px;
+  font-size: 0.75rem;
   font-weight: 500;
   margin-top: 15px;
   color: #616d55;
 }
 .suggestion > span {
-  font-size: 10px;
+  font-size: 0.625rem;
   margin-top: 7px;
   color: #787b74;
 }
@@ -507,7 +514,7 @@ button {
   align-items: center;
   gap: 7px;
   margin-top: 17px;
-  font-size: 11px;
+  font-size: 0.6875rem;
   color: #787b74;
   max-width: 100%;
 }
@@ -545,7 +552,7 @@ button {
   display: block;
   width: 100%;
   padding: 0 2px;
-  font-size: 13px;
+  font-size: 0.8125rem;
   line-height: 1.7;
   color: #424b37;
   min-height: 48px;
@@ -570,7 +577,7 @@ button {
   border-radius: inherit;
   background: #f4f8edf0;
   color: #4e6042;
-  font-size: 14px;
+  font-size: 0.875rem;
   font-weight: 500;
   pointer-events: none;
 }
@@ -663,7 +670,7 @@ button {
   display: block;
   overflow: hidden;
   padding: 5px 7px;
-  font-size: 10px;
+  font-size: 0.625rem;
   line-height: 1.5;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -671,7 +678,7 @@ button {
 .attachment-size {
   display: block;
   padding: 0 7px 5px;
-  font-size: 9px;
+  font-size: 0.5625rem;
   line-height: 1.3;
   color: #787b74;
 }
@@ -702,7 +709,7 @@ button {
 }
 .attachment-error {
   margin: 0 7px 5px;
-  font-size: 10px;
+  font-size: 0.625rem;
 }
 .message-attachments + p {
   margin-top: 8px;
@@ -729,7 +736,7 @@ button {
 }
 .skill-picker-heading {
   padding: 11px 14px 8px;
-  font-size: 12px;
+  font-size: 0.75rem;
   font-weight: 600;
   color: #556346;
 }
@@ -752,7 +759,7 @@ button {
   color: #424b37;
   text-align: left;
   cursor: pointer;
-  font-size: 13px;
+  font-size: 0.8125rem;
   font-weight: 600;
 }
 .skill-option[aria-selected='true'] {
@@ -766,12 +773,12 @@ button {
   border-top: 1px solid #edf0e8;
 }
 .skill-option-description {
-  font-size: 12px;
+  font-size: 0.75rem;
   line-height: 1.5;
   overflow-wrap: anywhere;
 }
 .skill-option-path {
-  font-size: 10px;
+  font-size: 0.625rem;
   color: #787b74;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -783,7 +790,7 @@ button {
   gap: 8px;
   align-items: center;
   padding: 14px;
-  font-size: 12px;
+  font-size: 0.75rem;
   color: #68715e;
   overflow-wrap: anywhere;
 }
@@ -791,7 +798,7 @@ button {
   border-top: 1px solid #edf0e8;
   padding: 8px 14px;
   color: #787b74;
-  font-size: 10px;
+  font-size: 0.625rem;
 }
 .composer-toolbar {
   display: flex;
@@ -811,7 +818,7 @@ button {
   display: inline-flex;
   gap: 6px;
   align-items: center;
-  font-size: 11px;
+  font-size: 0.6875rem;
   color: #747770;
 }
 .toolbar-divider {
@@ -823,7 +830,7 @@ button {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 11px;
+  font-size: 0.6875rem;
   color: #61645d;
   padding: 5px 1px;
   max-width: 250px;
@@ -849,7 +856,7 @@ button {
   gap: 5px;
   padding: 5px 7px;
   border-radius: 6px;
-  font-size: 11px;
+  font-size: 0.6875rem;
   color: #61645d;
   white-space: nowrap;
 }
@@ -874,11 +881,11 @@ button {
   gap: 5px;
 }
 .permission-mode-option strong {
-  font-size: 12px;
+  font-size: 0.75rem;
   font-weight: 500;
 }
 .permission-mode-option small {
-  font-size: 11px;
+  font-size: 0.6875rem;
   line-height: 1.6;
   color: #787b74;
 }
@@ -915,7 +922,7 @@ button {
   gap: 10px;
   padding: 11px 4px 0;
   color: #787b74;
-  font-size: 9px;
+  font-size: 0.5625rem;
 }
 .composer-footnote > span:first-child {
   display: inline-flex;
@@ -935,7 +942,7 @@ button {
   gap: 12px;
   padding: 11px 6px 14px;
   color: #787b74;
-  font-size: 11px;
+  font-size: 0.6875rem;
 }
 .setup-banner > span {
   display: inline-flex;
@@ -943,7 +950,7 @@ button {
   gap: 7px;
 }
 .setup-banner .text-button {
-  font-size: 11px;
+  font-size: 0.6875rem;
   white-space: nowrap;
 }
 .transcript {
@@ -961,7 +968,7 @@ button {
   border-radius: 17px 17px 4px 17px;
   padding: 12px 17px;
   max-width: 85%;
-  font-size: 13px;
+  font-size: 0.8125rem;
   line-height: 1.8;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -975,7 +982,7 @@ button {
   display: flex;
   align-items: center;
   gap: 7px;
-  font-size: 11px;
+  font-size: 0.6875rem;
   font-weight: 600;
   color: #70736c;
   margin-bottom: 13px;
@@ -987,7 +994,7 @@ button {
   flex-shrink: 0;
 }
 .markdown {
-  font-size: 13px;
+  font-size: 0.8125rem;
   line-height: 1.95;
   color: #4b5542;
   overflow-wrap: anywhere;
@@ -1026,7 +1033,7 @@ button {
   border-radius: 10px;
   line-height: 1.7;
   margin: 18px 0;
-  font-size: 11px;
+  font-size: 0.6875rem;
 }
 .markdown code {
   font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
@@ -1055,7 +1062,7 @@ button {
 .markdown th {
   border: 1px solid #e4e9dc;
   padding: 7px 10px;
-  font-size: 12px;
+  font-size: 0.75rem;
   text-align: left;
 }
 .markdown th {
@@ -1101,12 +1108,12 @@ button {
   animation-delay: 0.36s;
 }
 .thinking small {
-  font-size: 11px;
+  font-size: 0.6875rem;
   color: #787b74;
   margin-left: 7px;
 }
 .tool-message {
-  font-size: 11px;
+  font-size: 0.6875rem;
   color: #757871;
   border-radius: 8px;
   border: 1px solid #e8ece0;
@@ -1125,19 +1132,19 @@ button {
   margin: 0;
   max-height: 250px;
   border-top: 1px solid #e8ece0;
-  font-size: 10px;
+  font-size: 0.625rem;
   line-height: 1.6;
 }
 .activity-message {
   margin: 16px 0;
   color: #757871;
-  font-size: 12px;
+  font-size: 0.75rem;
   min-width: 0;
 }
 .activity-intent {
   margin: 0 0 3px;
   color: #63665f;
-  font-size: 13px;
+  font-size: 0.8125rem;
   line-height: 1.6;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -1175,7 +1182,7 @@ button {
   line-height: 1.6;
 }
 .activity-group > summary > .activity-title {
-  font-size: 11px;
+  font-size: 0.6875rem;
 }
 .activity-group > summary {
   gap: 5px;
@@ -1220,7 +1227,7 @@ button {
 }
 .activity-status {
   white-space: nowrap;
-  font-size: 10px;
+  font-size: 0.625rem;
   color: #878b80;
 }
 .activity-status.error,
@@ -1248,7 +1255,7 @@ button {
 }
 .activity-tool {
   min-width: 0;
-  font-size: 11px;
+  font-size: 0.6875rem;
 }
 .activity-tool > summary > .activity-status {
   margin-left: auto;
@@ -1258,7 +1265,7 @@ button {
   min-width: 0;
 }
 .activity-tool-detail > code {
-  font-size: 10px;
+  font-size: 0.625rem;
   overflow-wrap: anywhere;
 }
 .activity-progress,
@@ -1273,7 +1280,7 @@ button {
 }
 .activity-payload > strong {
   display: block;
-  font-size: 10px;
+  font-size: 0.625rem;
   font-weight: 500;
   margin-bottom: 5px;
 }
@@ -1284,7 +1291,7 @@ button {
   overflow: auto;
   background: #f7f8f4;
   border-radius: 6px;
-  font-size: 10px;
+  font-size: 0.625rem;
   line-height: 1.7;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -1294,7 +1301,7 @@ button {
   align-items: center;
   gap: 7px;
   margin: 4px 0 0 21px;
-  font-size: 11px;
+  font-size: 0.6875rem;
   line-height: 1.6;
 }
 .activity-failure > svg {
@@ -1314,12 +1321,12 @@ button {
   color: #63665f;
 }
 .permission-heading strong {
-  font-size: 12px;
+  font-size: 0.75rem;
   display: block;
   font-weight: 550;
 }
 .permission-heading span {
-  font-size: 10px;
+  font-size: 0.625rem;
   color: #787b74;
   display: block;
   margin-top: 4px;
@@ -1328,7 +1335,7 @@ button {
   max-height: 320px;
   overflow: auto;
   font-family: 'SFMono-Regular', Consolas, monospace;
-  font-size: 12px;
+  font-size: 0.75rem;
   line-height: 1.7;
   white-space: pre-wrap;
   margin: 14px 0;
@@ -1363,7 +1370,7 @@ button {
   align-items: center;
   justify-content: center;
   gap: 12px;
-  font-size: 12px;
+  font-size: 0.75rem;
   color: #777a73;
 }
 .history-loading {
@@ -1372,7 +1379,7 @@ button {
   justify-content: center;
   gap: 8px;
   color: #787b74;
-  font-size: 11px;
+  font-size: 0.6875rem;
   padding: 10px;
 }
 .dropdown {
@@ -1394,7 +1401,7 @@ button {
   align-items: center;
   gap: 9px;
   padding: 8px 10px;
-  font-size: 12px;
+  font-size: 0.75rem;
   color: #585b54;
   border-radius: 5px;
   cursor: pointer;
@@ -1417,7 +1424,7 @@ button {
   background: #fbf1ed;
 }
 .dropdown-label {
-  font-size: 10px;
+  font-size: 0.625rem;
   color: #787b74;
   padding: 10px 10px 5px;
 }
@@ -1456,7 +1463,7 @@ button {
 }
 .work-permission-confirmation {
   padding: 22px 26px 26px;
-  font-size: 12px;
+  font-size: 0.75rem;
   line-height: 1.8;
   color: #62665d;
 }
@@ -1479,13 +1486,13 @@ button {
   flex-shrink: 0;
 }
 .modal-header h2 {
-  font-size: 18px;
+  font-size: 1.125rem;
   font-weight: 550;
   letter-spacing: -0.5px;
   margin: 0;
 }
 .modal-header p {
-  font-size: 11px;
+  font-size: 0.6875rem;
   color: #787b74;
   margin-top: 9px;
 }
@@ -1512,7 +1519,7 @@ button {
   border-radius: 7px;
   text-align: left;
   color: #767972;
-  font-size: 12px;
+  font-size: 0.75rem;
 }
 .settings-nav > button:hover {
   background: #eef2e7;
@@ -1524,11 +1531,11 @@ button {
 .settings-version {
   margin-top: auto;
   padding: 16px 12px 0;
-  font-size: 11px;
+  font-size: 0.6875rem;
   color: #787b74;
 }
 .settings-version > span {
-  font-size: 9px;
+  font-size: 0.5625rem;
   margin-left: 7px;
 }
 .settings-content {
@@ -1547,7 +1554,7 @@ button {
 }
 .settings-section-heading h3,
 .provider-form h3 {
-  font-size: 15px;
+  font-size: 0.9375rem;
   font-weight: 550;
   color: #4d6039;
 }
@@ -1561,7 +1568,7 @@ button {
   align-items: center;
   gap: 5px;
   color: #787b74;
-  font-size: 10px;
+  font-size: 0.625rem;
   white-space: nowrap;
   flex-shrink: 0;
 }
@@ -1594,7 +1601,7 @@ button {
 }
 .credential-field > small,
 .credential-loading {
-  font-size: 10px;
+  font-size: 0.625rem;
   color: #787b74;
   line-height: 1.7;
 }
@@ -1614,7 +1621,7 @@ button {
   margin-top: 0;
 }
 .settings-section-heading p {
-  font-size: 11px;
+  font-size: 0.6875rem;
   color: #787b74;
   line-height: 1.8;
   margin-top: 9px;
@@ -1631,7 +1638,7 @@ button {
   background: #fff;
   border-radius: 7px;
   padding: 9px 13px;
-  font-size: 12px;
+  font-size: 0.75rem;
   color: #656861;
   line-height: 1.3;
   white-space: nowrap;
@@ -1658,14 +1665,14 @@ button {
 }
 .button.compact {
   padding: 7px 10px;
-  font-size: 11px;
+  font-size: 0.6875rem;
 }
 .text-button {
   display: inline-flex;
   align-items: center;
   gap: 5px;
   color: #6d7069;
-  font-size: 11px;
+  font-size: 0.6875rem;
   padding: 0;
   text-decoration: none;
 }
@@ -1688,12 +1695,12 @@ button {
   margin-bottom: 20px;
 }
 .empty-providers h4 {
-  font-size: 15px;
+  font-size: 0.9375rem;
   font-weight: 500;
   color: #5f625b;
 }
 .empty-providers p {
-  font-size: 11px;
+  font-size: 0.6875rem;
   line-height: 1.9;
   color: #787b74;
   margin: 13px 0 22px;
@@ -1708,7 +1715,7 @@ button {
 .protocol-badges span {
   border: 1px solid #e5edda;
   color: #787b74;
-  font-size: 9px;
+  font-size: 0.5625rem;
   border-radius: 5px;
   padding: 4px 7px;
 }
@@ -1733,7 +1740,7 @@ button {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 14px;
+  font-size: 0.875rem;
 }
 .provider-details {
   display: flex;
@@ -1746,17 +1753,17 @@ button {
   padding: 0;
 }
 .provider-details strong {
-  font-size: 12px;
+  font-size: 0.75rem;
   color: #60635c;
   font-weight: 550;
 }
 .provider-details > span {
-  font-size: 10px;
+  font-size: 0.625rem;
   color: #787b74;
 }
 .provider-details > small {
   display: block;
-  font-size: 9px;
+  font-size: 0.5625rem;
   color: #787b74;
   max-width: 100%;
   overflow: hidden;
@@ -1764,7 +1771,7 @@ button {
   white-space: nowrap;
 }
 .key-status {
-  font-size: 9px;
+  font-size: 0.5625rem;
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -1782,17 +1789,17 @@ button {
 .back-button {
   margin-bottom: 1px;
   color: #787b74;
-  font-size: 10px;
+  font-size: 0.625rem;
 }
 label {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  font-size: 11px;
+  font-size: 0.6875rem;
   color: #71746d;
 }
 label small {
-  font-size: 10px;
+  font-size: 0.625rem;
   color: #787b74;
   line-height: 1.7;
 }
@@ -1803,7 +1810,7 @@ select {
   color: #5c5f58;
   background: #fff;
   border-radius: 7px;
-  font-size: 12px;
+  font-size: 0.75rem;
   padding: 10px 11px;
   min-height: 36px;
   transition: border-color 0.15s;
@@ -1847,7 +1854,7 @@ select {
   grid-template-columns: repeat(3, 1fr);
 }
 .optional {
-  font-size: 9px;
+  font-size: 0.5625rem;
   color: #787b74;
 }
 .models-heading {
@@ -1857,12 +1864,12 @@ select {
   padding-top: 3px;
 }
 .models-heading h4 {
-  font-size: 12px;
+  font-size: 0.75rem;
   font-weight: 550;
   color: #6d7069;
 }
 .models-heading p {
-  font-size: 10px;
+  font-size: 0.625rem;
   margin-top: 7px;
   color: #787b74;
 }
@@ -1875,7 +1882,7 @@ select {
   min-width: 0;
 }
 .model-editor legend {
-  font-size: 10px;
+  font-size: 0.625rem;
   color: #787b74;
   padding: 0 6px;
 }
@@ -1893,19 +1900,19 @@ select {
 .advanced-model summary,
 .ssh-fields details summary {
   cursor: pointer;
-  font-size: 10px;
+  font-size: 0.625rem;
   color: #787b74;
 }
 .advanced-model[open] summary {
   margin-bottom: 15px;
 }
 .advanced-model p {
-  font-size: 9px;
+  font-size: 0.5625rem;
   color: #787b74;
   margin-top: 10px;
 }
 .advanced-model label {
-  font-size: 10px;
+  font-size: 0.625rem;
 }
 .form-footer {
   display: flex;
@@ -1918,7 +1925,7 @@ select {
 .notice {
   border-radius: 8px;
   padding: 12px 14px;
-  font-size: 11px;
+  font-size: 0.6875rem;
   line-height: 1.7;
   overflow-wrap: anywhere;
   margin: 8px 0;
@@ -1960,7 +1967,7 @@ select {
 }
 .toggle-row strong {
   display: block;
-  font-size: 12px;
+  font-size: 0.75rem;
   color: #73766f;
   font-weight: 500;
 }
@@ -2002,7 +2009,7 @@ select {
   background: #f8fbf2;
   border-radius: 8px;
   padding: 13px;
-  font-size: 10px;
+  font-size: 0.625rem;
   line-height: 1.8;
 }
 .info-box > svg {
@@ -2021,16 +2028,16 @@ select {
   height: 40px;
 }
 .about-card h4 {
-  font-size: 15px;
+  font-size: 0.9375rem;
   color: #767972;
 }
 .about-card p {
-  font-size: 11px;
+  font-size: 0.6875rem;
   margin: 6px 0;
   color: #787b74;
 }
 .about-card div > span {
-  font-size: 9px;
+  font-size: 0.5625rem;
   color: #787b74;
 }
 .inline-confirm {
@@ -2041,7 +2048,7 @@ select {
   background: #fff7f3;
 }
 .inline-confirm p {
-  font-size: 11px;
+  font-size: 0.6875rem;
   color: #bb927b;
   line-height: 1.7;
 }
@@ -2060,7 +2067,7 @@ select {
   gap: 20px;
 }
 .simple-form > p {
-  font-size: 12px;
+  font-size: 0.75rem;
   color: #6d7069;
   line-height: 1.8;
 }
@@ -2092,11 +2099,11 @@ select {
 }
 .connection-choice strong {
   font-weight: 500;
-  font-size: 12px;
+  font-size: 0.75rem;
   color: #787b74;
 }
 .connection-choice span {
-  font-size: 10px;
+  font-size: 0.625rem;
   color: #787b74;
 }
 .choice-check {
@@ -2150,13 +2157,13 @@ select {
   text-overflow: ellipsis;
   overflow: hidden;
   white-space: nowrap;
-  font-size: 10px;
+  font-size: 0.625rem;
   color: #787b74;
 }
 .directory-heading .text-button {
   white-space: nowrap;
   padding-right: 5px;
-  font-size: 10px;
+  font-size: 0.625rem;
 }
 .directory-entries {
   max-height: 170px;
@@ -2170,7 +2177,7 @@ select {
   align-items: center;
   text-align: left;
   padding: 9px 10px;
-  font-size: 11px;
+  font-size: 0.6875rem;
   color: #787b74;
   border-radius: 5px;
 }
@@ -2181,7 +2188,7 @@ select {
   flex: 1;
 }
 .directory-entries > p {
-  font-size: 10px;
+  font-size: 0.625rem;
   color: #787b74;
   padding: 12px;
 }
@@ -2224,7 +2231,7 @@ select {
     padding-bottom: 25px;
   }
   .welcome h1 {
-    font-size: 34px;
+    font-size: 2.125rem;
     line-height: 1.45;
   }
   .suggestions {
@@ -2292,7 +2299,7 @@ select {
     padding-top: 10vh;
   }
   .welcome h1 {
-    font-size: 36px;
+    font-size: 2.25rem;
   }
   .modal-wide {
     width: calc(100vw - 28px);
@@ -2303,7 +2310,7 @@ select {
   }
   .settings-nav > button {
     padding: 9px 8px;
-    font-size: 11px;
+    font-size: 0.6875rem;
     gap: 6px;
   }
 }
@@ -2316,7 +2323,7 @@ select {
     padding: 0 16px;
   }
   .topbar-title {
-    font-size: 11px;
+    font-size: 0.6875rem;
     gap: 7px;
   }
   .breadcrumb {
@@ -2328,14 +2335,14 @@ select {
     padding: 8vh 24px 30px;
   }
   .welcome h1 {
-    font-size: 32px;
+    font-size: 2rem;
   }
   .welcome-eyebrow {
-    font-size: 11px;
+    font-size: 0.6875rem;
     margin-bottom: 20px;
   }
   .welcome > p {
-    font-size: 12px;
+    font-size: 0.75rem;
   }
   .suggestions {
     gap: 7px;
@@ -2346,11 +2353,11 @@ select {
     padding: 13px 10px;
   }
   .suggestion strong {
-    font-size: 10px;
+    font-size: 0.625rem;
     margin-top: 13px;
   }
   .suggestion > span {
-    font-size: 9px;
+    font-size: 0.5625rem;
     line-height: 1.6;
     margin-top: 5px;
   }
@@ -2366,13 +2373,13 @@ select {
     border-radius: 13px;
   }
   .composer-footnote {
-    font-size: 8px;
+    font-size: 0.5rem;
   }
   .composer-keyboard-hint {
     display: none;
   }
   .setup-banner {
-    font-size: 10px;
+    font-size: 0.625rem;
     flex-wrap: wrap;
   }
   .transcript {
@@ -2408,7 +2415,7 @@ select {
   }
   .modal-header p {
     line-height: 1.7;
-    font-size: 10px;
+    font-size: 0.625rem;
   }
   .project-form,
   .simple-form {
@@ -2454,13 +2461,13 @@ select {
 
 .interrupted-label {
   display: inline-block;
-  font-size: 10px;
+  font-size: 0.625rem;
   color: var(--muted);
   margin-top: 8px;
 }
 .link-error {
   display: block;
-  font-size: 11px;
+  font-size: 0.6875rem;
   color: #a15f4e;
   margin-top: 4px;
   overflow-wrap: anywhere;

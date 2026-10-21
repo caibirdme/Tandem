@@ -241,6 +241,7 @@ describe('preferences form ownership', () => {
     providers: [],
     titleModel: { providerId: 'title-provider', modelId: 'title-model' },
     cliPath: '/latest/copilot',
+    fontSize: 'medium',
     telemetry: {
       enabled: true,
       endpoint: 'http://latest-collector:4318',

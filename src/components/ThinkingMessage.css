@@ -2,7 +2,7 @@
   margin: 16px 0;
   min-width: 0;
   color: var(--secondary);
-  font-size: 12px;
+  font-size: 0.75rem;
 }
 
 .thinking-message > summary {
@@ -68,7 +68,7 @@
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #f5f6f2;
-  font-size: 12px;
+  font-size: 0.75rem;
   line-height: 1.65;
   white-space: pre-wrap;
   overflow-wrap: anywhere;

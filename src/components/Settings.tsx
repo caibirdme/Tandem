@@ -33,6 +33,7 @@ import type {
   Telemetry,
 } from '../lib/types';
 import { BrowserLink } from './BrowserLink';
+import { FontSizeSettings } from './FontSizeSettings';
 import { LanguageSettings } from './LanguageSettings';
 import { ProviderKeyInput } from './ProviderKeyInput';
 import { TitlePreferences } from './TitlePreferences';
@@ -597,6 +598,7 @@ function Preferences({
             </div>
           </div>
           <LanguageSettings />
+          <FontSizeSettings fontSize={settings.fontSize} onSaved={onSaved} />
           <label>
             {t('settings.cliPath')}
             <input

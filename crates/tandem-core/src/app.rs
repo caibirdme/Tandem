@@ -11,7 +11,9 @@ use tokio::sync::{Mutex, broadcast};
 use crate::{
     Error, Result,
     agent::LiveSession,
-    model::{Event, Preferences, RuntimeStatus, SessionStatus, Settings, Snapshot, Telemetry},
+    model::{
+        Event, FontSize, Preferences, RuntimeStatus, SessionStatus, Settings, Snapshot, Telemetry,
+    },
     store::Store,
     titles::TitleJobs,
     turns::ActiveTurns,
@@ -106,6 +108,7 @@ impl App {
                 providers: self.store.providers()?,
                 telemetry: preferences.telemetry,
                 cli_path: preferences.cli_path,
+                font_size: preferences.font_size,
             },
             projects: self.store.projects()?,
             sessions: self.store.sessions()?,
@@ -161,6 +164,13 @@ impl App {
         );
         *runtime = Some(running.clone());
         Ok(running)
+    }
+
+    pub(crate) async fn save_font_size(&self, font_size: FontSize) -> Result<()> {
+        let _guard = self.mutation_gate.lock().await;
+        let mut preferences = self.store.preferences()?;
+        preferences.font_size = font_size;
+        Ok(self.store.save_preferences(&preferences)?)
     }
 
     pub(crate) async fn save_preferences(
@@ -243,4 +253,89 @@ pub(crate) fn runtime_options(
 
 pub(crate) fn now() -> String {
     chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
+}
+
+#[cfg(test)]
+mod tests {
+    use anyhow::Result;
+    use serde_json::json;
+    use tempfile::TempDir;
+
+    use super::*;
+    use crate::{Request, model::PermissionMode};
+
+    #[tokio::test]
+    async fn font_size_defaults_to_medium_and_survives_preferences_saves_and_restart() -> Result<()>
+    {
+        let directory = TempDir::new()?;
+        let app = App::open(AppOptions::local(directory.path().into()))?;
+        assert_eq!(app.snapshot().await?.settings.font_size, FontSize::Medium);
+
+        for (value, expected) in [
+            ("small", FontSize::Small),
+            ("medium", FontSize::Medium),
+            ("large", FontSize::Large),
+        ] {
+            let request = serde_json::from_value(json!({
+                "command": "save_font_size", "payload": {"fontSize": value}
+            }))?;
+            app.dispatch(request).await?;
+            app.save_preferences(Telemetry::default(), None).await?;
+            assert_eq!(app.snapshot().await?.settings.font_size, expected);
+        }
+
+        for invalid in [json!("huge"), json!(""), json!(2), json!(null)] {
+            assert!(
+                serde_json::from_value::<Request>(json!({
+                    "command": "save_font_size", "payload": {"fontSize": invalid}
+                }))
+                .is_err()
+            );
+        }
+        assert!(
+            serde_json::from_value::<Request>(json!({
+                "command": "save_font_size", "payload": {}
+            }))
+            .is_err()
+        );
+        drop(app);
+        let reopened = App::open(AppOptions::local(directory.path().into()))?;
+        assert_eq!(
+            reopened.snapshot().await?.settings.font_size,
+            FontSize::Large
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn changing_font_size_preserves_running_sessions_and_other_preferences() -> Result<()> {
+        let directory = TempDir::new()?;
+        let app = App::open(AppOptions::local(directory.path().into()))?;
+        let provider = app.save_provider(serde_json::from_value(json!({
+            "id": "", "name": "Fixture", "protocol": "anthropic", "baseUrl": "https://example.invalid",
+            "models": [{"id": "chat", "name": "Chat", "contextWindow": 200_000}]
+        }))?, None).await?;
+        let mut session = app
+            .create_session(None, provider.id, "chat".into(), PermissionMode::Ask, None)
+            .await?;
+        session.status = SessionStatus::Running;
+        app.store.save_session(&session)?;
+        let before = serde_json::to_value(app.store.preferences()?)?;
+
+        app.dispatch(Request::SaveFontSize {
+            font_size: FontSize::Large,
+        })
+        .await?;
+
+        assert_eq!(
+            app.store.session(&session.id)?.status,
+            SessionStatus::Running
+        );
+        let after = serde_json::to_value(app.store.preferences()?)?;
+        for key in ["telemetry", "cliPath", "titleModel"] {
+            assert_eq!(after[key], before[key]);
+        }
+        assert_eq!(after["fontSize"], "large");
+        Ok(())
+    }
 }

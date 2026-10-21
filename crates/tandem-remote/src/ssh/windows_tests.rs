@@ -81,8 +81,8 @@ async fn ssh_process_has_no_console_and_preserves_all_pipes() -> Result<(), Box<
     let probe = ConsoleProbe::build().await?;
     let connection = SshConnection {
         host: "console-probe.invalid".into(),
-        port: 22,
-        user: "console-probe".into(),
+        port: Some(22),
+        user: Some("console-probe".into()),
         identity_file: None,
     };
     // Resolve only the isolated console executable; no SSH server or user keys are used.

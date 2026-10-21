@@ -6,6 +6,7 @@ import {
   FolderOpen,
   Laptop,
   Plug,
+  RefreshCw,
   Server,
 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
@@ -32,6 +33,12 @@ export function ProjectDialog({
   const [user, setUser] = useState('');
   const [port, setPort] = useState('22');
   const [identityFile, setIdentityFile] = useState('');
+  const [sshSource, setSshSource] = useState<'config' | 'manual'>('config');
+  const [sshHosts, setSshHosts] = useState<string[]>([]);
+  const [sshAlias, setSshAlias] = useState('');
+  const [sshHostsLoading, setSshHostsLoading] = useState(true);
+  const [sshHostsError, setSshHostsError] = useState<string | null>(null);
+  const [sshHostsRevision, setSshHostsRevision] = useState(0);
   const [busy, setBusy] = useState<'save' | 'check' | 'browse' | null>(null);
   const [notice, setNotice] = useState<{ text: string; error: boolean } | null>(null);
   const [connectionNotice, setConnectionNotice] = useState<{
@@ -47,23 +54,49 @@ export function ProjectDialog({
   const connection: Connection =
     kind === 'local'
       ? { kind }
-      : {
-          kind,
-          host: host.trim(),
-          user: user.trim(),
-          port: Number(port),
-          identityFile: identityFile.trim() || null,
-        };
+      : sshSource === 'config'
+        ? { kind, host: sshAlias, user: null, port: null, identityFile: null }
+        : {
+            kind,
+            host: host.trim(),
+            user: user.trim(),
+            port: Number(port),
+            identityFile: identityFile.trim() || null,
+          };
   const connectionKey = JSON.stringify(connection);
   const visibleConnectionNotice =
     connectionNotice?.connectionKey === connectionKey ? connectionNotice : null;
   const connectionValid =
     kind === 'local' ||
-    (host.trim().length > 0 &&
-      user.trim().length > 0 &&
-      Number.isInteger(Number(port)) &&
-      Number(port) > 0 &&
-      Number(port) <= 65535);
+    (sshSource === 'config'
+      ? sshAlias.length > 0 && !sshHostsLoading && !sshHostsError
+      : host.trim().length > 0 &&
+        user.trim().length > 0 &&
+        Number.isInteger(Number(port)) &&
+        Number(port) > 0 &&
+        Number(port) <= 65535);
+
+  useEffect(() => {
+    if (!open || kind !== 'ssh') return;
+    let cancelled = false;
+    void dispatch('list_ssh_hosts', {})
+      .then((hosts) => {
+        if (cancelled) return;
+        setSshHostsError(null);
+        setSshHosts(hosts);
+        setSshAlias((alias) => (hosts.includes(alias) ? alias : ''));
+      })
+      .catch((reason: unknown) => {
+        if (cancelled) return;
+        setSshHostsError(errorMessage(reason));
+      })
+      .finally(() => {
+        if (!cancelled) setSshHostsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, kind, sshHostsRevision]);
 
   useEffect(() => {
     if (listing) directoryBrowserRef.current?.scrollIntoView({ block: 'nearest' });
@@ -174,6 +207,10 @@ export function ProjectDialog({
             className={kind === 'ssh' ? 'active' : ''}
             onClick={() => {
               setKind('ssh');
+              if (kind !== 'ssh') {
+                setSshHostsLoading(true);
+                setSshHostsError(null);
+              }
               setListing(null);
               setNotice(null);
               setConnectionNotice(null);
@@ -187,70 +224,134 @@ export function ProjectDialog({
         </fieldset>
         {kind === 'ssh' && (
           <div className="ssh-fields">
-            <div className="form-grid host-port">
-              <label>
-                <span>
-                  {t('project.host')} <RequiredMark />
-                </span>
-                <input
-                  required
-                  value={host}
-                  onChange={(event) => {
-                    setHost(event.target.value);
-                    setConnectionNotice(null);
-                  }}
-                  placeholder={t('project.hostExample')}
-                  autoComplete="off"
-                />
-              </label>
-              <label>
-                <span>
-                  {t('project.port')} <RequiredMark />
-                </span>
-                <input
-                  className="number-input"
-                  type="number"
-                  required
-                  min="1"
-                  max="65535"
-                  value={port}
-                  onChange={(event) => {
-                    setPort(event.target.value);
-                    setConnectionNotice(null);
-                  }}
-                />
-              </label>
-            </div>
             <label>
-              <span>
-                {t('project.user')} <RequiredMark />
-              </span>
-              <input
-                required
-                value={user}
+              {t('project.sshSource')}
+              <select
+                value={sshSource}
+                disabled={busy !== null}
                 onChange={(event) => {
-                  setUser(event.target.value);
+                  setSshSource(event.target.value === 'config' ? 'config' : 'manual');
+                  setListing(null);
                   setConnectionNotice(null);
                 }}
-                placeholder={t('project.userExample')}
-                autoComplete="username"
-              />
+              >
+                <option value="config">{t('project.sshFromConfig')}</option>
+                <option value="manual">{t('project.sshManual')}</option>
+              </select>
             </label>
-            <details>
-              <summary>{t('project.sshKey')}</summary>
+            {sshSource === 'config' ? (
               <label>
-                {t('project.keyPath')}
-                <input
-                  value={identityFile}
-                  onChange={(event) => {
-                    setIdentityFile(event.target.value);
-                    setConnectionNotice(null);
-                  }}
-                  placeholder="~/.ssh/id_ed25519"
-                />
-                <small>{t('project.keyHint')}</small>
+                <span>
+                  {t('project.sshConfigHost')} <RequiredMark />
+                </span>
+                <div className="input-with-button">
+                  <select
+                    required
+                    value={sshAlias}
+                    disabled={sshHostsLoading || busy !== null}
+                    onChange={(event) => {
+                      setSshAlias(event.target.value);
+                      setListing(null);
+                      setConnectionNotice(null);
+                    }}
+                  >
+                    <option value="">
+                      {sshHostsLoading ? t('project.sshHostsLoading') : t('project.sshChooseHost')}
+                    </option>
+                    {sshHosts.map((alias) => (
+                      <option key={alias} value={alias}>
+                        {alias}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    className="button"
+                    type="button"
+                    disabled={sshHostsLoading || busy !== null}
+                    onClick={() => {
+                      setSshHostsLoading(true);
+                      setSshHostsError(null);
+                      setSshHostsRevision((revision) => revision + 1);
+                    }}
+                    aria-label={t('project.sshRefreshHosts')}
+                  >
+                    {sshHostsLoading ? <Spinner /> : <RefreshCw size={16} />}
+                  </button>
+                </div>
+                <small>{t('project.sshConfigHint')}</small>
+                {!sshHostsLoading && !sshHostsError && sshHosts.length === 0 && (
+                  <small>{t('project.sshNoHosts')}</small>
+                )}
+                {sshHostsError && <Notice>{sshHostsError}</Notice>}
               </label>
-            </details>
+            ) : (
+              <>
+                <div className="form-grid host-port">
+                  <label>
+                    <span>
+                      {t('project.host')} <RequiredMark />
+                    </span>
+                    <input
+                      required
+                      value={host}
+                      onChange={(event) => {
+                        setHost(event.target.value);
+                        setConnectionNotice(null);
+                      }}
+                      placeholder={t('project.hostExample')}
+                      autoComplete="off"
+                    />
+                  </label>
+                  <label>
+                    <span>
+                      {t('project.port')} <RequiredMark />
+                    </span>
+                    <input
+                      className="number-input"
+                      type="number"
+                      required
+                      min="1"
+                      max="65535"
+                      value={port}
+                      onChange={(event) => {
+                        setPort(event.target.value);
+                        setConnectionNotice(null);
+                      }}
+                    />
+                  </label>
+                </div>
+                <label>
+                  <span>
+                    {t('project.user')} <RequiredMark />
+                  </span>
+                  <input
+                    required
+                    value={user}
+                    onChange={(event) => {
+                      setUser(event.target.value);
+                      setConnectionNotice(null);
+                    }}
+                    placeholder={t('project.userExample')}
+                    autoComplete="username"
+                  />
+                </label>
+                <details>
+                  <summary>{t('project.sshKey')}</summary>
+                  <label>
+                    {t('project.keyPath')}
+                    <input
+                      value={identityFile}
+                      onChange={(event) => {
+                        setIdentityFile(event.target.value);
+                        setConnectionNotice(null);
+                      }}
+                      placeholder="~/.ssh/id_ed25519"
+                    />
+                    <small>{t('project.keyHint')}</small>
+                  </label>
+                </details>
+              </>
+            )}
             <button
               className="button compact"
               type="button"

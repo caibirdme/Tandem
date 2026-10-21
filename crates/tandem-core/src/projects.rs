@@ -13,6 +13,10 @@ use crate::{
 };
 
 impl App {
+    pub(crate) async fn list_ssh_hosts() -> Result<Vec<String>> {
+        Ok(tandem_remote::list_ssh_hosts().await?)
+    }
+
     pub(crate) async fn create_project(
         &self,
         name: String,

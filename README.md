@@ -51,13 +51,13 @@ _Use your provider's model IDs and check the request URL preview before saving._
 
 Work starts with **Ask each time**. Use the control beside the composer to choose **Full access** if you want tool requests approved automatically. Commands run with your user account's access on the execution machine.
 
-The first message prepares the bundled runtime automatically. To use Simplified Chinese, open **Settings > General > Language**.
+The first message prepares the bundled runtime automatically. To use Simplified Chinese, open **Settings > General > Language**. Choose **Font size** in the same section for Small, Medium (the default), or Large text; changes apply immediately and are saved on this device.
 
 Paste images with **Ctrl+V** (**Command+V** on macOS), drag files into the composer, or use the attachment button. Remove an attachment with its **×** before sending. Attachments also work in local and SSH project conversations. See [Images and files](docs/user-guide.md#images-and-files) for limits and history.
 
 ### 3. Connect an SSH project
 
-Log in once with your system terminal to confirm the host fingerprint and set up a key or ssh-agent. In **Add project**, choose **Remote project**, enter the SSH connection details, and click **Test connection**. Use the folder button (**Browse directories**) beside **Working directory** to select a remote folder, then create the project.
+Log in once with your system terminal to confirm the host fingerprint and set up a key or ssh-agent. In **Add project > Remote project**, select a saved host from your local SSH config and click **Test connection**. Tandem reuses its username, port, keys, and jump hosts. You can also choose **Enter manually** to enter connection details. Use the folder button (**Browse directories**) beside **Working directory** to select a remote folder, then create the project.
 
 ![Tandem remote project dialog with SSH connection details and a working-directory field](docs/images/ssh-project.jpg)
 

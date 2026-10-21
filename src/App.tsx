@@ -59,6 +59,10 @@ export function App() {
   const [deleteProject, setDeleteProject] = useState<Project | null>(null);
   const [sessionTitle, setSessionTitle] = useState('');
   const snapshot = tandem.snapshot;
+  const fontSize = snapshot?.settings.fontSize ?? 'medium';
+  useEffect(() => {
+    document.documentElement.dataset.fontSize = fontSize;
+  }, [fontSize]);
   const session = snapshot?.sessions.find((item) => item.id === tandem.activeSessionId);
   const project = snapshot?.projects.find((item) => item.id === (session?.projectId ?? projectId));
   const sendScope = session?.id ?? viewKey;

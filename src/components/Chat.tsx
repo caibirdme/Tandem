@@ -489,7 +489,7 @@ export function Chat(props: ChatProps) {
                 )}
                 <span>
                   {props.project.connection.kind === 'ssh'
-                    ? `${props.project.connection.user}@${props.project.connection.host}:`
+                    ? `${props.project.connection.user ? `${props.project.connection.user}@` : ''}${props.project.connection.host}:`
                     : ''}
                   {props.project.path}
                 </span>

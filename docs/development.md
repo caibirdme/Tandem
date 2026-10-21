@@ -36,6 +36,10 @@ Unit tests cover state merging, permission denial, configuration boundaries, dat
 
 The UI defaults to English. **Settings > General > Language** switches the active locale immediately and stores the choice locally under `tandem.locale`, so it survives application restarts. The language preference is independent of provider configuration and contains no credentials.
 
+**Settings > General > Font size** persists Small, Medium (default), or Large through `save_font_size {fontSize: "small" | "medium" | "large"}`. Snapshot `settings.fontSize` is the confirmed value. This command preserves provider, title, telemetry, and CLI settings and does not stop active sessions. Use rem units for typography so all three sizes apply to new components.
+
+`list_ssh_hosts {}` returns concrete aliases discovered from the local OpenSSH user config and included files. The project picker sends selected aliases as `{kind: "ssh", host: alias, port: null, user: null, identityFile: null}`; OpenSSH resolves connection details without UI-supplied overrides. Manual connections send explicit username and port. Discovery does not evaluate SSH configuration commands.
+
 Keep UI strings in the typed catalogs under `src/i18n/`. To add a language, create a catalog matching the English message keys and parameter signatures, then register its locale code and display name in the locale registry. Use the translation helper in components and the selected locale for dates and counts. Keep protocol identifiers, model IDs, paths, and user content unchanged. Run the frontend checks after adding or changing catalog entries.
 
 ## PR checks

@@ -73,8 +73,8 @@ mod tests {
             Some(Connection::Local),
             Some(Connection::Ssh {
                 host: "fixture.invalid".into(),
-                port: 22,
-                user: "fixture".into(),
+                port: Some(22),
+                user: Some("fixture".into()),
                 identity_file: None,
             }),
         ] {

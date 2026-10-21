@@ -20,8 +20,8 @@ const OUTPUT_LIMIT: usize = 1024 * 1024;
 #[serde(rename_all = "camelCase")]
 pub struct SshConnection {
     pub host: String,
-    pub port: u16,
-    pub user: String,
+    pub port: Option<u16>,
+    pub user: Option<String>,
     #[serde(default)]
     pub identity_file: Option<String>,
 }
@@ -43,18 +43,18 @@ impl SshConnection {
                 ConnectionValidationError::Host,
             ));
         }
-        if self.user.is_empty()
-            || self.user.len() > 128
-            || !self
-                .user
-                .bytes()
-                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
-        {
+        if self.user.as_ref().is_some_and(|user| {
+            user.is_empty()
+                || user.len() > 128
+                || !user
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
+        }) {
             return Err(RemoteError::InvalidConnection(
                 ConnectionValidationError::Username,
             ));
         }
-        if self.port == 0 {
+        if self.port == Some(0) {
             return Err(RemoteError::InvalidConnection(
                 ConnectionValidationError::Port,
             ));
@@ -117,11 +117,12 @@ impl SshConnection {
             "-o",
             "LogLevel=ERROR",
         ]);
-        command
-            .arg("-p")
-            .arg(self.port.to_string())
-            .arg("-l")
-            .arg(&self.user);
+        if let Some(port) = self.port {
+            command.arg("-p").arg(port.to_string());
+        }
+        if let Some(user) = &self.user {
+            command.arg("-l").arg(user);
+        }
         if let Some(path) = &self.identity_file {
             command.arg("-i").arg(path);
         }
@@ -269,8 +270,8 @@ mod tests {
         ] {
             let connection = SshConnection {
                 host: host.to_owned(),
-                port: 22,
-                user: "developer".into(),
+                port: Some(22),
+                user: Some("developer".into()),
                 identity_file: None,
             };
             assert_eq!(connection.validate().is_ok(), accepted, "{host:?}");
@@ -281,8 +282,8 @@ mod tests {
     fn invalid_connection_fields_have_distinct_variants() {
         let valid = SshConnection {
             host: "host".into(),
-            port: 22,
-            user: "developer".into(),
+            port: Some(22),
+            user: Some("developer".into()),
             identity_file: None,
         };
         for (connection, expected) in [
@@ -295,14 +296,14 @@ mod tests {
             ),
             (
                 SshConnection {
-                    user: String::new(),
+                    user: Some(String::new()),
                     ..valid.clone()
                 },
                 ConnectionValidationError::Username,
             ),
             (
                 SshConnection {
-                    port: 0,
+                    port: Some(0),
                     ..valid.clone()
                 },
                 ConnectionValidationError::Port,
@@ -319,6 +320,54 @@ mod tests {
                 panic!("invalid SSH field was not classified as {expected:?}");
             };
             assert_eq!(actual, expected);
+        }
+    }
+
+    #[test]
+    fn inherits_config_unless_connection_fields_are_explicit() {
+        let inherited: SshConnection = serde_json::from_value(serde_json::json!({
+            "host": "configured-host"
+        }))
+        .unwrap_or_else(|error| panic!("decode failed: {error}"));
+        assert!(inherited.validate().is_ok());
+        let explicit = SshConnection {
+            port: Some(2202),
+            user: Some("developer".into()),
+            identity_file: Some("key with spaces".into()),
+            ..inherited.clone()
+        };
+        for (connection, expected) in [
+            (inherited, vec!["configured-host", "probe"]),
+            (
+                explicit,
+                vec![
+                    "-p",
+                    "2202",
+                    "-l",
+                    "developer",
+                    "-i",
+                    "key with spaces",
+                    "configured-host",
+                    "probe",
+                ],
+            ),
+        ] {
+            let command = connection.command("probe");
+            let arguments: Vec<_> = command.as_std().get_args().collect();
+            let tail = &arguments[arguments.len() - expected.len()..];
+            assert_eq!(tail, expected);
+            assert_eq!(
+                arguments.contains(&std::ffi::OsStr::new("-p")),
+                connection.port.is_some()
+            );
+            assert_eq!(
+                arguments.contains(&std::ffi::OsStr::new("-l")),
+                connection.user.is_some()
+            );
+            assert_eq!(
+                arguments.contains(&std::ffi::OsStr::new("-i")),
+                connection.identity_file.is_some()
+            );
         }
     }
 

@@ -62,6 +62,8 @@ Telemetry is process-wide. Every desktop skill scan and session start supplies t
 
 The application command entry point only dispatches requests and serializes results. Providers, projects, and sessions each own validation, concurrency rules, and persistence. `AgentHandle` contains the differences between local and remote agents; conversion from events to UI history is maintained separately. Session states and message roles use enums while retaining the existing JSON strings externally.
 
+The remote project dialog discovers explicit aliases from the local OpenSSH user config and `Include` files through `tandem-remote`; discovery reads bounded files without evaluating `Match` commands. A selected alias is stored as the SSH host with null username, port, and identity overrides. OpenSSH resolves the full configuration at connection time, retaining conditional settings, multiple identity files, and jump hosts. Manual connections supply explicit username and port overrides. The same connection representation serves connection tests, directory browsing, project creation, and resumed work.
+
 A pure reducer centralizes frontend session state changes; subscriptions and requests remain in hooks. Form submission rules are separate from components, so history merging, late events, and key retention/deletion can be tested without starting the desktop. Both SSH endpoints share framing and size limits. Connection tests inject I/O to cover broken streams and write failures directly.
 
 ## Message attachments
@@ -85,6 +87,8 @@ Desktop IPC and development HTTP serialize command failures as `{code, error}`. 
 The application defaults to English, independently of the operating system language. Users can switch to Simplified Chinese in **Settings > General > Language**. The selection applies immediately and is saved under `tandem.locale` in the local browser/webview storage; only the language preference is stored there. Startup applies that preference before rendering the interface.
 
 `src/i18n/` owns the locale registry and typed message catalogs. Components select messages by stable keys rather than embedding translated copy. English defines the message shape, and other catalogs must provide the same keys and compatible message parameters. Use the active locale when introducing user-facing date or number formatting. Adding a language requires a catalog and a locale registry entry; it does not require changing component behavior. Untouched session-title placeholders use the selected language, identified by existing `titleState: "pending"` metadata; generated and manually saved titles retain their original values. User content, model IDs, paths, and backend diagnostic details also retain their original values.
+
+Font size is a typed Small/Medium/Large preference stored with local SQLite settings, with Medium as the default. `save_font_size` changes only this preference and is independent of runtime configuration, so it can apply during active work. The frontend applies the confirmed value to the document root; rem-based typography scales text consistently across the interface while fixed layout dimensions remain unchanged. Small uses the original text sizes, Medium scales them by 1.15, and Large by 1.30.
 
 ## Chat boundaries
 

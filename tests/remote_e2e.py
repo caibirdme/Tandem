@@ -255,7 +255,8 @@ class IsolatedSsh:
             f'Port {self.port}', 'ListenAddress 127.0.0.1', f'HostKey {directory}/host',
             f'PidFile {directory}/sshd.pid', f'AuthorizedKeysFile {directory}/identity.pub',
             'PasswordAuthentication no', 'KbdInteractiveAuthentication no', 'UsePAM no',
-            'StrictModes no', 'PermitUserRC no', 'AllowTcpForwarding no', 'AllowAgentForwarding no',
+            'StrictModes no', 'PermitUserRC no', 'AllowTcpForwarding local', 'AllowAgentForwarding no',
+            f'PermitOpen 127.0.0.1:{self.port}',
             f'AllowUsers {getpass.getuser()}', 'LogLevel ERROR',
             f'ForceCommand {shlex.quote(sys.executable)} {shlex.quote(str(forced))}', '',
         ]))
@@ -274,14 +275,34 @@ class IsolatedSsh:
             raise TimeoutError('Isolated SSH daemon did not become ready')
         wrapper_directory = directory / 'bin'
         wrapper_directory.mkdir()
+        self.client_home = directory / 'client-home'
+        config_directory = self.client_home / '.ssh'
+        config_directory.mkdir(parents=True, mode=0o700)
+        self.client_config = config_directory / 'config'
+        self.client_config.write_text('Include hosts/*.conf\n')
+        self.client_config.chmod(0o600)
+        hosts = config_directory / 'hosts'
+        hosts.mkdir()
+        (hosts / 'acceptance.conf').write_text('\n'.join([
+            'Host tandem-config-target', '    HostName 127.0.0.1',
+            '    ProxyJump tandem-config-jump',
+            'Host tandem-config-target tandem-config-jump',
+            '    HostName 127.0.0.1', f'    Port {self.port}',
+            f'    User {getpass.getuser()}', f'    IdentityFile "{directory / "identity"}"',
+            '    IdentitiesOnly yes', '    StrictHostKeyChecking yes',
+            f'    UserKnownHostsFile "{self.known_hosts}"', '    GlobalKnownHostsFile /dev/null', '',
+        ]))
+        (hosts / 'acceptance.conf').chmod(0o600)
         wrapper = wrapper_directory / 'ssh'
         wrapper.write_text('#!/bin/sh\nexec ' + shlex.join([
-            ssh, '-F', '/dev/null', '-o', f'UserKnownHostsFile={self.known_hosts}',
+            ssh, '-F', str(self.client_config), '-o', f'UserKnownHostsFile={self.known_hosts}',
             '-o', 'GlobalKnownHostsFile=/dev/null', '-o', 'IdentitiesOnly=yes',
         ]) + ' "$@"\n')
         wrapper.chmod(0o700)
         self.environment = os.environ.copy()
         self.environment['PATH'] = str(wrapper_directory) + os.pathsep + self.environment.get('PATH', '')
+        self.environment['HOME'] = str(self.client_home)
+        self.environment['USERPROFILE'] = str(self.client_home)
         self.connection = {'kind': 'ssh', 'host': '127.0.0.1', 'port': self.port,
                            'user': getpass.getuser(), 'identityFile': str(directory / 'identity')}
 
@@ -517,6 +538,8 @@ def check_ssh(remote_server, dev_server, root, endpoint, fixture):
         # Use the staged sibling tandem-server, not an ambient artifact override.
         environment.pop('TANDEM_REMOTE_ARTIFACTS', None)
         app = Application(dev_server, app_directory, env=environment)
+        require(app.command('list_ssh_hosts') == ['tandem-config-jump', 'tandem-config-target'],
+                'SSH config discovery lost included aliases or retained duplicates')
         expect_command_error(app, 'check_connection', 'host key', connection=ssh.connection)
         require(ssh.known_hosts.read_text() == '', 'Unknown SSH host was silently trusted')
         ssh.trust_fixture_key()
@@ -539,17 +562,42 @@ def check_ssh(remote_server, dev_server, root, endpoint, fixture):
         require(digest(deployed) == digest(remote_server),
                 'A server without the current protocol version was reused')
         ssh.identify_runtime_daemon()
+        configured_connection = {'kind': 'ssh', 'host': 'tandem-config-target',
+                                 'port': None, 'user': None, 'identityFile': None}
+        app.command('check_connection', connection=configured_connection)
         workspace = ssh.home / "project ' $(exit 91)"
         workspace.mkdir()
         fixture.workspace = workspace
         listing = app.command('browse_directory', connection=ssh.connection, path='~')
         require(any(entry['name'] == workspace.name for entry in listing['entries']), 'SSH directory browsing lost literal path')
+        configured_listing = app.command('browse_directory', connection=configured_connection, path='~')
+        require(configured_listing == listing,
+                'SSH alias did not inherit the configured port, username, identity, and ProxyJump')
+        configured_project = app.command('create_project', name='Configured SSH host', path=str(workspace),
+                                         connection=configured_connection)
+        require(configured_project['connection'] == configured_connection,
+                'Saving an SSH alias replaced inherited values with overrides')
+        configured_saved = next(project for project in app.command('snapshot')['projects']
+                                if project['id'] == configured_project['id'])
+        require(configured_saved['connection'] == configured_connection,
+                'Reloading an SSH alias replaced inherited values with overrides')
         provider = app.command('save_provider', provider={
             'id': '', 'name': 'SSH acceptance', 'protocol': 'openai-completions', 'baseUrl': endpoint + '/v1',
             'models': [{'id': 'gpt-4.1', 'name': 'Fixture', 'contextWindow': 128000, 'maxOutputTokens': 4096}],
         }, apiKey=FIXTURE_KEY)
         require_provider_key(app, provider['id'], FIXTURE_KEY)
         require_local_secret(app_directory, provider['id'], FIXTURE_KEY)
+        configured_session = app.command('create_session', projectId=configured_project['id'],
+                                          providerId=provider['id'], modelId='gpt-4.1')
+        configured_events = app.turn(configured_session,
+                                     'fixture:chat Verify the configured SSH alias through the SDK transport.')
+        require_context_usage(configured_events, 128000)
+        require(any(event['kind'] == 'message' and event['data'].get('content') == 'TANDEM_CHAT_OK'
+                    for event in configured_events),
+                'The configured SSH alias did not complete an SDK work turn')
+        app.wait_title(configured_session['id'], configured_events)
+        app.command('delete_session', sessionId=configured_session['id'])
+        app.command('delete_project', id=configured_project['id'])
         app.command('save_preferences', telemetry={'enabled': True, 'endpoint': endpoint,
                     'protocol': 'http/json', 'captureContent': False}, cliPath=None)
         project = app.command('create_project', name='SSH work', path=str(workspace), connection=ssh.connection)

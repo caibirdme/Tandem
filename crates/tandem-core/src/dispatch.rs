@@ -7,7 +7,7 @@ use uuid::Uuid;
 
 use crate::{
     App, Result,
-    model::{Connection, PermissionMode, Provider, Session, Telemetry, TitleModel},
+    model::{Connection, FontSize, PermissionMode, Provider, Session, Telemetry, TitleModel},
 };
 
 /// Conversation creation settings at the application command boundary.
@@ -58,6 +58,9 @@ pub enum Request {
     SavePreferences {
         telemetry: Telemetry,
         cli_path: Option<String>,
+    },
+    SaveFontSize {
+        font_size: FontSize,
     },
     SaveTitleModel {
         title_model: Option<TitleModel>,
@@ -125,6 +128,7 @@ pub enum Request {
     CheckConnection {
         connection: Connection,
     },
+    ListSshHosts {},
     BrowseDirectory {
         connection: Connection,
         path: String,
@@ -149,6 +153,7 @@ impl App {
                 telemetry,
                 cli_path,
             } => response(self.save_preferences(telemetry, cli_path).await?),
+            Request::SaveFontSize { font_size } => response(self.save_font_size(font_size).await?),
             Request::SaveTitleModel { title_model } => {
                 response(self.save_title_model(title_model).await?)
             }
@@ -228,6 +233,7 @@ impl App {
             Request::CheckConnection { connection } => {
                 Ok(json!({"message":self.check_connection(&connection).await?}))
             }
+            Request::ListSshHosts {} => response(Self::list_ssh_hosts().await?),
             Request::BrowseDirectory { connection, path } => {
                 response(self.browse_directory(&connection, &path).await?)
             }
