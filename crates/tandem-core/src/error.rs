@@ -191,7 +191,8 @@ impl Error {
             }
             Self::Remote(error) => error.code().into(),
             Self::Runtime(copilot_runtime::Error::Skills(error)) => match error {
-                copilot_runtime::SkillError::PreparationTimeout => ErrorCode::Unavailable,
+                copilot_runtime::SkillError::PreparationTimeout
+                | copilot_runtime::SkillError::DiscoveryTimeout => ErrorCode::Unavailable,
                 _ => ErrorCode::InvalidInput,
             },
             Self::Runtime(

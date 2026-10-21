@@ -9,7 +9,7 @@ use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader, DuplexS
 
 use crate::{
     AttachmentError, Error, MessageAttachment, ModelSettings, PermissionMode, ProviderProtocol,
-    ProviderSettings, Runtime, SessionMode, SessionOptions, SkillSelection,
+    ProviderSettings, Runtime, SessionMode, SessionOptions, SkillError, SkillSelection,
 };
 
 type TestResult<T = ()> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
@@ -42,8 +42,17 @@ impl SdkServer {
     }
 
     async fn respond(&mut self, request: &Value, result: Value) -> TestResult {
-        let body =
-            serde_json::to_vec(&json!({"jsonrpc":"2.0", "id":request["id"], "result":result}))?;
+        self.write_response(json!({"jsonrpc":"2.0", "id":request["id"], "result":result}))
+            .await
+    }
+
+    async fn respond_error(&mut self, request: &Value, error: Value) -> TestResult {
+        self.write_response(json!({"jsonrpc":"2.0", "id":request["id"], "error":error}))
+            .await
+    }
+
+    async fn write_response(&mut self, response: Value) -> TestResult {
+        let body = serde_json::to_vec(&response)?;
         let header = format!("Content-Length: {}\r\n\r\n", body.len());
         self.writer.write_all(header.as_bytes()).await?;
         self.writer.write_all(&body).await?;
@@ -261,6 +270,82 @@ async fn unsupported_pdf_is_rejected_before_the_sdk_receives_a_message() -> Test
         .reply("session.detach", json!({"success":true}))
         .await?;
     submit.await??;
+    Ok(())
+}
+
+#[tokio::test]
+async fn skill_discovery_preserves_sdk_failures_and_can_retry_an_empty_catalog() -> TestResult {
+    let directory = TestDirectory::new()?;
+    let canonical = std::fs::canonicalize(&directory.0)?;
+    let root = canonical.join(".agents/skills");
+    std::fs::create_dir_all(&root)?;
+    let (client_writer, reader) = duplex(65_536);
+    let (writer, client_reader) = duplex(65_536);
+    let client = Client::from_streams(client_reader, client_writer, canonical.clone())?;
+    let runtime = Runtime {
+        client,
+        chat_directory: canonical.clone(),
+    };
+    let mut server = SdkServer {
+        reader: BufReader::new(reader),
+        writer,
+    };
+    let discovery = tokio::spawn(async move {
+        let failed = runtime.list_project_skills(&canonical).await;
+        let retried = runtime.list_project_skills(&canonical).await;
+        (failed, retried)
+    });
+    let request = server.request("skills.discover").await?;
+    assert_eq!(request["params"]["excludeHostSkills"], true);
+    assert_eq!(request["params"]["projectPaths"], json!([]));
+    assert!(
+        request["params"]["skillDirectories"]
+            .as_array()
+            .ok_or("missing skill directories")?
+            .contains(&json!(root.to_string_lossy()))
+    );
+    server
+        .respond_error(
+            &request,
+            json!({"code":-32603,"message":"Skill discovery failed"}),
+        )
+        .await?;
+    server
+        .reply("skills.discover", json!({"skills":[]}))
+        .await?;
+    let (failed, retried) = discovery.await?;
+    assert!(matches!(failed, Err(Error::Sdk(_))));
+    assert_eq!(retried?, Vec::<crate::ProjectSkill>::new());
+    Ok(())
+}
+
+#[tokio::test]
+async fn skill_discovery_timeout_remains_distinct_from_an_empty_catalog() -> TestResult {
+    let directory = TestDirectory::new()?;
+    let canonical = std::fs::canonicalize(&directory.0)?;
+    std::fs::create_dir_all(canonical.join(".agents/skills"))?;
+    let (client_writer, reader) = duplex(65_536);
+    let (writer, client_reader) = duplex(65_536);
+    let client = Client::from_streams(client_reader, client_writer, canonical.clone())?;
+    let runtime = Runtime {
+        client,
+        chat_directory: canonical.clone(),
+    };
+    let mut server = SdkServer {
+        reader: BufReader::new(reader),
+        writer,
+    };
+    let discovery = tokio::spawn(async move { runtime.list_project_skills(&canonical).await });
+    server.request("skills.discover").await?;
+    assert!(!discovery.is_finished());
+    tokio::time::pause();
+    tokio::time::advance(Duration::from_secs(15)).await;
+    let result = discovery.await?;
+    tokio::time::resume();
+    assert!(matches!(
+        result,
+        Err(Error::Skills(SkillError::DiscoveryTimeout))
+    ));
     Ok(())
 }
 

@@ -19,11 +19,13 @@ Inspect the changed code and its callers. Report actionable problems with file
 locations and explain what verification would establish the expected behavior.
 ```
 
-Work makes the available skill catalog accessible to the agent so it can choose relevant skills automatically. Selecting a skill in the message box explicitly requests that skill for the next message. The two mechanisms use the same Copilot SDK skill support. For SSH projects, discovery and loading happen on the remote host, using that host's home directory; skill paths are remote paths.
+Work makes the available skill catalog accessible to the agent so it can choose relevant skills automatically. Selecting a skill in the message box explicitly requests that skill for the next message. The two mechanisms use the same Copilot SDK skill support. For SSH projects, discovery and loading happen on the remote host, using that host's home directory; skill paths are remote paths. Discovery reuses an idle conversation's existing SSH connection for the same project when available. Otherwise it opens a temporary connection, including when existing conversations are busy, so discovery cannot delay an active turn's approvals or cancellation.
 
 The directories above are checked in the listed order. When names repeat, the project source wins. No other skill directories are loaded. Skill files must resolve inside these roots; links to files outside the resolved roots are excluded. Skills marked `user-invocable: false` are omitted from the picker. Select up to 16 distinct skills per message.
 
-Missing or unreadable directories and invalid skill definitions are skipped. Other valid skills remain available. If discovery fails or times out, the picker behaves as if no skills were found, without an error or retry prompt. Reopen the picker to scan again.
+Work starts loading the skill catalog when you open the project, before you type `$`. Reopening the picker reuses the project's catalog for 60 seconds. After that, it shows the previous catalog while refreshing in the background, so a directory change can take up to one minute to appear on the next opening. Switching between conversations in the same project shares the catalog and any in-flight discovery request. The cache is held only in memory, retains at most 20 projects, and is cleared for the active project when the application service disconnects.
+
+Missing or unreadable directories and invalid skill definitions are skipped. Other valid skills remain available. If discovery fails or times out, the picker retains its previous catalog, or behaves as if no skills were found when no catalog is available, without an error or retry prompt. Reopen the picker to try again. Sending a selected skill still reloads and validates its exact source, so a cached entry cannot invoke a removed skill or bypass the allowed roots.
 
 Chat and automatic title generation do not load project skills. Enabling skills does not enable ambient plugins, file hooks, general configuration discovery, or change the session's permission mode.
 

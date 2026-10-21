@@ -188,22 +188,22 @@ impl Runtime {
     }
 
     /// Lists user-invocable skills from the project and user's agent skill roots.
-    /// Missing, invalid, or unavailable skill sources contribute no entries.
+    /// Missing or invalid skill sources contribute no entries.
     ///
     /// # Errors
-    /// Returns an error for an inaccessible project.
+    /// Returns an error for an inaccessible project or failed/timed-out discovery.
     pub async fn list_project_skills(&self, directory: &Path) -> Result<Vec<ProjectSkill>> {
         let directory = self
             .directory_for(&SessionMode::Work {
                 directory: directory.to_path_buf(),
             })
             .await?;
-        Ok(tokio::time::timeout(
+        tokio::time::timeout(
             Duration::from_secs(15),
             skills::discover(&self.client, &directory),
         )
         .await
-        .unwrap_or_default())
+        .map_err(|_| SkillError::DiscoveryTimeout)?
     }
 
     /// Returns one complete text response from an isolated, tools-disabled session.

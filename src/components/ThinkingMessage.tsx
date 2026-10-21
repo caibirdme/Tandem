@@ -1,12 +1,12 @@
 import { ChevronRight, Lightbulb } from 'lucide-react';
-import { useLayoutEffect, useRef, useState } from 'react';
+import { memo, useLayoutEffect, useRef, useState } from 'react';
 
 import { useI18n } from '../i18n';
 import type { ActivityStatus } from '../lib/types';
 
 import './ThinkingMessage.css';
 
-export function ThinkingMessage({
+export const ThinkingMessage = memo(function ThinkingMessage({
   content,
   status,
   defaultExpanded = false,
@@ -81,4 +81,4 @@ export function ThinkingMessage({
       />
     </details>
   );
-}
+});

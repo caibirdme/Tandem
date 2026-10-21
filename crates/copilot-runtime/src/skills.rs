@@ -41,14 +41,19 @@ pub(crate) fn directories(mode: &SessionMode, directory: &Path) -> Vec<PathBuf> 
     }
 }
 
-fn work_directories(directory: &Path) -> Vec<PathBuf> {
-    let mut roots: Vec<_> = skill_roots(directory, std::env::home_dir().as_deref())
-        .into_iter()
-        .filter_map(|root| root.canonicalize().ok())
-        .filter(|root| root.is_dir())
-        .collect();
-    roots.dedup();
-    roots
+async fn work_directories(directory: &Path) -> Vec<PathBuf> {
+    let roots = skill_roots(directory, std::env::home_dir().as_deref());
+    tokio::task::spawn_blocking(move || {
+        let mut roots: Vec<_> = roots
+            .into_iter()
+            .filter_map(|root| root.canonicalize().ok())
+            .filter(|root| root.is_dir())
+            .collect();
+        roots.dedup();
+        roots
+    })
+    .await
+    .unwrap_or_default()
 }
 
 fn skill_roots(directory: &Path, home: Option<&Path>) -> Vec<PathBuf> {
@@ -62,12 +67,12 @@ fn skill_roots(directory: &Path, home: Option<&Path>) -> Vec<PathBuf> {
     roots
 }
 
-pub(crate) async fn discover(client: &Client, directory: &Path) -> Vec<ProjectSkill> {
-    let roots = work_directories(directory);
+pub(crate) async fn discover(client: &Client, directory: &Path) -> Result<Vec<ProjectSkill>> {
+    let roots = work_directories(directory).await;
     if roots.is_empty() {
-        return Vec::new();
+        return Ok(Vec::new());
     }
-    let Ok(discovered) = client
+    let discovered = client
         .rpc()
         .skills()
         .discover(SkillsDiscoverRequest {
@@ -81,16 +86,20 @@ pub(crate) async fn discover(client: &Client, directory: &Path) -> Vec<ProjectSk
             ),
             ..Default::default()
         })
-        .await
-    else {
-        return Vec::new();
-    };
+        .await?;
+    let skills: Vec<_> = discovered
+        .skills
+        .into_iter()
+        .filter(|skill| skill.enabled && skill.user_invocable)
+        .collect();
+    let paths = skill_paths(
+        roots,
+        skills.iter().map(|skill| skill.path.clone()).collect(),
+    )
+    .await;
     let mut catalog = Vec::new();
-    for skill in discovered.skills {
-        if skill.enabled
-            && skill.user_invocable
-            && let Some(path) = skill_path(&roots, skill.path.as_deref()).await
-        {
+    for (skill, path) in skills.into_iter().zip(paths) {
+        if let Some(path) = path {
             catalog.push(ProjectSkill {
                 name: skill.name,
                 description: skill.description,
@@ -100,12 +109,24 @@ pub(crate) async fn discover(client: &Client, directory: &Path) -> Vec<ProjectSk
     }
     catalog.sort_by(|left, right| left.name.cmp(&right.name).then(left.path.cmp(&right.path)));
     catalog.dedup_by(|left, right| left.name == right.name && left.path == right.path);
-    catalog
+    Ok(catalog)
 }
 
-async fn skill_path(roots: &[PathBuf], candidate: Option<&str>) -> Option<String> {
-    let candidate = tokio::fs::canonicalize(candidate?).await.ok()?;
-    if !tokio::fs::metadata(&candidate).await.ok()?.is_file()
+async fn skill_paths(roots: Vec<PathBuf>, candidates: Vec<Option<String>>) -> Vec<Option<String>> {
+    let count = candidates.len();
+    tokio::task::spawn_blocking(move || {
+        candidates
+            .iter()
+            .map(|candidate| skill_path(&roots, candidate.as_deref()))
+            .collect()
+    })
+    .await
+    .unwrap_or_else(|_| vec![None; count])
+}
+
+fn skill_path(roots: &[PathBuf], candidate: Option<&str>) -> Option<String> {
+    let candidate = std::fs::canonicalize(candidate?).ok()?;
+    if !std::fs::metadata(&candidate).ok()?.is_file()
         || candidate.file_name()? != "SKILL.md"
         || !roots.iter().any(|root| candidate.starts_with(root))
     {
@@ -119,10 +140,16 @@ pub(crate) async fn restrict_to_roots(
     directory: &Path,
 ) -> Result<Vec<(Skill, String)>> {
     session.rpc().skills().ensure_loaded().await?;
-    let roots = work_directories(directory);
+    let roots = work_directories(directory).await;
+    let skills = session.rpc().skills().list().await?.skills;
+    let paths = skill_paths(
+        roots,
+        skills.iter().map(|skill| skill.path.clone()).collect(),
+    )
+    .await;
     let mut catalog = Vec::new();
-    for skill in session.rpc().skills().list().await?.skills {
-        if let Some(path) = skill_path(&roots, skill.path.as_deref()).await {
+    for (skill, path) in skills.into_iter().zip(paths) {
+        if let Some(path) = path {
             catalog.push((skill, path));
         } else if skill.enabled {
             session
@@ -325,7 +352,7 @@ mod tests {
             .iter()
             .map(|root| root.canonicalize())
             .collect::<std::io::Result<_>>()?;
-        for (path, accepted) in [
+        let fixtures = [
             (project.join(".agents/skills/review/SKILL.md"), true),
             (home.join(".agents/skills/review/SKILL.md"), true),
             (project.join(".github/skills/review/SKILL.md"), false),
@@ -334,38 +361,44 @@ mod tests {
             (home.join(".copilot/skills/review/SKILL.md"), false),
             (project.join(".agents/skills-other/review/SKILL.md"), false),
             (project.join(".agents/skills/review/README.md"), false),
-        ] {
+        ];
+        let mut candidates = Vec::new();
+        let mut expected = Vec::new();
+        for (path, accepted) in &fixtures {
             std::fs::create_dir_all(path.parent().ok_or("skill path has no parent")?)?;
-            std::fs::write(&path, "skill fixture")?;
-            assert_eq!(
-                skill_path(&roots, path.to_str()).await.is_some(),
-                accepted,
-                "{}",
-                path.display()
-            );
+            std::fs::write(path, "skill fixture")?;
+            candidates.push(Some(path.to_string_lossy().into_owned()));
+            expected.push(*accepted);
         }
-        assert!(skill_path(&roots, None).await.is_none());
-        assert!(
-            skill_path(
-                &roots,
-                project.join(".agents/skills/missing/SKILL.md").to_str()
-            )
-            .await
-            .is_none()
-        );
+        candidates.push(None);
+        expected.push(false);
+        candidates.push(Some(
+            project
+                .join(".agents/skills/missing/SKILL.md")
+                .to_string_lossy()
+                .into_owned(),
+        ));
+        expected.push(false);
         let directory = project.join(".agents/skills/directory/SKILL.md");
         std::fs::create_dir_all(&directory)?;
-        assert!(skill_path(&roots, directory.to_str()).await.is_none());
+        candidates.push(Some(directory.to_string_lossy().into_owned()));
+        expected.push(false);
         #[cfg(unix)]
         {
             let link = project.join(".agents/skills/escape");
             std::os::unix::fs::symlink(project.join(".github/skills/review"), &link)?;
-            assert!(
-                skill_path(&roots, link.join("SKILL.md").to_str())
-                    .await
-                    .is_none()
-            );
+            candidates.push(Some(link.join("SKILL.md").to_string_lossy().into_owned()));
+            expected.push(false);
         }
+        let paths = skill_paths(roots.clone(), candidates.clone()).await;
+        assert_eq!(paths.len(), candidates.len());
+        for ((candidate, path), accepted) in candidates.iter().zip(paths).zip(expected) {
+            assert_eq!(path.is_some(), accepted, "{candidate:?}");
+        }
+        std::fs::remove_file(&fixtures[0].0)?;
+        let refreshed = skill_paths(roots, candidates).await;
+        assert!(refreshed[0].is_none());
+        assert!(refreshed[1].is_some());
         Ok(())
     }
 }
