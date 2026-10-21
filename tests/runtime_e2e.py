@@ -38,7 +38,12 @@ from model_switch_acceptance import (
 )
 from skill_acceptance import check_project_skills, check_skill_resume
 from attachment_acceptance import check_attachments, check_attachment_resume
-from reasoning_acceptance import check_reasoning_after_restart, check_reasoning_efforts
+from reasoning_acceptance import (
+    check_reasoning_after_restart,
+    check_reasoning_efforts,
+    check_thinking_after_restart,
+    check_thinking_text,
+)
 from activity_acceptance import check_grouped_activity
 
 
@@ -321,7 +326,7 @@ def main():
                 app, fixture, project, provider, model, workspace, home,
             )
             summary.append(
-                "skills: only home/project .agents roots, missing/invalid sources ignored, automatic/explicit loading, Chat isolation, and invalid-selection rejection"
+                "skills: only home/project .agents roots, automatic/explicit loading, confirmed and persisted selection metadata, plain dollar text, Chat isolation, and invalid-selection rejection"
             )
             check_custom_provider_paths(app, fixture, fixture_url, project)
             summary.append(
@@ -435,6 +440,11 @@ def main():
             reasoning_state = check_reasoning_efforts(app, fixture, root, fixture_url, project)
             summary.append(
                 "session reasoning: provider defaults, explicit overrides, reset, Chat/Work isolation, live and pending-approval changes, model/provider changes, malformed inputs, persistence, and actual OpenAI request effort verified"
+            )
+            thinking_provider, thinking_model = providers["anthropic"]
+            thinking_state = check_thinking_text(app, fixture, thinking_provider, thinking_model)
+            summary.append(
+                "thinking text: native Anthropic thinking deltas, stable message identity, live history reload, opaque signature exclusion, final-answer separation, and cancellation persistence"
             )
             web_chat = app.command(
                 "create_session",
@@ -552,7 +562,9 @@ def main():
                     app.command("save_provider", provider=attachment_provider, apiKey="")
             summary.append("attachments after restart: original bytes, identities, and SDK image/text context retained")
             check_skill_resume(app, fixture, skill_state)
-            summary.append("project skills after server restart: updated instructions loaded from disk")
+            summary.append("project skills after server restart: sent selection metadata retained and updated instructions loaded from disk")
+            check_thinking_after_restart(app, thinking_state)
+            summary.append("thinking text after server restart: completed and interrupted history retained")
             restored = next(
                 session
                 for session in app.command("snapshot")["sessions"]

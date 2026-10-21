@@ -112,6 +112,8 @@ Shared RPC definitions live in `tandem-protocol`, so the remote agent does not n
 
 `just desktop-build` first compiles `tandem-server` for the local platform, copies it into Tauri resources, and bundles the desktop application. `tandem-dev-server` is excluded from installers. macOS output is in `target/release/bundle/`. Local signing is ad hoc by default. For a formally signed release, override `bundle.macOS.signingIdentity` and configure notarization. Signing and notarization require a release account; no credentials are stored in this repository.
 
+On Windows, use the NSIS `x64-setup.exe` installer in `target/release/bundle/nsis/`. Tauri automatically merges `src-tauri/tauri.windows.conf.json`, which selects NSIS as the only Windows installer target.
+
 Use `CI=true just desktop-build` on a locked screen or in automation to skip DMG window decoration that requires Finder interaction.
 
 Released installers bundle remote agents for Linux x64 (`x86_64-unknown-linux-gnu`) and Apple Silicon macOS (`aarch64-apple-darwin`). The application also recognizes Linux arm64 and Intel Mac hosts, but installers do not contain those binaries and report a missing artifact when connecting. Build the required target yourself and use `scripts/prepare-remote.mjs <target>` to add it to resources.
@@ -126,17 +128,17 @@ SSH uses BatchMode and strict host verification, supporting keys and ssh-agent. 
 2. Tag `main` and push the tag:
 
    ```sh
-   git tag v0.0.2
-   git push origin v0.0.2
+   git tag v0.0.3
+   git push origin v0.0.3
    ```
 
 3. Wait for the Release workflow in Actions, open the matching draft on the Releases page, review its installers, and publish it.
 
-The commands above use `0.0.2` as an example; use the version merged in step 1. The tag must be `v` followed by that version. Otherwise, `Check version` lists inconsistent files and stops before packaging. Publish the Release only after the workflow has attached the installers.
+The commands above use `0.0.3` as an example; use the version merged in step 1. The tag must be `v` followed by that version. Otherwise, `Check version` lists inconsistent files and stops before packaging. Publish the Release only after the workflow has attached the installers.
 
 If version validation fails, correct all three manifests and synchronize `Cargo.lock` before merging. Rerunning the failed workflow uses its original commit, so a fix on `main` alone does not repair an existing tag. Use a new matching version and tag, or deliberately correct the existing tag and Release after reviewing their published state.
 
-The workflow builds Linux x64 `tandem-server` in an `ubuntu:22.04` container for compatibility with older glibc, and builds the Apple Silicon agent on macOS. Desktop jobs place both agents in resources and generate an Apple Silicon DMG plus Windows x64 MSI and NSIS installers. The development host is excluded.
+The workflow builds Linux x64 `tandem-server` in an `ubuntu:22.04` container for compatibility with older glibc, and builds the Apple Silicon agent on macOS. Desktop jobs place both agents in resources and generate an Apple Silicon DMG plus a Windows x64 NSIS `x64-setup.exe` installer. The development host is excluded.
 
 macOS uses ad hoc signing without an Apple account. Users must remove quarantine before first launch; see [Install](../README.md#install). To obtain installers without publishing a release, manually run **Desktop bundles** in Actions and download its artifacts. Rerunning a tag workflow replaces files with the same names in its Release.
 
@@ -149,6 +151,10 @@ Title settings use the separate command `save_title_model {titleModel: {provider
 The provider editor reads the saved key with `get_provider_api_key` (`id`), which returns a string or `null` and errors if the provider does not exist. Ordinary `snapshot` and `save_provider` responses contain only `hasApiKey`. Omitting `apiKey` from a save preserves the value; a nonempty string replaces it; an empty string clears it. Keys are stored only in local SQLite's `provider_secrets.secret`, never in messages, logs, or remote state. The development host's `--data-dir` selects storage for both configuration and keys; `--ephemeral-secrets` switches to an in-process test store.
 
 `send_message` requires a caller-supplied `messageId` UUID. The saved user message retains that ID so the UI can merge it accurately with history after a lost live confirmation. The database rejects repeated submissions with the same ID rather than executing them again.
+
+User messages also retain their validated `selectedSkills` identities. Both the send confirmation and history return these selections, allowing the UI to distinguish selected skill mentions from ordinary `$` text. Empty selections are omitted.
+
+Thinking uses ordinary message updates with `role: "reasoning"`, text in `content`, and `reasoning: {status}`. SDK `assistant.reasoning_delta` and `assistant.reasoning` events supply the displayed text; opaque reasoning fields are excluded. Streamed updates keep a stable message ID and sequence. The core checkpoints the first chunk and lifecycle transitions, and overlays current in-memory text when reading history. The frontend shows a collapsed header and a three-line scroll area.
 
 `send_message` also accepts `attachments: [{name, mimeType, data}]`, where `data` is raw base64 without a data-URL prefix. Text can be empty when attachments are present. Rust validates at most 10 attachments, 10 MiB per file, and 20 MiB in total before initializing a turn. Supported content is PNG/JPEG/GIF/WebP, UTF-8 text, and PDF on Responses/Anthropic. New PDF sends, model changes, and provider edits reject incompatible Completions transport before changing history, credentials, or settings. The persisted `Message.attachments` contains `{id, name, mimeType, size}` metadata only. `get_attachment {sessionId, attachmentId}` returns the original `{name, mimeType, data}` for a matching conversation. Attachment rows are committed with the message and cascade on deletion. The HTTP body and SSH frame limits are 32 MiB.
 

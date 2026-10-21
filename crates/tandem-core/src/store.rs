@@ -6,8 +6,8 @@ use serde::de::DeserializeOwned;
 use crate::{
     activities::interrupt_activity,
     model::{
-        Message, MessageAttachment, MessageRole, Preferences, Project, Provider, Session,
-        SessionStatus,
+        ActivityStatus, Message, MessageAttachment, MessageRole, Preferences, Project, Provider,
+        Session, SessionStatus,
     },
 };
 
@@ -39,6 +39,8 @@ pub enum StorageError {
     ProviderInUse { id: String },
     #[error("Cannot update activity {id}: its conversation or message role does not match.")]
     ActivityConflict { id: String },
+    #[error("Cannot update reasoning {id}: its conversation or message role does not match.")]
+    ReasoningConflict { id: String },
 }
 
 type Result<T> = std::result::Result<T, StorageError>;
@@ -99,6 +101,16 @@ impl Store {
         )? {
             if message.activity.as_mut().is_some_and(interrupt_activity) {
                 store.save_activity(&message)?;
+            }
+        }
+        for mut message in store.list::<Message>(
+            "SELECT data FROM messages WHERE json_extract(data,'$.role')='reasoning'
+             AND json_extract(data,'$.reasoning.status')='running'",
+        )? {
+            if let Some(reasoning) = message.reasoning.as_mut() {
+                reasoning.status = ActivityStatus::Interrupted;
+                message.interrupted = true;
+                store.save_reasoning(&message)?;
             }
         }
         Ok(store)
@@ -370,6 +382,40 @@ impl Store {
         })
     }
 
+    pub fn save_reasoning(&self, message: &Message) -> Result<Message> {
+        if message.role != MessageRole::Reasoning || message.reasoning.is_none() {
+            return Err(StorageError::ReasoningConflict {
+                id: message.id.clone(),
+            });
+        }
+        self.with(|db| {
+            let changed = db.execute(
+                "INSERT INTO messages(id,session_id,data) VALUES(?1,?2,?3)
+                 ON CONFLICT(id) DO UPDATE SET data=excluded.data
+                 WHERE messages.session_id=excluded.session_id
+                 AND json_extract(messages.data,'$.role')='reasoning'
+                 AND json_extract(excluded.data,'$.role')='reasoning'",
+                params![
+                    message.id,
+                    message.session_id,
+                    serde_json::to_string(message)?
+                ],
+            )?;
+            if changed == 0 {
+                return Err(StorageError::ReasoningConflict {
+                    id: message.id.clone(),
+                });
+            }
+            let mut saved = message.clone();
+            saved.sequence = Some(db.query_row(
+                "SELECT rowid FROM messages WHERE id=?1 AND session_id=?2",
+                [&message.id, &message.session_id],
+                |row| row.get(0),
+            )?);
+            Ok(saved)
+        })
+    }
+
     pub fn attachment(&self, session_id: &str, attachment_id: &str) -> Result<MessageAttachment> {
         self.session(session_id)?;
         self.with(|db| {
@@ -505,8 +551,49 @@ mod tests {
             created_at: "2026-10-20".into(),
             sequence: None,
             activity: None,
+            reasoning: None,
+            selected_skills: Vec::new(),
             interrupted: false,
         }
+    }
+
+    #[test]
+    fn selected_skill_sources_survive_message_history_and_reopening() -> Result<()> {
+        for selected_skills in [
+            Vec::new(),
+            vec![
+                crate::model::SkillSelection {
+                    name: "review".into(),
+                    path: "/project/.agents/skills/review/SKILL.md".into(),
+                },
+                crate::model::SkillSelection {
+                    name: "review".into(),
+                    path: "/home/user/.agents/skills/review/SKILL.md".into(),
+                },
+            ],
+        ] {
+            let directory = TempDir::new()?;
+            let path = directory.path().join("test.sqlite3");
+            let store = attachment_store(&path)?;
+            let mut message = attachment_message("message", &[]);
+            message.content = "$review".into();
+            message.selected_skills.clone_from(&selected_skills);
+            let saved = store.append_message(&message)?;
+            assert_eq!(saved.selected_skills, selected_skills);
+            assert_eq!(
+                serde_json::to_value(&saved)?
+                    .get("selectedSkills")
+                    .is_some(),
+                !selected_skills.is_empty(),
+            );
+            drop(store);
+            let reopened = Store::open(&path)?;
+            assert_eq!(
+                reopened.messages("session")?[0].selected_skills,
+                selected_skills
+            );
+        }
+        Ok(())
     }
 
     #[test]

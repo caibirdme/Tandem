@@ -185,6 +185,18 @@ def require_selection_rejected(send, fixture, selected):
             "Invalid skill selection reached inference")
 
 
+def require_selection_metadata(app, session, prompt, selected, events):
+    confirmed = [event["data"] for event in events if event["kind"] == "message"
+                 and event["data"].get("role") == "user"
+                 and event["data"].get("content") == prompt]
+    require(len(confirmed) == 1, "Skill submission did not confirm exactly one original user message")
+    require(confirmed[0].get("selectedSkills", []) == selected,
+            "Confirmed user event lost explicit selected-skill chip metadata")
+    saved = [message for message in app.command("messages", sessionId=session["id"])
+             if message["id"] == confirmed[0]["id"]]
+    require(saved == confirmed, "Saved user history differs from its confirmed skill metadata")
+
+
 def check_project_skills(app, fixture, project, provider, model, workspace, home):
     def list_catalog():
         return app.command("list_project_skills", projectId=project["id"])
@@ -221,20 +233,28 @@ def check_project_skills(app, fixture, project, provider, model, workspace, home
             "Native skill tool did not load the selected skill body")
 
     explicit = new_session()
-    prompt = "fixture:skill-explicit Follow the skill selected in the composer."
+    prompt = f"fixture:skill-explicit Follow ${skills['manual']['name']} selected in the composer."
     offset = len(fixture.conversation_requests())
-    app.turn(explicit, prompt, selected_skills=[selection(skills["manual"])])
+    selected = [selection(skills["manual"])]
+    events = app.turn(explicit, prompt, selected_skills=selected)
+    require_selection_metadata(app, explicit, prompt, selected, events)
     require_skill_requests(fixture, offset, skills, loaded="manual")
     messages = app.command("messages", sessionId=explicit["id"])
     require([item["content"] for item in messages if item["role"] == "user"] == [prompt],
             "Skill expansion replaced the user's persisted message")
+    plain_prompt = f"fixture:skill-plain Keep ${skills['manual']['name']} and $budget as ordinary text."
+    events = app.turn(explicit, plain_prompt)
+    require_selection_metadata(app, explicit, plain_prompt, [], events)
 
     multiple = new_session()
-    multiple_prompt = "fixture:skill-multiple Combine both selected skills for this request."
+    multiple_prompt = (f"fixture:skill-multiple Combine ${skills['manual']['name']} and "
+                       f"${skills['global']['name']} for this request.")
     offset = len(fixture.conversation_requests())
-    app.turn(multiple, multiple_prompt, selected_skills=[
+    selected = [
         selection(skills["manual"]), selection(skills["global"]),
-    ])
+    ]
+    events = app.turn(multiple, multiple_prompt, selected_skills=selected)
+    require_selection_metadata(app, multiple, multiple_prompt, selected, events)
     requests = require_skill_requests(fixture, offset, skills, loaded=("manual", "global"))
     first = json.dumps(requests[0][1])
     require(first.count(multiple_prompt) == 1,
@@ -291,7 +311,9 @@ def check_project_skills(app, fixture, project, provider, model, workspace, home
     rejected(retried, {**selection(skills["manual"]), "name": "missing-skill"})
     retry_prompt = "fixture:skill-retry Send a valid selection after the rejected first attempt."
     offset = len(fixture.conversation_requests())
-    app.turn(retried, retry_prompt, selected_skills=[selection(skills["manual"])])
+    selected = [selection(skills["manual"])]
+    events = app.turn(retried, retry_prompt, selected_skills=selected)
+    require_selection_metadata(app, retried, retry_prompt, selected, events)
     require_skill_requests(fixture, offset, skills, loaded="manual")
     messages = app.command("messages", sessionId=retried["id"])
     require([item["content"] for item in messages if item["role"] == "user"] == [retry_prompt],
@@ -317,14 +339,27 @@ def check_project_skills(app, fixture, project, provider, model, workspace, home
 def check_skill_resume(app, fixture, state):
     session, skills = state
     skill = skills["manual"]
+    restored = app.command("messages", sessionId=session["id"])
+    original = [message for message in restored if message["role"] == "user"
+                and message["content"].startswith("fixture:skill-explicit")]
+    require(len(original) == 1 and original[0].get("selectedSkills") == [selection(skill)],
+            "Restart lost selected-skill chip metadata from the confirmed user message")
+    plain = [message for message in restored if message["role"] == "user"
+             and message["content"].startswith("fixture:skill-plain")]
+    require(len(plain) == 1 and not plain[0].get("selectedSkills"),
+            "Restart inferred a selected skill from ordinary dollar-prefixed text")
     path = Path(skill["path"])
     replacement = "TANDEM_SKILL_BODY_" + uuid.uuid4().hex
     path.write_text(path.read_text(encoding="utf-8").replace(skill["marker"], replacement),
                     encoding="utf-8")
     skill["marker"] = replacement
     offset = len(fixture.conversation_requests())
-    app.turn(session, "fixture:skill-resume Reload the selected skill after restart.",
-             selected_skills=[selection(skill)])
+    prompt = f"fixture:skill-resume Reload ${skill['name']} after restart."
+    selected = [selection(skill)]
+    events = app.turn(session, prompt, selected_skills=selected)
+    require_selection_metadata(app, session, prompt, selected, events)
+    require(app.command("messages", sessionId=session["id"])[:len(restored)] == restored,
+            "Skill resume changed earlier message identities or selected-skill metadata")
     require_skill_requests(fixture, offset, skills, loaded="manual")
 
 

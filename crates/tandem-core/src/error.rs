@@ -215,7 +215,9 @@ impl Error {
             | Self::ModelNotConfigured { .. }
             | Self::CliNotFound { .. } => ErrorCode::NotFound,
             Self::Storage(
-                StorageError::ProviderInUse { .. } | StorageError::ActivityConflict { .. },
+                StorageError::ProviderInUse { .. }
+                | StorageError::ActivityConflict { .. }
+                | StorageError::ReasoningConflict { .. },
             )
             | Self::ConversationsRunning
             | Self::ProjectRunning

@@ -1,6 +1,6 @@
 use std::fmt;
 
-pub use copilot_runtime::{ContextUsage, MessageAttachment, PermissionMode};
+pub use copilot_runtime::{ContextUsage, MessageAttachment, PermissionMode, SkillSelection};
 use serde::{Deserialize, Serialize};
 use url::Url;
 
@@ -298,6 +298,7 @@ pub enum MessageRole {
     Tool,
     System,
     Activity,
+    Reasoning,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -336,6 +337,12 @@ pub struct Activity {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct Reasoning {
+    pub status: ActivityStatus,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AttachmentMetadata {
     pub id: String,
     pub name: String,
@@ -351,11 +358,15 @@ pub struct Message {
     pub role: MessageRole,
     pub content: String,
     pub attachments: Vec<AttachmentMetadata>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub selected_skills: Vec<SkillSelection>,
     pub created_at: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sequence: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub activity: Option<Activity>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reasoning: Option<Reasoning>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub interrupted: bool,
 }

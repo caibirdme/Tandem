@@ -36,13 +36,21 @@ To work with files, choose **Add project**, select a local or SSH directory, and
 
 ### Inspect tool activity
 
-Click a progress heading or its left chevron in the conversation to expand the tools used for that stage. Each stage starts collapsed. Running headings show a moving highlight; completed headings remain static. Expand an individual tool to inspect its arguments, progress, result, or error. The final response stays visible below the activity groups.
+Read the progress sentence directly in the conversation. Click the smaller category row beneath it, such as **Reading files** or **Running commands**, or its left chevron to expand the tools used for that stage. Tool details start collapsed. Running progress sentences show a moving highlight; completed sentences remain static. Expand an individual tool to inspect its arguments, progress, result, or error. The final response stays visible below the activity groups.
 
-Activity groups stay in conversation order when another message is sent, when you reopen the conversation, and after restarting the application. If the model does not provide a progress description, known tool types supply a short heading such as **Reading files** or **Running commands**; other combinations show **Agent activity**. Tool failures and interruption details remain available inside the group, with status also exposed to assistive technology. Permission requests remain separate approval cards, so you can respond without opening tool details.
+Activity groups stay in conversation order when another message is sent, when you reopen the conversation, and after restarting the application. The category describes known tool types; other combinations show **Agent activity**. If the model does not provide a progress sentence, only the category row appears. Tool failure notices stay visible when the group is collapsed; detailed failures and interruptions remain inside the group, with status also exposed to assistive technology. Permission requests remain separate approval cards, so you can respond without opening tool details.
+
+### Read thinking text
+
+Click **Thinking** in the conversation to expand thinking text shared by the model and provider. The header starts collapsed. The expanded area shows up to three lines at a time and scrolls for longer text. While new text arrives, it follows the latest content if you are at the bottom. Scroll up to read earlier text without losing your position; scroll back to the bottom to resume following updates.
+
+Thinking text is available only when the model and provider share it. While waiting, the expanded area says that no text has arrived yet. Completed thinking appears under **Thoughts**; interrupted thinking is labeled **Thinking stopped**.
 
 ### Use project skills
 
 In Work, type `$` to list the selected project's skills or `$prefix` to filter them by name. Select with the mouse or use the arrow keys and Enter or Tab; Escape closes the list. Work can also choose relevant skills automatically. SSH projects discover and load skills on the remote host. Chat does not load project skills.
+
+After sending, selected skills appear as inline chips with a skill icon inside your message. The selections are saved with the message, so the chips remain after delivery is confirmed and when you reopen the conversation. Ordinary text such as `$budget` stays plain text unless you selected a matching skill from the picker.
 
 Keep each skill's `SKILL.md` in its own subdirectory under the project's `.agents/skills` or the execution user's `~/.agents/skills`. Project definitions take precedence when names match. See [Project skills](skills.md) for the format and selection behavior.
 

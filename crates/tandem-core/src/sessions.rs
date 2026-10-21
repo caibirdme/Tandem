@@ -264,6 +264,7 @@ impl App {
             session_id: session.id.clone(),
             role: MessageRole::User,
             content: request.content,
+            selected_skills: request.selected_skills.to_vec(),
             attachments: request
                 .attachments
                 .iter()
@@ -278,6 +279,7 @@ impl App {
             created_at: now(),
             sequence: None,
             activity: None,
+            reasoning: None,
             interrupted: false,
         };
         let message = self
@@ -871,6 +873,8 @@ mod tests {
             created_at: now(),
             sequence: None,
             activity: None,
+            reasoning: None,
+            selected_skills: Vec::new(),
             interrupted: true,
         })?;
         app.set_status(&work.id, SessionStatus::Error)?;
@@ -910,6 +914,8 @@ mod tests {
                 created_at: now(),
                 sequence: None,
                 activity: None,
+                reasoning: None,
+                selected_skills: Vec::new(),
                 interrupted: false,
             })?;
         }

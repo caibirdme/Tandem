@@ -12,6 +12,22 @@ from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 
 FIXTURE_KEY = "fixture-only-not-a-credential"
+THINKING_CHUNKS = (
+    "First, I will inspect the supplied files.\n"
+    "I will identify the entry point and its dependencies.\n"
+    "Then I will trace the request through the application.\n"
+    "I will keep the observable behavior in view.\n",
+    "Next, I will compare the current behavior with the requested result.\n"
+    "I will check the surrounding permission and persistence rules.\n"
+    "I will account for cancellation and reconnect behavior.\n"
+    "The earlier observations remain available for review.\n",
+    "Finally, I will verify the result against the supplied evidence.\n"
+    "I will preserve the identities of the messages and selected skills.\n"
+    "I will report the completed action separately from this thinking text.\n"
+    "The inspection is ready to summarize.",
+)
+THINKING_TEXT = "".join(THINKING_CHUNKS)
+THINKING_SIGNATURE = "TANDEM_FIXTURE_OPAQUE_THINKING_SIGNATURE"
 
 
 def is_title_request(body):
@@ -25,6 +41,7 @@ class Fixture:
         self.exports = []
         self.lock = threading.Lock()
         self.release_slow_response = threading.Event()
+        self.thinking_chunk_gates = [threading.Event() for _ in THINKING_CHUNKS]
 
     def record(self, path, body, content_type):
         with self.lock:
@@ -59,6 +76,8 @@ class Fixture:
             )
             for item in following
         )
+        if "fixture:thinking" in prompt:
+            return "TANDEM_THINKING_HELD_OK" if "fixture:thinking-held" in prompt else "TANDEM_THINKING_OK"
         if "fixture:grouped-activity" in prompt:
             names = [
                 call.get("function", {}).get("name")
@@ -484,13 +503,18 @@ def handler_for(fixture):
 
         def anthropic(self, body, response):
             text = response if isinstance(response, str) else "TANDEM_CHAT_OK"
+            thinking = text in {"TANDEM_THINKING_OK", "TANDEM_THINKING_HELD_OK"}
             if body.get("stream") is not True:
+                content = [{"type": "text", "text": text}]
+                if thinking:
+                    content.insert(0, {"type": "thinking", "thinking": THINKING_TEXT,
+                                       "signature": THINKING_SIGNATURE})
                 self.send_json({
                     "id": "msg_fixture",
                     "type": "message",
                     "role": "assistant",
                     "model": body["model"],
-                    "content": [{"type": "text", "text": text}],
+                    "content": content,
                     "stop_reason": "end_turn",
                     "stop_sequence": None,
                     "usage": {"input_tokens": 100, "output_tokens": 10},
@@ -513,10 +537,29 @@ def handler_for(fixture):
                 },
                 "message_start",
             )
+            text_index = 0
+            if thinking:
+                self.event({
+                    "type": "content_block_start", "index": 0,
+                    "content_block": {"type": "thinking", "thinking": ""},
+                }, "content_block_start")
+                for index, chunk in enumerate(THINKING_CHUNKS):
+                    self.event({
+                        "type": "content_block_delta", "index": 0,
+                        "delta": {"type": "thinking_delta", "thinking": chunk},
+                    }, "content_block_delta")
+                    if text == "TANDEM_THINKING_HELD_OK":
+                        fixture.thinking_chunk_gates[index].wait(45)
+                self.event({
+                    "type": "content_block_delta", "index": 0,
+                    "delta": {"type": "signature_delta", "signature": THINKING_SIGNATURE},
+                }, "content_block_delta")
+                self.event({"type": "content_block_stop", "index": 0}, "content_block_stop")
+                text_index = 1
             self.event(
                 {
                     "type": "content_block_start",
-                    "index": 0,
+                    "index": text_index,
                     "content_block": {"type": "text", "text": ""},
                 },
                 "content_block_start",
@@ -525,12 +568,12 @@ def handler_for(fixture):
                 self.event(
                     {
                         "type": "content_block_delta",
-                        "index": 0,
+                        "index": text_index,
                         "delta": {"type": "text_delta", "text": delta},
                     },
                     "content_block_delta",
                 )
-            self.event({"type": "content_block_stop", "index": 0}, "content_block_stop")
+            self.event({"type": "content_block_stop", "index": text_index}, "content_block_stop")
             self.event(
                 {
                     "type": "message_delta",

@@ -82,13 +82,14 @@ export interface Session {
 export interface Message {
   id: string;
   sessionId: string;
-  role: 'user' | 'assistant' | 'activity' | 'tool' | 'system';
+  role: 'user' | 'assistant' | 'activity' | 'reasoning' | 'tool' | 'system';
   interrupted?: boolean;
   content: string;
   createdAt: string;
   selectedSkills?: SelectedSkill[];
   attachments: Attachment[];
   activity?: Activity;
+  reasoning?: { status: ActivityStatus };
   sequence?: number;
 }
 export interface RuntimeStatus {

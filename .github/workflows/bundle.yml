@@ -87,6 +87,5 @@ jobs:
           name: tandem-${{ matrix.platform }}
           path: |
             target/release/bundle/dmg/*.dmg
-            target/release/bundle/msi/*.msi
             target/release/bundle/nsis/*.exe
           if-no-files-found: error

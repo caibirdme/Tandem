@@ -9,6 +9,9 @@ use serde_json::{Value, json};
 pub enum EventKind {
     Delta,
     Message,
+    Reasoning,
+    #[serde(rename = "reasoning_delta")]
+    ReasoningDelta,
     Intent,
     Tool,
     Permission,
@@ -87,6 +90,25 @@ impl RuntimeEvent {
                 EventKind::Intent,
                 json!({"intent": event.data.get("intent")}),
             ),
+            "assistant.reasoning" | "assistant.reasoning_delta" => {
+                let reasoning_id = event.data.get("reasoningId")?.as_str()?;
+                let complete = event.event_type == "assistant.reasoning";
+                let content = event
+                    .data
+                    .get(if complete { "content" } else { "deltaContent" })?
+                    .as_str()?;
+                if reasoning_id.is_empty() || (!complete && content.is_empty()) {
+                    return None;
+                }
+                (
+                    if complete {
+                        EventKind::Reasoning
+                    } else {
+                        EventKind::ReasoningDelta
+                    },
+                    json!({"reasoningId": reasoning_id, "content": content}),
+                )
+            }
             "session.idle" => (
                 EventKind::Status,
                 json!({"state": "idle", "event": event.event_type}),
@@ -114,7 +136,12 @@ impl RuntimeEvent {
         };
         if matches!(
             kind,
-            EventKind::Delta | EventKind::Message | EventKind::Intent | EventKind::Tool
+            EventKind::Delta
+                | EventKind::Message
+                | EventKind::Reasoning
+                | EventKind::ReasoningDelta
+                | EventKind::Intent
+                | EventKind::Tool
         ) {
             data["eventId"] = json!(event.id);
             data["timestamp"] = json!(event.timestamp);
@@ -273,6 +300,55 @@ mod tests {
                 Some(expected),
                 "{event_type}"
             );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn reasoning_events_only_forward_explicit_display_text() -> Result<(), serde_json::Error> {
+        for (event_type, content_field, kind) in [
+            ("assistant.reasoning", "content", EventKind::Reasoning),
+            (
+                "assistant.reasoning_delta",
+                "deltaContent",
+                EventKind::ReasoningDelta,
+            ),
+        ] {
+            let mut data = json!({
+                "reasoningId": "reasoning-1",
+                "reasoningOpaque": "opaque state",
+                "encryptedContent": "encrypted state",
+                "reasoningBlocks": {"provider": "opaque state"},
+            });
+            data[content_field] = json!("Inspecting the files");
+            let sdk = serde_json::from_value(json!({
+                "id": "event-1", "timestamp": "2026-10-21T00:00:00Z", "agentId": "agent-1",
+                "type": event_type, "data": data,
+            }))?;
+            let adapted = RuntimeEvent::from_sdk("session-1", sdk, 200_000);
+            assert_eq!(
+                adapted.map(|event| (event.kind, event.data)),
+                Some((
+                    kind,
+                    json!({
+                        "reasoningId": "reasoning-1", "content": "Inspecting the files",
+                        "eventId": "event-1", "timestamp": "2026-10-21T00:00:00Z", "agentId": "agent-1",
+                    })
+                )),
+            );
+        }
+        for data in [
+            json!({"reasoningId": "", "deltaContent": "Text"}),
+            json!({"reasoningId": "reasoning-1", "deltaContent": ""}),
+            json!({"reasoningId": "reasoning-1", "deltaContent": {"text": "Text"}}),
+            json!({"reasoningId": 1, "deltaContent": "Text"}),
+            json!({"reasoningOpaque": "opaque state"}),
+        ] {
+            let sdk = serde_json::from_value(json!({
+                "id": "event-1", "timestamp": "2026-10-21T00:00:00Z",
+                "type": "assistant.reasoning_delta", "data": data,
+            }))?;
+            assert!(RuntimeEvent::from_sdk("session-1", sdk, 200_000).is_none());
         }
         Ok(())
     }

@@ -189,6 +189,8 @@ mod tests {
                 created_at: now(),
                 sequence: None,
                 activity: None,
+                reasoning: None,
+                selected_skills: Vec::new(),
                 interrupted: false,
             },
             &[bytes.to_vec()],

@@ -146,6 +146,8 @@ impl Activities {
                 status: ActivityStatus::Running,
                 tools: Vec::new(),
             }),
+            reasoning: None,
+            selected_skills: Vec::new(),
             interrupted: false,
         });
         let index = self.messages.len() - 1;

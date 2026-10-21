@@ -90,6 +90,78 @@ afterEach(() => {
   setLocale('en');
 });
 
+describe('skill and thinking transcript rendering', () => {
+  const user: Message = {
+    id: 'user-skill',
+    sessionId: session.id,
+    role: 'user',
+    content: 'Use $review-docs with a $25 budget',
+    selectedSkills: [{ name: 'review-docs', path: '/private/skills/review-docs/SKILL.md' }],
+    attachments: [],
+    createdAt: session.createdAt,
+  };
+  const reasoning: Message = {
+    ...user,
+    id: 'thinking-1',
+    role: 'reasoning',
+    content: 'Reviewing the entry point and its references',
+    reasoning: { status: 'running' },
+  };
+
+  it('renders selected skill identities from confirmed user history as chips', () => {
+    const markup = renderToStaticMarkup(
+      <Chat {...props} conversation={{ ...emptyConversation, messages: [user] }} />,
+    );
+    expect(markup).toContain('class="sent-skill-mention-name">$review-docs</span>');
+    expect(markup).toContain(' with a $25 budget');
+    expect(markup).not.toContain('/private/skills');
+  });
+
+  it('starts a waiting thinking disclosure collapsed before the model shares text', () => {
+    const markup = renderToStaticMarkup(
+      <Chat
+        {...props}
+        conversation={{ ...emptyConversation, status: 'running', messages: [user] }}
+      />,
+    );
+    expect(markup.match(/class="thinking-message running"/g)).toHaveLength(1);
+    expect(markup).not.toMatch(/<details[^>]*\bopen(?:=|\s|>)/);
+    expect(markup).toContain('Waiting for the model to share its thinking…');
+  });
+
+  it('shows one live thinking disclosure without duplicating the empty waiting indicator', () => {
+    const markup = renderToStaticMarkup(
+      <Chat
+        {...props}
+        conversation={{ ...emptyConversation, status: 'running', messages: [user, reasoning] }}
+      />,
+    );
+    expect(markup.match(/class="thinking-message running"/g)).toHaveLength(1);
+    expect(markup).toContain(reasoning.content);
+    expect(markup).not.toContain('class="tool-message"');
+    expect(markup).not.toMatch(/<details[^>]*\bopen(?:=|\s|>)/);
+  });
+
+  it.each(['completed', 'interrupted'] as const)(
+    'keeps $status thinking readable without a running indicator after the turn ends',
+    (status) => {
+      const markup = renderToStaticMarkup(
+        <Chat
+          {...props}
+          conversation={{
+            ...emptyConversation,
+            messages: [user, { ...reasoning, reasoning: { status } }],
+          }}
+        />,
+      );
+      expect(markup).toContain(`class="thinking-message ${status}"`);
+      expect(markup).toContain(reasoning.content);
+      expect(markup).not.toContain('thinking-message-dots');
+      expect(markup).not.toContain('class="thinking-message running"');
+    },
+  );
+});
+
 describe('Work skill discovery entry point', () => {
   it.each(['local', 'ssh'] as const)('offers skills in a new %s Work composer', (kind) => {
     const currentProject: Project = {
@@ -613,7 +685,10 @@ describe('grouped activity timeline', () => {
     expect(markup.match(/class="activity-group"/g)).toHaveLength(2);
     expect(markup).not.toMatch(/<details[^>]*\bopen(?:=|\s|>)/);
     const summary = markup.match(/<details class="activity-group"><summary>(.*?)<\/summary>/)?.[1];
-    expect(summary).toContain(activity.content);
+    expect(summary).not.toContain(activity.content);
+    expect(markup).toContain(
+      `<p class="activity-intent">${activity.content}</p><details class="activity-group">`,
+    );
     expect(summary).not.toContain('tool calls');
     expect(summary).not.toContain('activity-count');
     expect(summary).not.toContain('Read the chat component');

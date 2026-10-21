@@ -84,7 +84,9 @@ function applyStatus(state: Conversation, status: SessionStatus): Conversation {
                     ),
                   },
                 }
-              : message,
+              : message.reasoning?.status === 'running'
+                ? { ...message, reasoning: { status: 'interrupted' } }
+                : message,
           ),
     permissions: status === 'running' ? state.permissions : [],
     error: status === 'running' ? null : state.error,

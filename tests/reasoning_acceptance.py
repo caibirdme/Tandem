@@ -1,4 +1,4 @@
-"""Verify session reasoning settings through persisted state and real SDK requests."""
+"""Verify reasoning settings and exposed thinking through the production SDK."""
 
 import copy
 import json
@@ -6,7 +6,13 @@ import sqlite3
 import uuid
 from contextlib import closing
 
-from inference_fixture import FIXTURE_KEY, require
+from inference_fixture import (
+    FIXTURE_KEY,
+    THINKING_CHUNKS,
+    THINKING_SIGNATURE,
+    THINKING_TEXT,
+    require,
+)
 from model_switch_acceptance import require_wire_history, stored_session, switch_model
 
 
@@ -240,3 +246,105 @@ def check_reasoning_after_restart(app, fixture, directory, state, ephemeral_secr
         require_saved_effort(directory, restored)
         check_reasoning_turn(app, fixture, restored,
                              "fixture:chat Resume with the saved session reasoning override.", effort)
+
+
+def require_runtime_thinking(events):
+    """Assert native SDK events, rather than treating an effort setting as thinking."""
+    deltas = [event["data"] for event in events if event["kind"] == "reasoning_delta"]
+    complete = [event["data"] for event in events if event["kind"] == "reasoning"]
+    require(bool(deltas), "SDK did not expose provider thinking deltas")
+    require("".join(item["content"] for item in deltas) == THINKING_TEXT,
+            "SDK thinking deltas lost or duplicated provider text")
+    require(bool(complete) and complete[-1]["content"] == THINKING_TEXT,
+            "SDK did not expose the completed thinking text")
+    require(len({item["reasoningId"] for item in deltas + complete}) == 1,
+            "SDK changed the reasoning identity within one thinking block")
+    require(THINKING_SIGNATURE not in json.dumps(events),
+            "Opaque thinking signature entered application runtime events")
+
+
+def thinking_messages(app, session):
+    return [message for message in app.command("messages", sessionId=session["id"])
+            if message["role"] == "reasoning"]
+
+
+def wait_thinking(app, session, content):
+    return app.wait_event(
+        session["id"], lambda event: event["kind"] == "message"
+        and event["data"].get("role") == "reasoning"
+        and event["data"].get("reasoning", {}).get("status") == "running"
+        and event["data"]["content"] == content,
+    )["data"]
+
+
+def check_thinking_text(app, fixture, provider, model, project_id=None):
+    """Hold native Anthropic thinking in flight to inspect history and cancellation."""
+    session = app.command("create_session", projectId=project_id,
+                          providerId=provider["id"], modelId=model, reasoningEffort="high")
+    offset = len(fixture.conversation_requests())
+    for interrupted in (False, True):
+        for gate in fixture.thinking_chunk_gates:
+            gate.clear()
+        prompt = ("fixture:thinking-held Cancel this thinking before its final response."
+                  if interrupted else "fixture:thinking-held Stream the provider thinking before the answer.")
+        app.command("send_message", sessionId=session["id"], content=prompt,
+                    messageId=str(uuid.uuid4()))
+        try:
+            first = wait_thinking(app, session, THINKING_CHUNKS[0])
+            require(first.get("sequence") is not None,
+                    "First thinking chunk was emitted before it received a durable identity")
+            fixture.thinking_chunk_gates[0].set()
+            partial_text = "".join(THINKING_CHUNKS[:2])
+            partial = wait_thinking(app, session, partial_text)
+            require(partial["id"] == first["id"] and partial["sequence"] == first["sequence"],
+                    "Streaming thinking changed message identity or conversation order")
+            live = thinking_messages(app, session)[-1]
+            require(live["id"] == first["id"] and live["content"] == partial_text
+                    and live["reasoning"]["status"] == "running",
+                    "History reload did not overlay the latest in-memory thinking text")
+            require(THINKING_SIGNATURE not in json.dumps(live),
+                    "History exposed an opaque thinking payload")
+            if interrupted:
+                app.command("abort_session", sessionId=session["id"])
+                app.wait_idle(session["id"])
+            else:
+                fixture.thinking_chunk_gates[1].set()
+                final_chunk = wait_thinking(app, session, THINKING_TEXT)
+                require(final_chunk["id"] == first["id"],
+                        "The final thinking chunk created a duplicate message")
+                fixture.thinking_chunk_gates[2].set()
+                answer = app.wait_event(
+                    session["id"], lambda event: event["kind"] == "message"
+                    and event["data"].get("role") == "assistant",
+                )["data"]
+                require(answer["content"] == "TANDEM_THINKING_HELD_OK",
+                        "Thinking text replaced or contaminated the final answer")
+                app.wait_idle(session["id"])
+            saved = thinking_messages(app, session)[-1]
+            require(saved["id"] == first["id"] and saved["sequence"] == first["sequence"],
+                    "Thinking completion or cancellation changed its stable identity")
+            require(saved["content"] == (partial_text if interrupted else THINKING_TEXT),
+                    "Thinking completion or cancellation lost the received text")
+            require(saved["reasoning"]["status"] == ("interrupted" if interrupted else "completed"),
+                    "Thinking completion or cancellation saved the wrong status")
+            if interrupted:
+                require(saved.get("interrupted") is True,
+                        "Canceled thinking was not marked as interrupted history")
+        finally:
+            for gate in fixture.thinking_chunk_gates:
+                gate.set()
+    messages = app.command("messages", sessionId=session["id"])
+    require(len([message for message in messages if message["role"] == "reasoning"]) == 2,
+            "Thinking streams were duplicated or merged across separate user turns")
+    require(THINKING_SIGNATURE not in json.dumps(messages),
+            "Opaque thinking signature entered persisted conversation history")
+    requests = fixture.conversation_requests()[offset:]
+    require(len(requests) == 2 and all(path.split("?", 1)[0].endswith("/v1/messages")
+                                     for path, _ in requests),
+            "Thinking acceptance did not use exactly two native Anthropic requests")
+    return {"session": session, "messages": messages}
+
+
+def check_thinking_after_restart(app, state):
+    require(app.command("messages", sessionId=state["session"]["id"]) == state["messages"],
+            "Application restart changed completed or interrupted thinking history")

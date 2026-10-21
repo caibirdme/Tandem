@@ -53,8 +53,13 @@ impl App {
     }
 
     fn persist_event(&self, event: &RuntimeEvent) -> Result<Option<(&'static str, Value)>> {
+        self.finish_reasoning_phase(event)?;
         let mut data = event.data.clone();
         let kind = match event.kind {
+            EventKind::Reasoning | EventKind::ReasoningDelta => {
+                self.publish_reasoning(event)?;
+                return Ok(None);
+            }
             EventKind::Message => {
                 let content = data["content"].as_str().unwrap_or_default();
                 if content.is_empty() {
@@ -70,6 +75,8 @@ impl App {
                     created_at: now(),
                     sequence: None,
                     activity: None,
+                    reasoning: None,
+                    selected_skills: Vec::new(),
                     interrupted: false,
                 };
                 let message = self.store.append_message(&message)?;
@@ -133,6 +140,73 @@ impl App {
         Ok(Some((kind, data)))
     }
 
+    fn finish_reasoning_phase(&self, event: &RuntimeEvent) -> Result<()> {
+        let data = &event.data;
+        let completed = match event.kind {
+            EventKind::Delta | EventKind::Message
+                if data["content"]
+                    .as_str()
+                    .is_some_and(|text| !text.is_empty()) =>
+            {
+                self.turns.close_reasoning(&event.session_id, data)?
+            }
+            EventKind::Intent
+                if data["intent"]
+                    .as_str()
+                    .is_some_and(|text| !text.trim().is_empty()) =>
+            {
+                self.turns.close_reasoning(&event.session_id, data)?
+            }
+            EventKind::Tool if data["event"] == "tool.execution_start" => {
+                self.turns.close_reasoning(&event.session_id, data)?
+            }
+            EventKind::Permission => self.turns.pause_reasoning(&event.session_id)?,
+            _ => Vec::new(),
+        };
+        for message in completed {
+            self.save_reasoning(&message)?;
+        }
+        Ok(())
+    }
+
+    fn publish_reasoning(&self, event: &RuntimeEvent) -> Result<()> {
+        for update in self.turns.reasoning(
+            &event.session_id,
+            &event.data,
+            event.kind == EventKind::Reasoning,
+        )? {
+            if update.persist {
+                self.save_reasoning(&update.message)?;
+            } else {
+                self.emit(
+                    &event.session_id,
+                    "message",
+                    serde_json::to_value(update.message)?,
+                );
+            }
+        }
+        Ok(())
+    }
+
+    fn save_reasoning(&self, message: &Message) -> Result<()> {
+        let saved = self.store.save_reasoning(message)?;
+        self.turns.reasoning_saved(&saved)?;
+        self.emit(&saved.session_id, "message", serde_json::to_value(&saved)?);
+        Ok(())
+    }
+
+    pub(crate) fn messages(&self, session_id: &str) -> Result<Vec<Message>> {
+        let mut messages = self.store.messages(session_id)?;
+        for live in self.turns.reasoning_messages(session_id)? {
+            if let Some(message) = messages.iter_mut().find(|message| message.id == live.id) {
+                *message = live;
+            } else {
+                messages.push(live);
+            }
+        }
+        Ok(messages)
+    }
+
     pub(crate) fn set_status(&self, id: &str, status: SessionStatus) -> Result<()> {
         self.store.update_session(id, |session| {
             session.status = status;
@@ -153,10 +227,10 @@ impl App {
 
     pub(crate) fn persist_interrupted(&self, id: &str) -> Result<()> {
         for message in self.turns.finish(id)? {
-            let message = if message.role == MessageRole::Activity {
-                self.store.save_activity(&message)?
-            } else {
-                self.store.append_message(&message)?
+            let message = match message.role {
+                MessageRole::Activity => self.store.save_activity(&message)?,
+                MessageRole::Reasoning => self.store.save_reasoning(&message)?,
+                _ => self.store.append_message(&message)?,
             };
             self.emit(id, "message", serde_json::to_value(message)?);
         }

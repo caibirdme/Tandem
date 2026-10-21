@@ -9,6 +9,7 @@ mod events;
 pub mod model;
 mod projects;
 mod providers;
+mod reasoning;
 mod session_models;
 mod session_reasoning;
 mod sessions;
