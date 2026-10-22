@@ -151,6 +151,8 @@ jobs:
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - run: cargo test --workspace --locked
       - run: cargo build -p tandem-dev-server -p tandem-server --locked
+      # Discovery verifies catalog limits/capabilities and restart persistence;
+      # runtime acceptance covers raw xhigh reasoning through the real SDK.
       - run: python tests/provider_models_e2e.py
       - run: python tests/runtime_e2e.py
       # POSIX runs shared-daemon acceptance even when an SSH daemon is unavailable.

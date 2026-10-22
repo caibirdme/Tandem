@@ -1,5 +1,5 @@
 use crate::{
-    App, Result,
+    App, Error, Result,
     app::now,
     model::{Session, validate_reasoning_effort},
 };
@@ -13,6 +13,16 @@ impl App {
         validate_reasoning_effort(reasoning_effort.as_deref())?;
         let _mutation_guard = self.mutation_gate.lock().await;
         let session = self.store.session(id)?;
+        let provider = self.store.provider(&session.provider_id)?;
+        let model = provider
+            .models
+            .iter()
+            .find(|model| model.id == session.model_id)
+            .ok_or_else(|| Error::ModelNotConfigured {
+                provider_id: session.provider_id.clone(),
+                model_id: session.model_id.clone(),
+            })?;
+        model.validate_reasoning_effort(reasoning_effort.as_deref())?;
         if session.reasoning_effort == reasoning_effort {
             return Ok(session);
         }
@@ -115,7 +125,14 @@ mod tests {
                 })?;
             }
             let history = serde_json::to_value(app.store.messages(&session.id)?)?;
-            for effort in [Some("low"), Some("medium"), Some("high"), Some("max"), None] {
+            for effort in [
+                Some("low"),
+                Some("medium"),
+                Some("high"),
+                Some("xhigh"),
+                Some("max"),
+                None,
+            ] {
                 let request: Request = serde_json::from_value(
                     json!({"command":"set_session_reasoning_effort", "payload":{"sessionId":session.id,"reasoningEffort":effort}}),
                 )?;
@@ -179,7 +196,7 @@ mod tests {
     async fn invalid_updates_are_typed_and_do_not_change_durable_settings() -> Result<()> {
         let (_directory, app, session) = application().await?;
         let before = serde_json::to_value(&session)?;
-        for effort in ["", "LOW", " high", "xhigh", "unsupported"] {
+        for effort in ["", "LOW", " high", "unsupported"] {
             let error = app
                 .set_session_reasoning_effort(&session.id, Some(effort.into()))
                 .await
@@ -236,9 +253,74 @@ mod tests {
             json!("low"),
             json!("medium"),
             json!("high"),
+            json!("xhigh"),
             json!("max"),
         ] {
             assert!(serde_json::from_value::<Request>(json!({"command":"set_session_reasoning_effort","payload":{"sessionId":"fixture","reasoningEffort":effort}})).is_ok());
         }
+    }
+
+    #[tokio::test]
+    async fn reported_efforts_bound_session_creation_and_updates_after_restart() -> Result<()> {
+        for supported in [None, Some(vec![]), Some(vec!["medium", "xhigh"])] {
+            let (directory, app, session) = application().await?;
+            let mut provider = app.store.provider(&session.provider_id)?;
+            provider.models[0].reasoning_effort = None;
+            provider.models[0].supported_reasoning_efforts = supported
+                .as_ref()
+                .map(|values| values.iter().map(|value| (*value).into()).collect());
+            app.save_provider(provider.clone(), None).await?;
+            drop(app);
+            let app = App::open(AppOptions::local(directory.path().into()))?;
+            assert_eq!(
+                app.store.provider(&provider.id)?.models[0].supported_reasoning_efforts,
+                provider.models[0].supported_reasoning_efforts
+            );
+            for effort in [
+                None,
+                Some("low"),
+                Some("medium"),
+                Some("high"),
+                Some("xhigh"),
+                Some("max"),
+            ] {
+                let allowed = effort.is_none_or(|effort| {
+                    supported
+                        .as_ref()
+                        .is_none_or(|values| values.contains(&effort))
+                });
+                let before = serde_json::to_value(app.store.session(&session.id)?)?;
+                let created = app
+                    .create_session(
+                        None,
+                        session.provider_id.clone(),
+                        session.model_id.clone(),
+                        None,
+                        effort.map(str::to_owned),
+                    )
+                    .await;
+                let updated = app
+                    .set_session_reasoning_effort(&session.id, effort.map(str::to_owned))
+                    .await;
+                if allowed {
+                    assert_eq!(created?.reasoning_effort.as_deref(), effort);
+                    assert_eq!(updated?.reasoning_effort.as_deref(), effort);
+                } else {
+                    for result in [created, updated] {
+                        assert!(matches!(
+                            result,
+                            Err(Error::Validation(
+                                ValidationError::ModelReasoningEffortUnavailable { .. }
+                            ))
+                        ));
+                    }
+                    assert_eq!(
+                        serde_json::to_value(app.store.session(&session.id)?)?,
+                        before
+                    );
+                }
+            }
+        }
+        Ok(())
     }
 }

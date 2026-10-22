@@ -1,14 +1,41 @@
-.provider-request-url {
+.provider-form {
+  gap: 16px;
+}
+.provider-fields {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 10px;
+}
+.provider-fields input,
+.provider-fields select {
+  min-height: 34px;
+  padding-block: 8px;
+}
+.provider-field,
+.provider-fields .credential-field {
+  display: grid;
+  grid-template-columns: 104px minmax(0, 360px);
+  align-items: center;
+  gap: 5px 14px;
+}
+.provider-field > small,
+.provider-fields .credential-field > :nth-child(n + 3) {
+  grid-column: 2;
+}
+.provider-field > span:first-child,
+.provider-fields .credential-field > label {
+  color: var(--secondary);
+  font-size: 0.6875rem;
+  line-height: 1.5;
+}
+.provider-request-url {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 6px;
 }
 .provider-request-url code {
   overflow-wrap: anywhere;
   color: var(--secondary);
-}
-.model-context-field {
-  margin-top: 14px;
 }
 .context-window-input {
   display: flex;
@@ -27,60 +54,115 @@
   font-size: 0.75rem;
   color: var(--secondary);
 }
-
-.model-discovery {
+.provider-model-section {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-}
-.model-discovery-controls {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: stretch;
-  gap: 8px;
-}
-.model-discovery-controls > input {
-  flex: 1 1 14rem;
-  min-width: 0;
-  max-width: 24rem;
-}
-.model-discovery-controls > .button {
-  flex: 0 0 auto;
-}
-.model-discovery-hint {
-  font-size: 0.625rem;
-  color: var(--secondary);
-  line-height: 1.7;
-}
-.model-discovery p {
-  font-size: 0.8125rem;
-  color: var(--secondary);
-}
-.discovered-models {
-  max-height: 260px;
-  overflow: auto;
-}
-.provider-form .discovered-model {
-  display: flex;
-  flex-direction: row;
-  align-items: flex-start;
-  gap: 10px;
-  padding: 8px 0;
-}
-.provider-form .discovered-model input {
-  width: 16px;
-  height: 16px;
-  min-height: 0;
-  padding: 0;
-  flex-shrink: 0;
+  gap: 12px;
   margin-top: 2px;
 }
-.discovered-model span {
+.provider-form .models-heading {
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+  gap: 12px;
+}
+.provider-form .models-heading h4 {
+  color: var(--text);
+}
+.provider-form .models-heading p {
+  margin-top: 5px;
+  line-height: 1.6;
+}
+.provider-model-count {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  min-width: 25px;
+  padding: 3px 7px;
+  text-align: center;
+  color: var(--secondary);
+  font-size: 0.6875rem;
+}
+.provider-model-actions {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.provider-model-empty {
+  padding: 22px 16px;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  text-align: center;
+  color: var(--secondary);
+  font-size: 0.6875rem;
+  line-height: 1.7;
+}
+.provider-model-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.provider-model-list > li {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  padding-right: 6px;
+}
+.provider-model-list > li + li {
+  border-top: 1px solid var(--line);
+}
+.provider-model-open {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+  gap: 12px;
+  padding: 12px;
+  text-align: left;
+}
+.provider-model-open:hover {
+  background: var(--hover);
+}
+.provider-model-name {
   display: flex;
   flex-direction: column;
+  gap: 4px;
+  flex: 1;
   min-width: 0;
 }
-.discovered-model code {
-  overflow-wrap: anywhere;
+.provider-model-name strong {
+  color: var(--text);
   font-size: 0.75rem;
+  font-weight: 550;
+  overflow-wrap: anywhere;
+}
+.provider-model-name code {
+  color: var(--secondary);
+  font-size: 0.625rem;
+  overflow-wrap: anywhere;
+}
+.provider-model-context {
+  color: var(--secondary);
+  font-size: 0.6875rem;
+  white-space: nowrap;
+}
+.provider-model-open > svg {
+  flex-shrink: 0;
+  color: var(--secondary);
+}
+.provider-model-list > li > .icon-button {
+  flex-shrink: 0;
+}
+@media (max-width: 520px) {
+  .provider-field,
+  .provider-fields .credential-field {
+    grid-template-columns: 84px minmax(0, 1fr);
+    column-gap: 10px;
+  }
+  .provider-model-open {
+    gap: 8px;
+    padding: 10px;
+  }
 }

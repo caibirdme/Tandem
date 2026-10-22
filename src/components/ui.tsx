@@ -1,10 +1,12 @@
 import * as Dialog from '@radix-ui/react-dialog';
 import * as Switch from '@radix-ui/react-switch';
 import { LoaderCircle, X } from 'lucide-react';
-import { useId } from 'react';
+import { createContext, useContext, useId } from 'react';
 import type { ReactNode, RefObject } from 'react';
 
 import { useI18n } from '../i18n';
+
+const ModalDepth = createContext(0);
 
 export function RequiredMark() {
   return (
@@ -34,38 +36,42 @@ export function Modal({
   returnFocusRef?: RefObject<HTMLElement | null>;
 }) {
   const { t } = useI18n();
+  const depth = useContext(ModalDepth);
   return (
-    <Dialog.Root open={open} onOpenChange={onOpenChange}>
-      <Dialog.Portal>
-        <Dialog.Overlay className="modal-overlay" />
-        <Dialog.Content
-          className={`modal ${wide ? 'modal-wide' : ''}`}
-          onOpenAutoFocus={(event) => {
-            if (initialFocusRef?.current) {
-              event.preventDefault();
-              initialFocusRef.current.focus();
-            }
-          }}
-          onCloseAutoFocus={(event) => {
-            if (returnFocusRef?.current) {
-              event.preventDefault();
-              returnFocusRef.current.focus();
-            }
-          }}
-        >
-          <header className="modal-header">
-            <div>
-              <Dialog.Title>{title}</Dialog.Title>
-              <Dialog.Description>{description}</Dialog.Description>
-            </div>
-            <Dialog.Close className="icon-button" aria-label={t('common.close')}>
-              <X size={18} />
-            </Dialog.Close>
-          </header>
-          {children}
-        </Dialog.Content>
-      </Dialog.Portal>
-    </Dialog.Root>
+    <ModalDepth.Provider value={depth + 1}>
+      <Dialog.Root open={open} onOpenChange={onOpenChange}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="modal-overlay" style={{ zIndex: 50 + depth * 2 }} />
+          <Dialog.Content
+            className={`modal ${wide ? 'modal-wide' : ''}`}
+            style={{ zIndex: 51 + depth * 2 }}
+            onOpenAutoFocus={(event) => {
+              if (initialFocusRef?.current) {
+                event.preventDefault();
+                initialFocusRef.current.focus();
+              }
+            }}
+            onCloseAutoFocus={(event) => {
+              if (returnFocusRef?.current) {
+                event.preventDefault();
+                returnFocusRef.current.focus();
+              }
+            }}
+          >
+            <header className="modal-header">
+              <div>
+                <Dialog.Title>{title}</Dialog.Title>
+                <Dialog.Description>{description}</Dialog.Description>
+              </div>
+              <Dialog.Close className="icon-button" aria-label={t('common.close')}>
+                <X size={18} />
+              </Dialog.Close>
+            </header>
+            {children}
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
+    </ModalDepth.Provider>
   );
 }
 

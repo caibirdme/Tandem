@@ -2,12 +2,14 @@ import * as Dropdown from '@radix-ui/react-dropdown-menu';
 import { Check, ChevronDown, Lightbulb } from 'lucide-react';
 
 import { useI18n } from '../i18n';
-import type { ReasoningEffort } from '../lib/types';
+import { isReasoningEffort, reasoningEffortOptions } from '../lib/reasoningEffort';
+import type { ReasoningEffort, ReasoningEffortValue } from '../lib/types';
 import { Spinner } from './ui';
 
 export function ReasoningEffortSelector({
   effort,
   defaultEffort,
+  supportedEfforts,
   disabled,
   saving,
   uncertain,
@@ -15,6 +17,7 @@ export function ReasoningEffortSelector({
 }: {
   effort: ReasoningEffort;
   defaultEffort: ReasoningEffort;
+  supportedEfforts?: ReasoningEffortValue[] | null | undefined;
   disabled: boolean;
   saving: boolean;
   uncertain: boolean;
@@ -24,13 +27,10 @@ export function ReasoningEffortSelector({
   const defaultLabel =
     defaultEffort === null
       ? t('chat.reasoningDefault')
-      : t('chat.reasoningDefaultValue', { effort: t(`settings.${defaultEffort}`) });
-  const label = uncertain
-    ? t('permissions.unconfirmed')
-    : effort === null
-      ? defaultLabel
-      : t(`settings.${effort}`);
+      : t('chat.reasoningDefaultValue', { effort: defaultEffort });
+  const label = uncertain ? t('permissions.unconfirmed') : effort === null ? defaultLabel : effort;
   const locked = disabled || saving || uncertain;
+  const options = reasoningEffortOptions(supportedEfforts);
   return (
     <Dropdown.Root>
       <Dropdown.Trigger
@@ -67,22 +67,19 @@ export function ReasoningEffortSelector({
               if (
                 !locked &&
                 (value === 'default' ||
-                  value === 'low' ||
-                  value === 'medium' ||
-                  value === 'high' ||
-                  value === 'max')
+                  (isReasoningEffort(value) && value !== null && options.includes(value)))
               )
                 onChange(value === 'default' ? null : value);
             }}
           >
-            {(['default', 'low', 'medium', 'high', 'max'] as const).map((value) => (
+            {(['default', ...options] as const).map((value) => (
               <Dropdown.RadioItem
                 key={value}
                 value={value}
                 className="dropdown-item"
                 disabled={locked}
               >
-                <span>{value === 'default' ? defaultLabel : t(`settings.${value}`)}</span>
+                <span>{value === 'default' ? defaultLabel : value}</span>
                 <Dropdown.ItemIndicator>
                   <Check size={14} />
                 </Dropdown.ItemIndicator>

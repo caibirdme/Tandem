@@ -96,13 +96,13 @@ describe('context usage state', () => {
     const confirmed = reduceTandem(measured, {
       type: 'modelChanged',
       sessionId: work.id,
-      selection: { providerId: work.providerId, modelId: work.modelId },
+      selection: { providerId: work.providerId, modelId: work.modelId, reasoningEffort: null },
     });
     expect(confirmed.snapshot?.sessions[0]?.contextUsage).toEqual(usage);
     const changed = reduceTandem(confirmed, {
       type: 'modelChanged',
       sessionId: work.id,
-      selection: { providerId: work.providerId, modelId: 'other' },
+      selection: { providerId: work.providerId, modelId: 'other', reasoningEffort: null },
     });
     expect(changed.snapshot?.sessions[0]?.contextUsage).toBeNull();
   });
