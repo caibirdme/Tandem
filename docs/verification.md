@@ -1,5 +1,19 @@
 # Verification record
 
+## Dynamic detail panel and 0.0.4 preparation (2026-10-22)
+
+Developed from `main` (`284dfdb`) in `.worktrees/dynamic-detail-panel` on `codex/dynamic-detail-panel`, using the assistant's cloud environment. The supplied layout reference was materialized and visually inspected before layout changes. The default sidebar/chat layout is unchanged until a worker is selected; worker details now use an extensible right-side shell with live output, status, tools, thinking, independent scrolling, narrow-window modal behavior, keyboard/pointer resizing, and focus restoration. Selection is scoped to the session and navigation view. Code-change tracking and code review remain out of scope.
+
+Prepared version `0.0.4` in the frontend, Cargo workspace, Tauri configuration, and the seven workspace package entries in `Cargo.lock`. No dependency versions or frontend lockfile changed; no tag or release was created.
+
+Passed: frozen installation with the pinned pnpm version; 467 frontend tests; strict TypeScript; frontend lint, formatting, and production build; Rust formatting; 37 Python tests; workspace dependency boundaries. Unit/static-render tests cover identity-scoped selection, navigation reset, live status resolution, worker output isolation, external-panel controls, keyboard-focusable logs, localized panel controls, and resize bounds. Independent review identified and resolved desktop focus looping, keyboard access to scrollable output, and resize-value consistency; the final review found no remaining blocking source issue.
+
+Strict non-desktop workspace Clippy passed with all targets and the locked dependency graph. `just build` passed for the frontend and both service binaries. The SDK cache was populated with its exact official CLI release archives and verified against the SDK's pinned SHA-256 values; no download verification was weakened.
+
+The non-desktop Rust suite passed 218 tests and failed three existing Unix-daemon socket tests with `Operation not permitted`: independent proxy handshakes, socket cleanup replacement safety, and stale/live socket handling. This is a partial suite, not a full Rust pass; no Rust business logic was changed. Local SDK acceptance was started with test inference services and exited at the existing automatically authorized `web_fetch` assertion before suite completion. It is not a passing integration suite; no retry, remote integration, or paid-provider test was run.
+
+Browser interaction and screenshot verification could not run: Chromium failed during Unix-socket creation with `Operation not permitted`. One supported escalation failed before execution because the runtime could not prepare its read-only mount. Vite could start successfully. A synthetic-service browser regression script was prepared locally, but its behavioral assertions were not executed and no screenshots were produced. `just check` passed formatting and frontend lint/types, then stopped in workspace Clippy because `gio-2.0 >= 2.70` was unavailable. Desktop bundling was not run because the required GLib/GTK/WebKit development libraries are absent. These are verification limits, not passing acceptance tests; no sandbox restriction was bypassed.
+
 ## Full dependency refresh (2026-10-22)
 
 Developed in `.worktrees/update-all-dependencies` on `codex/update-all-dependencies`, based on deferred remote preparation commit `2a74472`. [The dependency inventory](dependency-refresh.md) records every frontend runtime/development dependency, Rust lockfile update, major-version compatibility review, toolchain/CI decision, and retained upstream constraint. The SDK is 1.0.25 with bundled CLI 1.0.102; pnpm is 12.14.0. The user approved narrowly scoped, exact-version release-age exceptions for the selected new npm releases; global protection remains enabled.

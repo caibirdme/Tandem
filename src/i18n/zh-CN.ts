@@ -3,6 +3,8 @@ import { zhCNChat } from './messages/chat';
 
 export const zhCN = {
   ...zhCNChat,
+  'panel.close': '关闭详情面板',
+  'panel.resize': '调整详情面板宽度',
   'common.settings': '设置',
   'common.cancel': '取消',
   'common.save': '保存',

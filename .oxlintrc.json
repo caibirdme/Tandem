@@ -22,6 +22,12 @@
       {
         "allow": ["**/*.css"]
       }
+    ],
+    "jsx-a11y/no-noninteractive-tabindex": [
+      "error",
+      {
+        "roles": ["log"]
+      }
     ]
   },
   "ignorePatterns": ["dist/**", "node_modules/**", "target/**", "src-tauri/target/**"],

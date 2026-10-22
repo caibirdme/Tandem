@@ -2,6 +2,8 @@ import { enChat } from './messages/chat';
 
 export const en = {
   ...enChat,
+  'panel.close': 'Close detail panel',
+  'panel.resize': 'Resize detail panel',
   'common.settings': 'Settings',
   'common.cancel': 'Cancel',
   'common.save': 'Save',
