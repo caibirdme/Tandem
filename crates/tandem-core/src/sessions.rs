@@ -1,8 +1,8 @@
 use std::sync::{Arc, Weak};
 
 use copilot_runtime::{
-    MessageAttachment, SessionMode, SessionOptions, SkillSelection, validate_attachment_protocol,
-    validate_attachments,
+    EventKind, MessageAttachment, SessionMode, SessionOptions, SkillSelection,
+    validate_attachment_protocol, validate_attachments,
 };
 use serde_json::json;
 use tandem_remote::RemoteTransport;
@@ -27,6 +27,7 @@ struct Submission<'a> {
     app: &'a App,
     session_id: &'a str,
     settled: bool,
+    recorded: bool,
     completion: Option<TurnCompletion>,
 }
 
@@ -37,6 +38,25 @@ struct UserMessage<'a> {
     attachments: &'a [MessageAttachment],
     attachment_bytes: Vec<Vec<u8>>,
     fleet: bool,
+}
+
+impl Submission<'_> {
+    async fn fail(&mut self, message_id: Uuid, error: &Error) {
+        if self.recorded {
+            self.app.finish_review_turn(self.session_id, false).await;
+        } else {
+            self.app
+                .abandon_review_turn(self.session_id, &message_id.to_string())
+                .await;
+        }
+        if let Some(completion) = &self.completion {
+            completion.fail();
+        }
+        self.app.disconnect_session(self.session_id).await;
+        self.app
+            .fail_session(self.session_id, &format!("Sending failed: {error}"));
+        self.settled = true;
+    }
 }
 
 impl Drop for Submission<'_> {
@@ -208,6 +228,9 @@ impl App {
         if self.store.session(session_id)?.status == SessionStatus::Running {
             return Err(Error::ConversationRunning);
         }
+        // Review capture survives a replaced runtime connection. A later submission
+        // cannot change files while the previous endpoint is still being captured.
+        self.wait_review_capture(session_id).await;
         let previous = self
             .sessions
             .lock()
@@ -250,6 +273,7 @@ impl App {
             app: self,
             session_id,
             settled: false,
+            recorded: false,
             completion: None,
         };
         let result = self
@@ -269,12 +293,7 @@ impl App {
             )
             .await;
         if let Err(error) = result {
-            if let Some(completion) = &submission.completion {
-                completion.fail();
-            }
-            self.disconnect_session(session_id).await;
-            self.fail_session(session_id, &format!("Sending failed: {error}"));
-            submission.settled = true;
+            submission.fail(message_id, &error).await;
             return Err(error);
         }
         submission.settled = true;
@@ -306,6 +325,8 @@ impl App {
                 .as_ref()
                 .ok_or(Error::SessionDisconnected)?;
             completion.begin().await?;
+            self.begin_review_turn(session, &request.message_id.to_string(), &handle)
+                .await;
             Ok::<_, Error>((handle, prepared))
         };
         let (handle, prepared) = tokio::select! {
@@ -347,6 +368,9 @@ impl App {
         let message = self
             .store
             .append_message_with_attachments(&message, &request.attachment_bytes)?;
+        submission.recorded = true;
+        self.commit_review_turn(&session.id, &request.message_id.to_string())
+            .await;
         self.store.update_session(&session.id, |current| {
             current.updated_at = now();
             current.status = SessionStatus::Running;
@@ -375,6 +399,7 @@ impl App {
         };
         if let Some(mut live) = stale {
             live.stop_forwarding().await;
+            self.finish_review_turn(id, false).await;
             if let Err(error) = live.handle.disconnect().await {
                 tracing::warn!(%error, "could not close stale agent session");
             }
@@ -501,6 +526,21 @@ impl App {
             loop {
                 let event = incoming.recv().await;
                 let Some(app) = app.upgrade() else { break };
+                // Freeze review endpoints outside the synchronous completion lock.
+                // The review coordinator retains its own barrier if this forwarding
+                // task is cancelled while a capture is in progress.
+                match &event {
+                    Ok(event)
+                        if event.kind == EventKind::Status && event.data["state"] == "idle" =>
+                    {
+                        app.finish_review_turn(&session_id, true).await;
+                    }
+                    Ok(event) if event.kind == EventKind::Error => {
+                        app.finish_review_turn(&session_id, false).await;
+                    }
+                    Err(_) => app.finish_review_turn(&session_id, false).await,
+                    _ => {}
+                }
                 let keep_forwarding = completion.process_event(|| match event {
                     Ok(event) => app.receive_event(&event),
                     Err(error) => {
@@ -557,6 +597,7 @@ impl App {
         let _session_guard = gate.lock().await;
         self.store.session(id)?;
         self.titles.mark_interrupted(id, true)?;
+        self.interrupt_review_turn(id).await;
         let handle = self
             .sessions
             .lock()
@@ -566,6 +607,7 @@ impl App {
         if let Some((handle, completion)) = handle {
             handle.abort().await?;
             completion.wait().await?;
+            self.finish_review_turn(id, false).await;
         } else {
             self.store.session(id)?;
         }
@@ -598,10 +640,14 @@ impl App {
         let live = self.sessions.lock().await.remove(id);
         if let Some(mut live) = live {
             live.stop_forwarding().await;
+            self.finish_review_turn(id, false).await;
             if let Err(error) = live.handle.disconnect().await {
                 tracing::warn!(%error, "could not disconnect agent session");
             }
+        } else {
+            self.finish_review_turn(id, false).await;
         }
+        self.cleanup_review_location(id).await;
         if let Err(error) = self.persist_interrupted(id) {
             tracing::error!(%error, "could not save interrupted output on disconnect");
         }
@@ -1638,6 +1684,7 @@ exec sleep 60
                     app: &app,
                     session_id: &session_id,
                     settled: false,
+                    recorded: false,
                     completion: Some(completion),
                 };
                 let _ = started.send(());

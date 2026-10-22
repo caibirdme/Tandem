@@ -67,6 +67,10 @@ integration:
 integration-agentlens: build-server
     {{python}} tests/agentlens_e2e.py
 
+# Verify Git snapshots and review history through the real SDK and remote protocol.
+integration-review: build-server
+    {{python}} tests/review_acceptance.py
+
 # Verify provider model discovery with local HTTP fixtures and synthetic credentials.
 integration-models:
     cargo build -p tandem-dev-server

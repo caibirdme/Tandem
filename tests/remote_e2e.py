@@ -45,6 +45,7 @@ from inference_fixture import (
     require,
 )
 from permission_acceptance import check_permission_modes
+from review_acceptance import check_review_flow
 from model_switch_acceptance import require_wire_history
 from reasoning_acceptance import (
     check_pending_reasoning_change,
@@ -360,13 +361,22 @@ def check_concurrent_bootstrap(app, ssh, project, provider):
     results = queue.Queue()
     sessions = [app.command('create_session', projectId=project['id'],
                             providerId=provider['id'], modelId='gpt-4.1') for _ in range(2)]
+    phases = {session['id']: 'starting' for session in sessions}
+    phase_lock = threading.Lock()
+
+    def phase(session_id, value):
+        with phase_lock:
+            phases[session_id] = value
 
     def bootstrap(session):
         try:
+            phase(session['id'], 'send, turn events, and persisted messages')
             events = app.turn(session, 'fixture:chat Initialize this remote session.')
             if any(event['kind'] == 'preparation' and event['data']['preparing'] for event in events):
                 require_preparation_before_delivery(events)
+            phase(session['id'], 'title event and persisted title')
             app.wait_title(session['id'], events)
+            phase(session['id'], 'complete')
             results.put(None)
         except Exception as error:
             results.put(error)
@@ -374,21 +384,66 @@ def check_concurrent_bootstrap(app, ssh, project, provider):
     starters = [threading.Thread(target=bootstrap, args=(session,), daemon=True) for session in sessions]
     for starter in starters:
         starter.start()
+    failure = None
     try:
-        for _ in starters:
-            result = results.get(timeout=90)
-            if result:
-                raise result
+        # Each worker can issue three 180-second HTTP calls and two 90-second
+        # event waits. One shared deadline must not hide an inner timeout.
+        wait_bootstrap_results(results, len(starters), 3 * 180 + 2 * 90 + 15)
         require(probes.stat().st_size == before + 1,
                 'Concurrent first sends did not share one remote environment preparation')
         ssh.identify_runtime_daemon()
         require_runtime(ssh.runtime_daemon)
+    except BaseException as error:
+        failure = error
+        with phase_lock:
+            state = dict(phases)
+        error.add_note(bootstrap_diagnostics(app, ssh, state))
+        raise
     finally:
+        cleanup_deadline = time.monotonic() + 5
         for starter in starters:
-            starter.join(timeout=45)
-        require(not any(starter.is_alive() for starter in starters), 'Concurrent SSH preparation did not finish')
+            starter.join(timeout=max(0, cleanup_deadline - time.monotonic()))
+        if any(starter.is_alive() for starter in starters):
+            message = 'Concurrent SSH preparation workers did not finish during cleanup'
+            if failure is not None:
+                failure.add_note(message)
+            else:
+                raise AssertionError(message)
     for session in sessions:
         app.command('delete_session', sessionId=session['id'])
+
+
+def wait_bootstrap_results(results, count, timeout):
+    """Preserve worker failures under one bounded overall deadline."""
+    deadline = time.monotonic() + timeout
+    for _ in range(count):
+        try:
+            result = results.get(timeout=max(0, deadline - time.monotonic()))
+        except queue.Empty:
+            raise TimeoutError(f'Concurrent SSH preparation exceeded its {timeout}-second deadline') from None
+        if result is not None:
+            raise result
+
+
+def bootstrap_diagnostics(app, ssh, phases):
+    """Capture bounded fixture evidence without event bodies or credentials."""
+    state = {
+        'phases': phases,
+        'pendingEvents': app.events.pending_counts(phases),
+        'eventReaderFailure': type(app.reader_error).__name__ if app.reader_error else None,
+        'applicationExit': app.process.poll(),
+    }
+    sections = [json.dumps(state, sort_keys=True)]
+    for label, path in [('Application log', app.log_path), ('SSH daemon log', ssh.directory / 'sshd.log')]:
+        try:
+            with path.open('rb') as stream:
+                stream.seek(0, os.SEEK_END)
+                stream.seek(max(0, stream.tell() - 8192))
+                tail = stream.read(8192).decode('utf-8', errors='replace')
+        except OSError as error:
+            tail = f'Unavailable: {type(error).__name__}'
+        sections.append(f'{label}:\n{tail}')
+    return '\n'.join(sections).replace(FIXTURE_KEY, '[redacted fixture key]')
 
 
 def replace_with_obsolete_server(deployed):
@@ -737,6 +792,10 @@ def check_ssh(remote_server, dev_server, root, endpoint, fixture):
         require((workspace / 'verified.txt').read_text() == 'verified by SDK\n', 'Remote reconnect did not resume executable work')
         check_permission_modes(app, project, provider, 'gpt-4.1', workspace)
         check_ssh_reasoning(app, fixture, app_directory, endpoint, project)
+        review_session, *_ = check_review_flow(
+            app, fixture, provider, workspace / 'review-project', ssh.connection,
+        )
+        app.command('delete_session', sessionId=review_session['id'])
         app.command('save_preferences', telemetry={'enabled': False, 'endpoint': '',
                     'protocol': 'http/json', 'captureContent': False}, cliPath=None)
         require(any(path == '/v1/traces' and 'json' in content_type and json_span_names(body)
@@ -797,7 +856,7 @@ def main():
             if not arguments.skip_ssh:
                 require(os.name == 'posix', 'Use --skip-ssh on hosts without a POSIX SSH daemon')
                 check_ssh(remote_server, dev_server, root, endpoint_url, fixture)
-                checks.append('OpenSSH: strict host trust, key rejection, concurrent atomic deployments share one daemon and CLI, literal directories, Fleet opt-in and isolated worker traces/permissions/cancellation, image/text attachments, grouped tool activity, confirmed skill selection metadata, repeated skill discovery reuses idle work without new SSH connections, remote tools, reconnect/resume, native thinking history and cancellation, core session reasoning changes, pending approval, and native-default reset with complete history')
+                checks.append('OpenSSH: strict host trust, key rejection, concurrent atomic deployments share one daemon and CLI, literal directories, Fleet opt-in and isolated worker traces/permissions/cancellation, image/text attachments, grouped tool activity, confirmed skill selection metadata, repeated skill discovery reuses idle work without new SSH connections, remote tools, reconnect/resume, native thinking history and cancellation, core session reasoning changes, pending approval, native-default reset with complete history, and immutable workspace/session/turn reviews including agent commits and cancellation')
             print(json.dumps({'result': 'passed', 'checks': checks, 'inferenceRequests': len(fixture.requests),
                               'telemetryExports': len(fixture.exports)}, indent=2))
         finally:

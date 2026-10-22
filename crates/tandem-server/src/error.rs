@@ -18,6 +18,14 @@ pub(crate) enum ServerError {
     Daemon(#[from] crate::daemon::DaemonError),
     #[error("Unsupported remote command")]
     UnsupportedCommand,
+    #[error("Open this workspace on the current connection before reviewing it.")]
+    ReviewNotBound,
+    #[error("The review workspace identifier or directory is invalid.")]
+    InvalidReviewWorkspace,
+    #[error("The review page cursor must be a non-negative integer.")]
+    InvalidReviewCursor,
+    #[error(transparent)]
+    Review(#[from] copilot_runtime::workspace::ReviewError),
     #[error("{field} is required and must be a string")]
     RequiredField { field: &'static str },
     #[error("{field} must be a boolean")]
@@ -90,6 +98,33 @@ impl ServerError {
             Self::RequestTask(_) => RpcErrorCode::RuntimeFailure,
             Self::ConnectionClosed => RpcErrorCode::SessionNotConnected,
             Self::UnsupportedCommand => RpcErrorCode::UnsupportedCommand,
+            Self::ReviewNotBound => RpcErrorCode::ReviewNotFound,
+            Self::InvalidReviewWorkspace | Self::InvalidReviewCursor => {
+                RpcErrorCode::ReviewInvalidInput
+            }
+            Self::Review(error) => match error.code() {
+                copilot_runtime::workspace::ReviewErrorCode::NotRepository => {
+                    RpcErrorCode::ReviewNotRepository
+                }
+                copilot_runtime::workspace::ReviewErrorCode::GitUnavailable => {
+                    RpcErrorCode::ReviewGitUnavailable
+                }
+                copilot_runtime::workspace::ReviewErrorCode::NotFound => {
+                    RpcErrorCode::ReviewNotFound
+                }
+                copilot_runtime::workspace::ReviewErrorCode::Expired => RpcErrorCode::ReviewExpired,
+                copilot_runtime::workspace::ReviewErrorCode::InvalidInput => {
+                    RpcErrorCode::ReviewInvalidInput
+                }
+                copilot_runtime::workspace::ReviewErrorCode::Limit => RpcErrorCode::ReviewLimit,
+                copilot_runtime::workspace::ReviewErrorCode::Timeout => RpcErrorCode::ReviewTimeout,
+                copilot_runtime::workspace::ReviewErrorCode::Internal => {
+                    RpcErrorCode::ReviewFailure
+                }
+                copilot_runtime::workspace::ReviewErrorCode::Unavailable => {
+                    RpcErrorCode::ReviewUnavailable
+                }
+            },
             Self::Runtime(RuntimeError::Skills(error)) => match error {
                 copilot_runtime::SkillError::PreparationTimeout
                 | copilot_runtime::SkillError::DiscoveryTimeout => RpcErrorCode::RuntimeTimeout,
@@ -162,6 +197,24 @@ pub(crate) type Result<T> = std::result::Result<T, ServerError>;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn review_failures_retain_typed_protocol_codes() {
+        use copilot_runtime::workspace::ReviewError;
+        for (source, expected) in [
+            (
+                ReviewError::NotRepository,
+                RpcErrorCode::ReviewNotRepository,
+            ),
+            (ReviewError::NotFound, RpcErrorCode::ReviewNotFound),
+            (ReviewError::RevisionExpired, RpcErrorCode::ReviewExpired),
+            (ReviewError::InvalidInput, RpcErrorCode::ReviewInvalidInput),
+            (ReviewError::Limit, RpcErrorCode::ReviewLimit),
+            (ReviewError::Timeout, RpcErrorCode::ReviewTimeout),
+        ] {
+            assert_eq!(ServerError::Review(source).into_rpc().code, expected);
+        }
+    }
 
     #[test]
     fn operation_codes_preserve_runtime_failure_types() {

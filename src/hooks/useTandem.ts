@@ -12,6 +12,7 @@ import { projectSkills } from '../lib/projectSkills';
 import { isReasoningEffort } from '../lib/reasoningEffort';
 import { createReasoningEffortChanges } from '../lib/reasoningEffortChanges';
 import { protectedSessionIds } from '../lib/reconcile';
+import { receiveReviewEvent } from '../lib/reviewEvents';
 import { initialTandemState, reduceTandem } from '../lib/tandemState';
 import type {
   AttachmentInput,
@@ -208,6 +209,8 @@ export function useTandem() {
       });
     const handleEvent = (event: RuntimeEvent) => {
       if (disposed) return;
+      receiveReviewEvent(event);
+      if (event.kind === 'review_updated' || event.kind === 'review_invalidated') return;
       if (event.kind === 'message') {
         const messages = (messageRevisions.current[event.sessionId] ??= {});
         messages[event.data.id] = (messages[event.data.id] ?? 0) + 1;

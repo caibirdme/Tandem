@@ -23,16 +23,19 @@ Use focused checks while developing, but do not substitute them for the applicab
 
 The acceptance suites use the production services and Copilot SDK/CLI with local synthetic inference and telemetry fixtures. They do not require paid provider credentials.
 
-| Area changed                            | Command                      | Main coverage                                                                                             |
-| --------------------------------------- | ---------------------------- | --------------------------------------------------------------------------------------------------------- |
-| Sessions, tools, providers, permissions | `just integration`           | Chat/Work, conversation persistence, tools, cancellation, permissions, and model behavior                 |
-| Provider model discovery                | `just integration-models`    | Catalog pagination, model metadata, authentication, validation, persistence, and credential isolation     |
-| AgentLens telemetry                     | `just integration-agentlens` | Local/remote export, content capture, span relationships, retries, credentials, and idle failure recovery |
-| SSH and remote deployment               | `just integration-ssh`       | Connection, preparation, deployment, permissions, and remote execution                                    |
+| Area changed                            | Command                      | Main coverage                                                                                                  |
+| --------------------------------------- | ---------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| Sessions, tools, providers, permissions | `just integration`           | Chat/Work, conversation persistence, tools, cancellation, permissions, and model behavior                      |
+| Provider model discovery                | `just integration-models`    | Catalog pagination, model metadata, authentication, validation, persistence, and credential isolation          |
+| AgentLens telemetry                     | `just integration-agentlens` | Local/remote export, content capture, span relationships, retries, credentials, and idle failure recovery      |
+| Work change review                      | `just integration-review`    | Real Git baselines, staged/unstaged views, session/turn history, commits, cancellation, ownership, and restart |
+| SSH and remote deployment               | `just integration-ssh`       | Connection, preparation, deployment, permissions, and remote execution                                         |
 
 Build the service binaries first when invoking Python suites directly. The generic runtime suite includes a public web-fetch case and therefore needs network access; SSH acceptance needs local OpenSSH tools. Keep fixture homes and application data isolated from real user data. Clear inherited provider/offline overrides that could change test behavior; the shared acceptance environment removes inherited trace sampling so expected fixture traces are not randomly omitted.
 
 Synthetic-provider success does not prove compatibility with every real provider or model. A live service check requires explicit authorization. Do not put real keys, private endpoints, user conversations, or other sensitive evidence in commits, PR descriptions, screenshots, or logs.
+
+Review acceptance requires Git 2.45 or newer. The local suite uses real repositories and production SDK tools with synthetic inference. The real SSH suite repeats the review lifecycle over an isolated OpenSSH connection; `python tests/remote_e2e.py --skip-ssh` only verifies remote stdio and, on Unix, the shared daemon. Record which transport was exercised. For capture-performance changes, include a large-file-list fixture and check immutable detail loading after later edits or restart.
 
 ## Manual acceptance
 
@@ -42,6 +45,7 @@ Exercise the affected flow in the desktop application with disposable data. At m
 - **Conversations:** send and stream a reply, switch conversations, scroll long histories, cancel active work, and confirm no stale running indicators. Check persistence after restart and permissions for denied tool actions.
 - **Remote work:** connection testing and directory browsing must not deploy the agent. An unprepared remote environment initializes on first send with a noninteractive status; a healthy prepared environment is reused by later sessions.
 - **Detail panel:** open a subagent from its conversation card, follow its output, switch sessions, and close the panel without losing the main conversation state.
+- **Change review:** open Changes in a Work conversation and switch workspace, staged, unstaged, session, and turn scopes. Inspect committed edits and dirty starting files, filter the file list, switch unified/side-by-side views, resize, wrap lines, and close with Escape. Check binary, oversized, incomplete, and unavailable states, deferred details for large file lists, and remote offline cache limits. Confirm Chat has no review action.
 - **Telemetry:** verify enabled/disabled and content-capture choices with synthetic data. Test receiver failure and recovery; ordinary snapshots and remote persisted configuration must not expose credentials.
 - **Packaging:** launch the generated native bundle on the target platform and exercise the changed native feature. Record which platforms were actually tested.
 

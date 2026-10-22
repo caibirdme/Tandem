@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import os
-import queue
 import signal
 import socket
 import subprocess
@@ -46,33 +45,31 @@ def require_context_usage(events, expected_limit):
 
 
 class SessionEvents:
-    """One reader, with unmatched sessions retained for subsequent assertions."""
+    """Route one event stream to independent concurrent session consumers."""
 
     def __init__(self):
-        self.incoming = queue.Queue()
         self.pending = defaultdict(deque)
+        self.condition = threading.Condition()
 
     def put(self, event):
-        self.incoming.put(event)
+        with self.condition:
+            self.pending[event["sessionId"]].append(event)
+            self.condition.notify_all()
 
     def next(self, session_id, deadline):
-        if self.pending[session_id]:
+        with self.condition:
+            while not self.pending[session_id]:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise TimeoutError(
+                        f"Session {session_id}: expected event did not arrive"
+                    )
+                self.condition.wait(remaining)
             return self.pending[session_id].popleft()
-        while True:
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                raise TimeoutError(
-                    f"Session {session_id}: expected event did not arrive"
-                )
-            try:
-                event = self.incoming.get(timeout=remaining)
-            except queue.Empty:
-                raise TimeoutError(
-                    f"Session {session_id}: expected event did not arrive"
-                ) from None
-            if event["sessionId"] == session_id:
-                return event
-            self.pending[event["sessionId"]].append(event)
+
+    def pending_counts(self, session_ids):
+        with self.condition:
+            return {session_id: len(self.pending[session_id]) for session_id in session_ids}
 
 
 class Application:
