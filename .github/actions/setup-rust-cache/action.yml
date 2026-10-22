@@ -1,0 +1,29 @@
+name: Set up Rust cache
+description: Restore purpose-specific Cargo and checksum-verified Copilot download caches
+inputs:
+  purpose:
+    description: Stable target/profile/job identity, distinct for debug checks and release builds
+    required: true
+runs:
+  using: composite
+  steps:
+    # The SDK revalidates archive hashes. Share downloads across build variants in this job.
+    - shell: bash
+      run: echo "BUNDLED_CLI_CACHE_DIR=${{ runner.temp }}/tandem-copilot-downloads" >> "$GITHUB_ENV"
+    - uses: Swatinem/rust-cache@v2
+      id: cache
+      with:
+        prefix-key: tandem-v1
+        shared-key: ${{ inputs.purpose }}
+        cache-bin: false
+        cache-directories: ${{ runner.temp }}/tandem-copilot-downloads
+        # Never promote untrusted PR build outputs into the main baseline.
+        # Main push runs use identical keys and populate caches visible to future PRs.
+        save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    - shell: bash
+      env:
+        PURPOSE: ${{ inputs.purpose }}
+        CACHE_HIT: ${{ steps.cache.outputs.cache-hit }}
+      run: |
+        echo "Rust cache ($PURPOSE): exact match = ${CACHE_HIT:-false}" >> "$GITHUB_STEP_SUMMARY"
+        echo "Only successful main push jobs save the reusable baseline; cold PR runs are expected until it exists." >> "$GITHUB_STEP_SUMMARY"

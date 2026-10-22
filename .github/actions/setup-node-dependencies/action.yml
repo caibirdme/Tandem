@@ -1,0 +1,28 @@
+name: Set up Node dependencies
+description: Restore a pnpm store baseline and install locked dependencies
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v7
+      with:
+        node-version: 24
+        package-manager-cache: false
+    - shell: bash
+      run: corepack enable
+    - id: store
+      shell: bash
+      run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+    - uses: actions/cache/restore@v5
+      id: cache
+      with:
+        path: ${{ steps.store.outputs.path }}
+        key: pnpm-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pnpm-lock.yaml', 'package.json') }}
+        restore-keys: pnpm-v1-${{ runner.os }}-${{ runner.arch }}-
+    - shell: bash
+      run: pnpm install --frozen-lockfile
+    # PRs restore the trusted main baseline without uploading isolated duplicate stores.
+    - uses: actions/cache/save@v5
+      if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.cache.outputs.cache-hit != 'true'
+      with:
+        path: ${{ steps.store.outputs.path }}
+        key: ${{ steps.cache.outputs.cache-primary-key }}

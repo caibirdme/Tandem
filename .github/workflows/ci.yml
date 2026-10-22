@@ -1,6 +1,12 @@
 name: CI
 
 on:
+  # Build a trusted baseline that all later PRs can restore, not PR-scoped caches.
+  push:
+    branches: [main]
+    paths-ignore:
+      - 'docs/**'
+      - '**/*.md'
   pull_request:
     branches: [main]
     types: [opened, synchronize, reopened]
@@ -9,7 +15,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.event.pull_request.number }}
+  group: ci-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 env:
@@ -27,6 +33,8 @@ jobs:
       rust: ${{ steps.filter.outputs.rust }}
       bundle: ${{ steps.filter.outputs.bundle }}
     steps:
+      - if: github.event_name == 'push'
+        uses: actions/checkout@v7
       # Run web and Rust unless all changes are excluded; bundle only when its inputs change.
       # User guides and README screenshots live under docs/**, so documentation-only edits run Format.
       # Attachment UI modules use the web rules; tests/attachment_acceptance.py runs inside
@@ -37,6 +45,7 @@ jobs:
       - uses: dorny/paths-filter@v4
         id: filter
         with:
+          base: ${{ github.ref }}
           predicate-quantifier: some-with-excludes
           filters: |
             web:
@@ -74,6 +83,9 @@ jobs:
               - '!.github/workflows/bundle.yml'
               - '!.github/workflows/release.yml'
             bundle:
+              - '**/Cargo.toml'
+              - '.cargo/**'
+              - '.github/actions/**'
               - '.github/workflows/bundle.yml'
               - 'src-tauri/tauri*.conf.json'
               - 'src-tauri/icons/**'
@@ -94,11 +106,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 24
-      - run: corepack enable
-      - run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/setup-node-dependencies
       - run: pnpm format:check
       - if: needs.changes.outputs.rust == 'true'
         run: rustup toolchain install nightly --profile minimal --component rustfmt
@@ -116,11 +124,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 24
-      - run: corepack enable
-      - run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/setup-node-dependencies
       - if: matrix.os == 'macos-15'
         run: pnpm lint
       - if: matrix.os == 'macos-15'
@@ -138,6 +142,11 @@ jobs:
         os: [macos-15, windows-2022]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
+    env:
+      # CI needs assertions, not full DWARF/PDB data in multi-GB dependency caches.
+      # Keep release builds and local development profiles unchanged.
+      CARGO_PROFILE_DEV_DEBUG: 0
+      CARGO_PROFILE_TEST_DEBUG: 0
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
@@ -145,8 +154,9 @@ jobs:
           python-version: '3.15'
       - run: python -m unittest discover -s tests -p 'test_*.py'
       - run: rustup toolchain install
-      # Reuse PR-scoped caches on later commits without requiring a main-branch CI run.
-      - uses: Swatinem/rust-cache@v2
+      - uses: ./.github/actions/setup-rust-cache
+        with:
+          purpose: checks-debug-${{ matrix.os }}
       - run: python scripts/check_workspace.py
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - run: cargo test --workspace --locked

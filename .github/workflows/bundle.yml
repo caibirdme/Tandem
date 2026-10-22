@@ -23,6 +23,9 @@ jobs:
       - run: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain none --profile minimal
       - run: echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
       - run: rustup toolchain install
+      - uses: ./.github/actions/setup-rust-cache
+        with:
+          purpose: remote-release-x86_64-unknown-linux-gnu-ubuntu22
       - run: cargo build --release -p tandem-server --locked
       - uses: actions/upload-artifact@v7
         with:
@@ -38,6 +41,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - run: rustup toolchain install
+      - uses: ./.github/actions/setup-rust-cache
+        with:
+          purpose: remote-release-aarch64-apple-darwin
       - run: cargo build --release -p tandem-server --locked
       - uses: actions/upload-artifact@v7
         with:
@@ -61,12 +67,11 @@ jobs:
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 24
-      - run: corepack enable
-      - run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/setup-node-dependencies
       - run: rustup toolchain install
+      - uses: ./.github/actions/setup-rust-cache
+        with:
+          purpose: desktop-release-${{ matrix.platform }}
       - uses: actions/download-artifact@v8
         with:
           pattern: remote-*
