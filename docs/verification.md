@@ -1,5 +1,11 @@
 # Verification record
 
+## Main synchronization for provider setup (2026-10-22)
+
+Rebased `codex/provider-model-dialogs` onto `origin/main` (`2c0de11`, automatic environment preparation). The only content conflict was in this verification history; both records were retained. Range comparison and independent source review confirmed the provider/model changes remain intact while preserving the removed manual runtime controls, remote protocol v2, and automatic readiness handling.
+
+After rebasing, 546 frontend tests, 217 Windows Rust workspace tests plus doc-tests, 37 Python tests, frontend lint/types/production build, Rust formatting, strict all-target workspace Clippy, dependency-boundary checks, service builds, and whitespace checks passed. Catalog integration passed with the rebuilt development host and synthetic credentials. Remote stdio integration passed with the rebuilt v2 server, the real SDK, local test inference/telemetry services, 33 inference requests, and six telemetry exports, including cold/warm readiness assertions and reasoning changes. Windows does not exercise the POSIX Unix-daemon or real SSH branches. The earlier live Provider UI acceptance remains applicable to the unchanged feature components; no new native installer acceptance is claimed.
+
 ## Provider model dialogs and compact editor (2026-10-22)
 
 Developed in `.worktrees/provider-model-dialogs` on `codex/provider-model-dialogs`, created from `main` (`066fdc2`) and then carrying the preceding catalog-metadata fix. Provider connection fields now use compact label/input rows. Fetching opens a catalog dialog with initially unchecked model rows, exact context summaries, expandable parameters, and one selected-model import action. Imported limits and effort capabilities populate the provider draft directly, with default reasoning unset. Missing context or an output ceiling not smaller than context disables direct import with an explanation while preserving the catalog values for inspection.
@@ -35,7 +41,6 @@ Developed from `main` (`066fdc2`) in `.worktrees/automatic-remote-preparation` o
 Passed: 487 frontend tests; 37 Python unit tests; workspace dependency boundaries; frontend lint, strict TypeScript, production build and formatting; Rust formatting; `git diff --check`; locked builds of `tandem-server` and `tandem-dev-server`; and strict Clippy for core, protocol, remote, and server, including all targets. The scoped Rust run passed 165 tests; three existing server daemon tests failed on restricted Unix socket creation (`Operation not permitted`). The final core/protocol/remote rerun passed all 137 tests. Regressions cover absent manual setup controls, noninteractive preparation status, cold and warm hosts, a fresh desktop cache, stale/stopped environments, concurrent sends, readiness-lock contention, and cancellation while waiting.
 
 The real test-service runtime integration reached the existing automatically authorized `web_fetch` assertion and failed there; it is not a passing integration suite. Remote integration stopped at bundled runtime initialization, with a separately captured `Daemon(StartupFailed)` diagnostic. The additional real-protocol cold/warm readiness assertions therefore remain for CI on a normal host. `just check` passed its formatting and frontend lint/type steps, then stopped in desktop workspace Clippy because `glib-2.0` is absent. No live GUI, native desktop, or real external SSH host acceptance is claimed. Native acceptance should confirm first-send preparation is informational, cancel/error/retry remain usable, and a second session on the same healthy server sends without an initialization notice.
-
 
 ## Nested transcript scroll chaining (2026-10-22)
 
