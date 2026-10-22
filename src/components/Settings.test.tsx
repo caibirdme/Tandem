@@ -9,6 +9,7 @@ const provider: Provider = {
   name: 'Provider',
   protocol: 'anthropic',
   baseUrl: 'https://example.com/x',
+  listModelsPath: '/v1/models',
   hasApiKey: false,
   models: [
     {

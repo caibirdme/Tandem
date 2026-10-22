@@ -15,6 +15,7 @@ const settings: Settings = {
       name: 'Fixture provider',
       protocol: 'anthropic',
       baseUrl: 'https://example.com',
+      listModelsPath: '/v1/models',
       hasApiKey: false,
       models: [
         {

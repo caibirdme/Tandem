@@ -3976,6 +3976,7 @@ dependencies = [
  "chrono",
  "copilot-runtime",
  "dirs",
+ "reqwest",
  "rusqlite",
  "serde",
  "serde_json",

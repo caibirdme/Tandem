@@ -34,6 +34,7 @@ const provider: Provider = {
   name: 'Provider',
   protocol: 'openai-completions',
   baseUrl: 'http://localhost:8080',
+  listModelsPath: '/v1/models',
   hasApiKey: true,
   models: [
     {

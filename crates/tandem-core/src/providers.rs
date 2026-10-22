@@ -12,6 +12,7 @@ impl App {
         api_key: Option<String>,
     ) -> Result<Provider> {
         provider.name = provider.name.trim().into();
+        provider.list_models_path = provider.list_models_path.trim().into();
         provider.base_url = provider.base_url.trim().trim_end_matches('/').into();
         provider.validate()?;
         if provider.id.is_empty() {
