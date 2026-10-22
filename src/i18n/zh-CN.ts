@@ -46,7 +46,8 @@ export const zhCN = {
   'settings.fetchModels': '拉取模型',
   'settings.fetchingModels': '正在拉取模型…',
   'settings.addSelectedModels': '添加所选模型',
-  'settings.discoveryHint': '默认不选择任何模型。选择并添加模型后，请在下方填写上下文窗口。',
+  'settings.discoveryHint':
+    '默认不选择任何模型。添加所选模型时，会自动填入接口返回的上下文窗口和最大输出；缺失的上下文窗口请在下方填写。',
   'settings.noDiscoveredModels': '未返回任何模型。',
   'settings.modelAlreadyAdded': '已添加',
   'settings.discoveryCredentialBlank':

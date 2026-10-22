@@ -1,7 +1,8 @@
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 
-import type { Provider, ProviderProtocol } from '../lib/types';
+import { setLocale } from '../i18n';
+import type { Provider, ProviderProtocol, ReasoningEffortValue } from '../lib/types';
 import { ProviderEditor } from './Settings';
 
 const provider: Provider = {
@@ -28,6 +29,8 @@ function markup(value: Provider | null) {
   );
 }
 
+afterEach(() => setLocale('en'));
+
 describe('provider editor fields', () => {
   it('shows a required K input before advanced parameters and preserves individual tokens', () => {
     const rendered = markup(provider);
@@ -52,12 +55,57 @@ describe('provider editor fields', () => {
     );
   });
 
-  it('offers Max and preserves a saved Max model default', () => {
+  it('offers max and preserves a saved max model default', () => {
     const rendered = markup({
       ...provider,
       models: provider.models.map((model) => ({ ...model, reasoningEffort: 'max' })),
     });
-    expect(rendered).toContain('<option value="max" selected="">Max</option>');
+    expect(rendered).toContain('<option value="max" selected="">max</option>');
+  });
+
+  it('renders the discovered 1M context window as 1000 K with the returned maximum output', () => {
+    const rendered = markup({
+      ...provider,
+      models: provider.models.map((model) => ({
+        ...model,
+        contextWindow: 1_000_000,
+        maxOutputTokens: 128_000,
+      })),
+    });
+    expect(rendered).toMatch(/<input[^>]*value="1000"[^>]*>/);
+    expect(rendered).toMatch(/<input[^>]*value="128000"[^>]*>/);
+  });
+
+  it.each([
+    { supported: null, expected: ['low', 'medium', 'high', 'xhigh', 'max'] },
+    { supported: [], expected: [] },
+    { supported: ['low', 'xhigh'], expected: ['low', 'xhigh'] },
+  ] satisfies { supported: ReasoningEffortValue[] | null; expected: string[] }[])(
+    'shows the advertised effort choices $supported in the model editor',
+    ({ supported, expected }) => {
+      const rendered = markup({
+        ...provider,
+        models: provider.models.map((model) => ({
+          ...model,
+          supportedReasoningEfforts: supported,
+        })),
+      });
+      const select = rendered
+        .match(/<select[^>]*>[^]*?<\/select>/g)
+        ?.find((value) => value.includes('<option value=""'));
+      expect(select).toBeDefined();
+      expect(
+        [...(select ?? '').matchAll(/<option value="([^"]+)"/g)].map((match) => match[1]),
+      ).toEqual(expected);
+    },
+  );
+
+  it('keeps manual effort presets as raw English values when the UI language is Chinese', () => {
+    setLocale('zh-CN');
+    const rendered = markup(null);
+    for (const effort of ['low', 'medium', 'high', 'xhigh', 'max'])
+      expect(rendered).toContain(`<option value="${effort}">${effort}</option>`);
+    expect(rendered).not.toContain('>极高</option>');
   });
 
   it('marks required fields and preserves native validation for a new provider', () => {

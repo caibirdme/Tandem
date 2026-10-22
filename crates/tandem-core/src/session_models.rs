@@ -31,12 +31,16 @@ impl App {
             let _mutation_guard = self.mutation_gate.lock().await;
             let session = self.editable_model_session(id)?;
             let provider = self.store.provider(&provider_id)?;
-            if !provider.models.iter().any(|model| model.id == model_id) {
-                return Err(Error::ModelNotConfigured {
-                    provider_id,
-                    model_id,
-                });
-            }
+            let model = provider
+                .models
+                .iter()
+                .find(|model| model.id == model_id)
+                .ok_or_else(|| Error::ModelNotConfigured {
+                    provider_id: provider_id.clone(),
+                    model_id: model_id.clone(),
+                })?;
+            let reset_effort =
+                !model.supports_reasoning_effort(session.reasoning_effort.as_deref());
             self.validate_attachment_history(id, provider.protocol)?;
             if session.provider_id == provider_id && session.model_id == model_id {
                 return Ok(session);
@@ -50,6 +54,9 @@ impl App {
             self.store.update_session(id, |session| {
                 session.provider_id = provider_id;
                 session.model_id = model_id;
+                if reset_effort {
+                    session.reasoning_effort = None;
+                }
                 session.context_usage = None;
                 session.updated_at = now();
             })?
@@ -335,6 +342,41 @@ mod tests {
             assert_eq!(model.context_window, 200_000);
             assert_eq!(model.max_output_tokens, Some(32_000));
             assert!(reopened.runtime.lock().await.is_none());
+        }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn model_switch_resets_only_overrides_outside_reported_capabilities() -> Result<()> {
+        for supported in [None, Some(vec![]), Some(vec!["low", "xhigh"])] {
+            for effort in [None, Some("low"), Some("xhigh"), Some("max")] {
+                let (directory, app, session, mut alternate) = application().await?;
+                alternate.models[0].reasoning_effort = None;
+                alternate.models[0].supported_reasoning_efforts = supported
+                    .as_ref()
+                    .map(|values| values.iter().map(|value| (*value).into()).collect());
+                let alternate = app.save_provider(alternate, None).await?;
+                app.set_session_reasoning_effort(&session.id, effort.map(str::to_owned))
+                    .await?;
+                let expected = effort.filter(|effort| {
+                    supported
+                        .as_ref()
+                        .is_none_or(|values| values.contains(effort))
+                });
+                let updated = app
+                    .set_session_model(&session.id, alternate.id.clone(), "alternate".into())
+                    .await?;
+                assert_eq!(updated.reasoning_effort.as_deref(), expected);
+                assert_eq!(updated.id, session.id);
+                assert_eq!(updated.provider_id, alternate.id);
+                assert_eq!(updated.model_id, "alternate");
+                drop(app);
+                let app = App::open(AppOptions::local(directory.path().into()))?;
+                assert_eq!(
+                    app.store.session(&session.id)?.reasoning_effort.as_deref(),
+                    expected
+                );
+            }
         }
         Ok(())
     }

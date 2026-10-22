@@ -6,8 +6,10 @@ import { attachmentSize } from '../lib/attachments';
 import { emptyConversation } from '../lib/conversation';
 import type { ConversationMessage } from '../lib/conversation';
 import { createModelChanges } from '../lib/modelChanges';
+import type { ConfirmedModelSelection } from '../lib/modelChanges';
 import { createPermissionModeChanges } from '../lib/permissionModeChanges';
 import { projectSkills } from '../lib/projectSkills';
+import { isReasoningEffort } from '../lib/reasoningEffort';
 import { createReasoningEffortChanges } from '../lib/reasoningEffortChanges';
 import { protectedSessionIds } from '../lib/reconcile';
 import { initialTandemState, reduceTandem } from '../lib/tandemState';
@@ -94,10 +96,17 @@ export function useTandem() {
         return mode;
       },
     });
-    function selectionFrom(session: Session | undefined, sessionId: string): ModelSelection {
+    function selectionFrom(
+      session: Session | undefined,
+      sessionId: string,
+    ): ConfirmedModelSelection {
       if (session?.id !== sessionId || !session.providerId || !session.modelId)
         throw new Error(t('error.invalidModel'));
-      return { providerId: session.providerId, modelId: session.modelId };
+      return {
+        providerId: session.providerId,
+        modelId: session.modelId,
+        reasoningEffort: reasoningFrom(session, sessionId),
+      };
     }
     modelChanges.current ??= createModelChanges({
       getRequests: () => pendingRequests.current,
@@ -115,14 +124,7 @@ export function useTandem() {
     });
     function reasoningFrom(session: Session | undefined, sessionId: string): ReasoningEffort {
       const effort = session?.reasoningEffort;
-      if (
-        session?.id !== sessionId ||
-        (effort !== null &&
-          effort !== 'low' &&
-          effort !== 'medium' &&
-          effort !== 'high' &&
-          effort !== 'max')
-      )
+      if (session?.id !== sessionId || !isReasoningEffort(effort))
         throw new Error(t('error.invalidReasoning'));
       return effort;
     }

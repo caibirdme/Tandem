@@ -17,9 +17,11 @@ import { version } from '../../package.json';
 import { useProviderCredential } from '../hooks/useProviderCredential';
 import { useI18n } from '../i18n';
 import { dispatch, errorMessage } from '../lib/api';
+import { reasoningEffortOptions } from '../lib/reasoningEffort';
 import {
   completeProviderEdit,
   contextWindowKilotokens,
+  discoveredModelDraft,
   preferencesPayload,
   providerPayload,
   providerRequestUrl,
@@ -387,9 +389,7 @@ export function ProviderEditor({
                   (model) => !current.models.some((existing) => existing.id.trim() === model.id),
                 )
                 .map((model) => ({
-                  ...blankModel(),
-                  id: model.id,
-                  name: model.displayName,
+                  ...discoveredModelDraft(model),
                   key: crypto.randomUUID(),
                 })),
             ],
@@ -439,7 +439,9 @@ export function ProviderEditor({
               <input
                 required
                 value={model.id}
-                onChange={(event) => modelChange(index, { id: event.target.value })}
+                onChange={(event) =>
+                  modelChange(index, { id: event.target.value, supportedReasoningEfforts: null })
+                }
                 placeholder={t('settings.modelExample')}
               />
             </label>
@@ -487,10 +489,11 @@ export function ProviderEditor({
                   }
                 >
                   <option value="">{t('settings.modelDefault')}</option>
-                  <option value="low">{t('settings.low')}</option>
-                  <option value="medium">{t('settings.medium')}</option>
-                  <option value="high">{t('settings.high')}</option>
-                  <option value="max">{t('settings.max')}</option>
+                  {reasoningEffortOptions(model.supportedReasoningEfforts).map((effort) => (
+                    <option key={effort} value={effort}>
+                      {effort}
+                    </option>
+                  ))}
                 </select>
                 <small>{t('settings.reasoningHint')}</small>
               </label>

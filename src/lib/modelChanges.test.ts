@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { createModelChanges } from './modelChanges';
+import type { ConfirmedModelSelection } from './modelChanges';
 import { createPermissionModeChanges } from './permissionModeChanges';
 import { protectedSessionIds } from './reconcile';
 import { initialTandemState, reduceTandem } from './tandemState';
@@ -35,7 +36,11 @@ const snapshot: Snapshot = {
   },
   runtime: { available: true, version: null, message: 'Ready' },
 };
-const selection: ModelSelection = { providerId: 'provider-2', modelId: 'model-2' };
+const selection: ConfirmedModelSelection = {
+  providerId: 'provider-2',
+  modelId: 'model-2',
+  reasoningEffort: null,
+};
 const noop = () => undefined;
 
 function deferred<T>() {
@@ -79,10 +84,16 @@ function setup() {
       state = reduceTandem(state, event);
     },
   };
-  const save = vi.fn(async (_id: string, value: ModelSelection) => value);
-  const read = vi.fn(async (_id: string): Promise<ModelSelection> => ({
+  const save = vi.fn(
+    async (_id: string, value: ModelSelection): Promise<ConfirmedModelSelection> => ({
+      ...value,
+      reasoningEffort: null,
+    }),
+  );
+  const read = vi.fn(async (_id: string): Promise<ConfirmedModelSelection> => ({
     providerId: session.providerId,
     modelId: session.modelId,
+    reasoningEffort: session.reasoningEffort,
   }));
   const changes = createModelChanges({ ...common, save, read });
   const permissions = createPermissionModeChanges({
@@ -105,9 +116,28 @@ function setup() {
 }
 
 describe('persisted conversation model changes', () => {
+  it.each(['save', 'confirmation'])(
+    'applies the server-cleared reasoning override together with the model after %s',
+    async (stage) => {
+      const test = setup();
+      test.update({
+        type: 'reasoningEffortChanged',
+        sessionId: session.id,
+        reasoningEffort: 'max',
+      });
+      if (stage === 'confirmation') {
+        test.save.mockRejectedValueOnce(new Error('Response lost'));
+        test.read.mockResolvedValueOnce(selection);
+      }
+      await test.changes.change(session.id, selection);
+      expect(test.state.snapshot?.sessions[0]?.modelId).toBe(selection.modelId);
+      expect(test.state.snapshot?.sessions[0]?.reasoningEffort).toBeNull();
+    },
+  );
+
   it('keeps the confirmed model while saving, blocks concurrent settings and changes only its session', async () => {
     const test = setup();
-    const saved = deferred<ModelSelection>();
+    const saved = deferred<ConfirmedModelSelection>();
     test.save.mockReturnValueOnce(saved.promise);
     const change = test.changes.change(session.id, selection);
     expect(test.state.modelUpdates.has(session.id)).toBe(true);
@@ -135,7 +165,7 @@ describe('persisted conversation model changes', () => {
     'rejects a stale snapshot requested $0',
     async (timing) => {
       const test = setup();
-      const saved = deferred<ModelSelection>();
+      const saved = deferred<ConfirmedModelSelection>();
       test.save.mockReturnValueOnce(saved.promise);
       let requested = { ...test.revisions };
       let pendingAtRequest = new Set(test.requests);
@@ -203,7 +233,7 @@ describe('persisted conversation model changes', () => {
     'ignores deleted session results from a late $0',
     async (stage) => {
       const test = setup();
-      const pending = deferred<ModelSelection>();
+      const pending = deferred<ConfirmedModelSelection>();
       if (stage === 'save') test.save.mockReturnValueOnce(pending.promise);
       else {
         test.save.mockRejectedValueOnce(new Error('Response lost'));
@@ -230,7 +260,7 @@ describe('persisted conversation model changes', () => {
     try {
       const test = setup();
       test.save.mockRejectedValueOnce(new Error('Response lost'));
-      test.read.mockReturnValueOnce(new Promise<ModelSelection>(() => undefined));
+      test.read.mockReturnValueOnce(new Promise<ConfirmedModelSelection>(() => undefined));
       const change = test.changes.change(session.id, selection);
       await vi.advanceTimersByTimeAsync(15_000);
       await change;

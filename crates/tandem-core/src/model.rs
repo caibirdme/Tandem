@@ -39,8 +39,14 @@ pub enum ValidationError {
     InvalidModelListPath,
     #[error("Model IDs must be unique: {id}")]
     DuplicateModelId { id: String },
-    #[error("Reasoning effort must be low, medium, high, or max.")]
+    #[error("Reasoning effort must be low, medium, high, xhigh, or max.")]
     UnsupportedReasoningEffort { effort: String },
+    #[error("Supported reasoning efforts must not contain duplicates: {effort}")]
+    DuplicateSupportedReasoningEffort { effort: String },
+    #[error(
+        "Model {model_id} does not support reasoning effort {effort}. Choose a supported effort or the model default."
+    )]
+    ModelReasoningEffortUnavailable { model_id: String, effort: String },
     #[error("Token counts must be between 1 and 10,000,000.")]
     InvalidTokenCount { count: i64 },
     #[error("Maximum output must be smaller than the context window to leave room for input.")]
@@ -66,11 +72,30 @@ type Result<T> = std::result::Result<T, ValidationError>;
 
 pub(crate) fn validate_reasoning_effort(effort: Option<&str>) -> Result<()> {
     if let Some(effort) = effort
-        && !["low", "medium", "high", "max"].contains(&effort)
+        && !["low", "medium", "high", "xhigh", "max"].contains(&effort)
     {
         return Err(ValidationError::UnsupportedReasoningEffort {
             effort: effort.into(),
         });
+    }
+    Ok(())
+}
+
+pub(crate) fn validate_token_count(count: i64) -> Result<()> {
+    if !(1..=10_000_000).contains(&count) {
+        return Err(ValidationError::InvalidTokenCount { count });
+    }
+    Ok(())
+}
+
+pub(crate) fn validate_token_limits(context: Option<i64>, output: Option<i64>) -> Result<()> {
+    for count in [context, output].into_iter().flatten() {
+        validate_token_count(count)?;
+    }
+    if let (Some(context), Some(output)) = (context, output)
+        && output >= context
+    {
+        return Err(ValidationError::OutputExceedsContext { context, output });
     }
     Ok(())
 }
@@ -81,8 +106,34 @@ pub struct Model {
     pub id: String,
     pub name: String,
     pub reasoning_effort: Option<String>,
+    /// None means no capability information; an empty list explicitly disables effort selection.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub supported_reasoning_efforts: Option<Vec<String>>,
     pub context_window: i64,
     pub max_output_tokens: Option<i64>,
+}
+
+impl Model {
+    pub(crate) fn supports_reasoning_effort(&self, effort: Option<&str>) -> bool {
+        effort.is_none_or(|effort| {
+            self.supported_reasoning_efforts
+                .as_ref()
+                .is_none_or(|supported| supported.iter().any(|value| value == effort))
+        })
+    }
+
+    pub(crate) fn validate_reasoning_effort(&self, effort: Option<&str>) -> Result<()> {
+        validate_reasoning_effort(effort)?;
+        if let Some(effort) = effort
+            && !self.supports_reasoning_effort(Some(effort))
+        {
+            return Err(ValidationError::ModelReasoningEffortUnavailable {
+                model_id: self.id.clone(),
+                effort: effort.into(),
+            });
+        }
+        Ok(())
+    }
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
@@ -142,21 +193,19 @@ impl Provider {
                     id: model.id.clone(),
                 });
             }
-            validate_reasoning_effort(model.reasoning_effort.as_deref())?;
-            for count in [Some(model.context_window), model.max_output_tokens]
-                .into_iter()
-                .flatten()
-            {
-                if !(1..=10_000_000).contains(&count) {
-                    return Err(ValidationError::InvalidTokenCount { count });
+            if let Some(supported) = &model.supported_reasoning_efforts {
+                let mut efforts = std::collections::HashSet::new();
+                for effort in supported {
+                    validate_reasoning_effort(Some(effort))?;
+                    if !efforts.insert(effort) {
+                        return Err(ValidationError::DuplicateSupportedReasoningEffort {
+                            effort: effort.clone(),
+                        });
+                    }
                 }
             }
-            let context = model.context_window;
-            if let Some(output) = model.max_output_tokens
-                && output >= context
-            {
-                return Err(ValidationError::OutputExceedsContext { context, output });
-            }
+            model.validate_reasoning_effort(model.reasoning_effort.as_deref())?;
+            validate_token_limits(Some(model.context_window), model.max_output_tokens)?;
         }
         Ok(())
     }
@@ -672,6 +721,66 @@ mod tests {
             json!({"id":"model","name":"Model","contextWindow":null}),
         ] {
             assert!(serde_json::from_value::<Model>(data).is_err());
+        }
+    }
+
+    #[test]
+    fn model_reasoning_capabilities_distinguish_unknown_and_explicit_support() -> Result<()> {
+        for (supported, effort, valid) in [
+            (None, None, true),
+            (None, Some("xhigh"), true),
+            (Some(vec![]), None, true),
+            (Some(vec![]), Some("high"), false),
+            (Some(vec!["low", "xhigh"]), Some("xhigh"), true),
+            (Some(vec!["low", "xhigh"]), Some("max"), false),
+            (Some(vec!["high", "high"]), None, false),
+            (Some(vec!["HIGH"]), None, false),
+        ] {
+            let provider: Provider = serde_json::from_value(json!({
+                "id":"", "name":"Fixture", "protocol":"anthropic", "baseUrl":"https://example.com",
+                "models":[{"id":"model", "name":"Model", "contextWindow":1_000_000,
+                    "maxOutputTokens":128_000, "reasoningEffort":effort,
+                    "supportedReasoningEfforts":supported}]
+            }))?;
+            assert_eq!(
+                provider.validate().is_ok(),
+                valid,
+                "{supported:?}/{effort:?}"
+            );
+            let encoded = serde_json::to_value(&provider.models[0])?;
+            if let Some(supported) = supported {
+                assert_eq!(encoded["supportedReasoningEfforts"], json!(supported));
+            } else {
+                assert!(encoded.get("supportedReasoningEfforts").is_none());
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn configured_limits_reserve_input_space_when_both_values_are_present() {
+        for (context, output, valid) in [
+            (None, None, true),
+            (None, Some(128_000), true),
+            (Some(1_000_000), None, true),
+            (Some(1_000_000), Some(128_000), true),
+            (None, Some(0), false),
+            (Some(-1), None, false),
+            (None, Some(10_000_001), false),
+            (Some(128_000), Some(128_000), false),
+        ] {
+            assert_eq!(validate_token_limits(context, output).is_ok(), valid);
+        }
+    }
+
+    #[test]
+    fn individual_token_ceiling_bounds_preserve_typed_invalid_counts() {
+        for count in [1, 128_000, 1_000_000, 10_000_000] {
+            assert!(validate_token_count(count).is_ok());
+        }
+        for count in [-1, 0, 10_000_001] {
+            assert!(matches!(validate_token_count(count),
+                Err(ValidationError::InvalidTokenCount { count: actual }) if actual == count));
         }
     }
 }

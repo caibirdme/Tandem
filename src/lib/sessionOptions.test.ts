@@ -28,7 +28,7 @@ describe('permission scope for new sessions', () => {
 
 describe('reasoning effort for new sessions', () => {
   it.each([null, 'project-1'])('includes the independent override for project %s', (projectId) => {
-    for (const effort of [null, 'low', 'medium', 'high', 'max'] as const)
+    for (const effort of [null, 'low', 'medium', 'high', 'xhigh', 'max'] as const)
       expect(newSessionPayload(projectId, selection, 'ask', effort).reasoningEffort).toBe(effort);
     expect(newSessionPayload(projectId, selection).reasoningEffort).toBeNull();
   });

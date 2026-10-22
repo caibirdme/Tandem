@@ -150,7 +150,7 @@ impl ProviderSettings {
         if model
             .reasoning_effort
             .as_deref()
-            .is_some_and(|effort| !["low", "medium", "high", "max"].contains(&effort))
+            .is_some_and(|effort| !["low", "medium", "high", "xhigh", "max"].contains(&effort))
         {
             return Err(ConfigurationError::UnsupportedReasoningEffort.into());
         }
@@ -247,7 +247,14 @@ mod tests {
             base_url: "https://example.com/v1".into(),
             api_key: None,
         };
-        for effort in [None, Some("low"), Some("medium"), Some("high"), Some("max")] {
+        for effort in [
+            None,
+            Some("low"),
+            Some("medium"),
+            Some("high"),
+            Some("xhigh"),
+            Some("max"),
+        ] {
             let model = ModelSettings {
                 id: "fixture".into(),
                 context_window: 200_000,
@@ -256,7 +263,7 @@ mod tests {
             };
             provider.to_sdk(&model)?;
         }
-        for effort in ["", "LOW", " high", "xhigh", "unsupported"] {
+        for effort in ["", "LOW", " high", "unsupported"] {
             let model = ModelSettings {
                 id: "fixture".into(),
                 context_window: 200_000,

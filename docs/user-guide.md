@@ -12,7 +12,9 @@ Required fields are marked with a red **\***. If you leave one empty and click *
 
 ### Fetch available models
 
-After entering the provider details, click **Fetch models**. Each result shows a display name and model ID. All results start unchecked; select the models you want and click **Add selected**. Existing model IDs are not added twice, and your manual entries remain unchanged. Enter the context window for each newly added model before saving. Fetching does not save the provider or add models by itself.
+After entering the provider details, click **Fetch models**. Each result shows a display name and model ID. All results start unchecked; select the models you want and click **Add selected**. Tandem fills the context window from `max_input_tokens` and maximum output from `max_tokens` when the catalog reports them. For example, 1,000,000 context tokens appear as `1000` K, and 128,000 output tokens appear as `128000`. Enter any missing context window before saving. Existing model IDs are not added twice, and your manual entries remain unchanged. Fetching does not save the provider or add models by itself.
+
+Reasoning effort values remain in English in every interface language: `low`, `medium`, `high`, `xhigh`, and `max`. When the catalog reports supported efforts, the model's default and conversation selectors offer only those values. Models reported as not supporting effort offer only the model default. Manual models and catalogs without effort information offer all five presets. The supported set is saved with the model. Changing a model ID clears that model's catalog effort restriction. Switching a conversation to a model that does not support its explicit effort resets the conversation to the new model's default.
 
 **Model list path** defaults to `/v1/models`. It is appended to the base URL's path: `https://example.com/gateway/` becomes `https://example.com/gateway/v1/models`. Configure a different relative path when your gateway requires it; absolute URLs and paths that switch hosts are not accepted. Discovery always uses the [Anthropic List Models protocol](https://platform.claude.com/docs/en/api/models/list?version=2026-10-21), including API-key authentication and pagination, independently of the conversation protocol. A provider without a compatible catalog can still be configured manually.
 
@@ -80,9 +82,9 @@ Wait for generation or tool approval to finish, or click **Stop**, before switch
 
 ### Choose reasoning effort
 
-Use **Reasoning effort** beside the composer in any chat or local/SSH work session. Choose **Low**, **Medium**, **High**, or **Max** to override the model's configured default for that conversation, or choose **Default** to follow it. When the provider leaves its default unset, the model chooses its own effort. Only use effort levels supported by your model and provider.
+Use **Reasoning effort** beside the composer in any chat or local/SSH work session. Choose `low`, `medium`, `high`, `xhigh`, or `max` to override the model's configured default for that conversation, or choose **Default** to follow it. These effort values remain in English in every interface language. When the catalog reports supported efforts, only those choices are offered. When the provider leaves its default unset, the model chooses its own effort.
 
-You can choose before the first message and change it at any time, including during a reply or tool approval. Changes apply to the next message; the current response continues with its original setting. Each conversation saves its own choice, restores it when reopened, and keeps it when switching models. Choose **Default** again to follow the newly selected model's default. Changing one conversation never changes the provider or other conversations.
+You can choose before the first message and change it at any time, including during a reply or tool approval. Changes apply to the next message; the current response continues with its original setting. Each conversation saves its own choice and restores it when reopened. Switching models keeps a supported choice and resets an unsupported choice to **Default**. Choose **Default** again to follow the newly selected model's default. Changing one conversation never changes the provider or other conversations.
 
 If a connection failure leaves the choice unconfirmed, use **Confirm reasoning effort again** before sending the next message.
 

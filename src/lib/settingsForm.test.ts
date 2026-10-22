@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
+import { emptyDiscovery, reduceDiscovery, selectedDiscoveryModels } from './modelDiscovery';
 import {
   completeProviderEdit,
   contextWindowKilotokens,
   contextWindowTokens,
+  discoveredModelDraft,
   preferencesPayload,
   providerPayload,
   providerRequestUrl,
@@ -11,7 +13,7 @@ import {
   titleModelValue,
 } from './settingsForm';
 import type { CredentialEdit, ProviderEditSession, ProviderFormDraft } from './settingsForm';
-import type { Provider, ProviderProtocol, Settings } from './types';
+import type { DiscoveredModel, Provider, ProviderProtocol, Settings } from './types';
 
 const provider: ProviderFormDraft = {
   id: 'provider-1',
@@ -155,11 +157,83 @@ describe('provider form serialization', () => {
   });
 });
 
+describe('discovered model configuration', () => {
+  const catalog: DiscoveredModel[] = [
+    {
+      id: 'claude-opus-5.5',
+      displayName: 'Claude Opus 5.5',
+      contextWindow: 1_000_000,
+      maxOutputTokens: 128_000,
+      supportedReasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+    },
+    {
+      id: 'deepseek-v4.1-flash',
+      displayName: 'DeepSeek-V4.1 Flash',
+      contextWindow: 1_000_000,
+      maxOutputTokens: 128_000,
+      supportedReasoningEfforts: ['high', 'xhigh'],
+    },
+  ];
+
+  it('retains the selected API model limits and capability subset through addition and saving', () => {
+    const loaded = reduceDiscovery(emptyDiscovery, { type: 'loaded', request: 0, models: catalog });
+    const selected = reduceDiscovery(loaded, { type: 'toggle', id: 'deepseek-v4.1-flash' });
+    const models = selectedDiscoveryModels(selected, []).map(discoveredModelDraft);
+    expect(models).toEqual([
+      {
+        id: 'deepseek-v4.1-flash',
+        name: 'DeepSeek-V4.1 Flash',
+        reasoningEffort: null,
+        contextWindowK: '1000',
+        maxOutputTokens: 128_000,
+        supportedReasoningEfforts: ['high', 'xhigh'],
+      },
+    ]);
+    const selectedModel = models[0];
+    if (!selectedModel) throw new Error('Selected model is missing');
+    selectedModel.reasoningEffort = 'xhigh';
+    expect(providerPayload({ ...provider, models }, { kind: 'keep' }).provider.models).toEqual([
+      {
+        id: 'deepseek-v4.1-flash',
+        name: 'DeepSeek-V4.1 Flash',
+        reasoningEffort: 'xhigh',
+        contextWindow: 1_000_000,
+        maxOutputTokens: 128_000,
+        supportedReasoningEfforts: ['high', 'xhigh'],
+      },
+    ]);
+    expect(selectedDiscoveryModels(selected, ['deepseek-v4.1-flash'])).toEqual([]);
+    expect(catalog[1]?.supportedReasoningEfforts).toEqual(['high', 'xhigh']);
+  });
+
+  it('leaves unknown limits for manual entry instead of fabricating a 256K window', () => {
+    const draft = discoveredModelDraft({ id: 'unknown', displayName: 'Unknown' });
+    expect(draft.contextWindowK).toBe('');
+    expect(draft.maxOutputTokens).toBeNull();
+    expect(draft.supportedReasoningEfforts).toBeUndefined();
+    expect(() => providerPayload({ ...provider, models: [draft] }, { kind: 'keep' })).toThrow();
+  });
+
+  it('preserves an explicit unsupported effort capability as an empty list when saving', () => {
+    const draft = discoveredModelDraft({
+      id: 'unsupported',
+      displayName: 'Unsupported',
+      contextWindow: 1_000_000,
+      supportedReasoningEfforts: [],
+    });
+    expect(
+      providerPayload({ ...provider, models: [draft] }, { kind: 'keep' }).provider.models[0]
+        ?.supportedReasoningEfforts,
+    ).toEqual([]);
+  });
+});
+
 describe('context window input', () => {
   it.each([
     { input: '256', tokens: 256_000 },
     { input: '500', tokens: 500_000 },
     { input: '1024', tokens: 1_024_000 },
+    { input: '1000', tokens: 1_000_000 },
     { input: '1.001', tokens: 1_001 },
     { input: '131.072', tokens: 131_072 },
     { input: '0.001', tokens: 1 },

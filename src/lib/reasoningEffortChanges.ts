@@ -50,8 +50,7 @@ export function createReasoningEffortChanges(dependencies: Dependencies) {
     recovered: (reasoningEffort, failure) =>
       t('error.reasoningRecovered', {
         failure,
-        effort:
-          reasoningEffort === null ? t('chat.reasoningDefault') : t(`settings.${reasoningEffort}`),
+        effort: reasoningEffort === null ? t('chat.reasoningDefault') : reasoningEffort,
       }),
   });
 }

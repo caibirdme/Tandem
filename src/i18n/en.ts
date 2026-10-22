@@ -48,7 +48,7 @@ export const en = {
   'settings.fetchingModels': 'Fetching models…',
   'settings.addSelectedModels': 'Add selected',
   'settings.discoveryHint':
-    'No models are selected automatically. Select models to add, then enter their context windows below.',
+    'No models are selected automatically. Adding selected models fills in available context and output limits. Enter any missing context windows below.',
   'settings.noDiscoveredModels': 'No models were returned.',
   'settings.modelAlreadyAdded': 'Already added',
   'settings.discoveryCredentialBlank':

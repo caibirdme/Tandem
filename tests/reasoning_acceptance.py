@@ -22,6 +22,8 @@ def wire_effort(path, body):
         return body.get("reasoning_effort")
     if endpoint.endswith("/responses"):
         return body.get("reasoning", {}).get("effort")
+    if endpoint.endswith("/v1/messages"):
+        return body.get("output_config", {}).get("effort")
     raise AssertionError("Reasoning acceptance received an unsupported wire protocol")
 
 
@@ -189,6 +191,8 @@ def check_reasoning_efforts(app, fixture, directory, fixture_url, project):
         app.wait_title(session["id"], events)
     chat = set_effort(app, directory, chat, "max")
     check_reasoning_turn(app, fixture, chat, "fixture:chat Use the maximum reasoning override.", "max")
+    chat = set_effort(app, directory, chat, "xhigh")
+    check_reasoning_turn(app, fixture, chat, "fixture:chat Preserve the raw xhigh reasoning override.", "xhigh")
     chat = set_effort(app, directory, chat, "medium")
     check_reasoning_turn(app, fixture, chat, "fixture:chat Use an explicit medium override.", "medium")
     require(stored_session(app, work["id"])["reasoningEffort"] == "high",
@@ -231,6 +235,23 @@ def check_reasoning_efforts(app, fixture, directory, fixture_url, project):
     check_reasoning_turn(app, fixture, chat, "fixture:chat Inherit the Responses provider default.", "low")
     chat = set_effort(app, directory, chat, "max")
     check_reasoning_turn(app, fixture, chat, "fixture:chat Keep the maximum override for restart.", "max")
+    anthropic = app.command("save_provider", provider={
+        "id": "", "name": "Reasoning fixture anthropic", "protocol": "anthropic",
+        "baseUrl": fixture_url,
+        "models": [{"id": "claude-opus-5.5", "name": "Claude Opus 5.5",
+                    "contextWindow": 1000000, "maxOutputTokens": 128000,
+                    "reasoningEffort": "xhigh",
+                    "supportedReasoningEfforts": ["low", "medium", "high", "xhigh", "max"]}],
+    }, apiKey=FIXTURE_KEY)
+    for effort in (None, "xhigh"):
+        session = app.command("create_session", projectId=None,
+                              providerId=anthropic["id"], modelId="claude-opus-5.5",
+                              reasoningEffort=effort)
+        events = check_reasoning_turn(
+            app, fixture, session,
+            "fixture:chat Preserve the Anthropic default or explicit xhigh effort.", "xhigh",
+        )
+        app.wait_title(session["id"], events)
     return {"providers": providers, "chat": chat, "work": work,
             "messages": {session["id"]: app.command("messages", sessionId=session["id"])
                          for session in (chat, work)}}
