@@ -597,6 +597,7 @@ fn create_spool(
         options.mode(0o600);
     }
     let file = options.open(&path).map_err(TelemetryError::Storage)?;
+    #[cfg(windows)]
     prepare_sparse_file(&path)?;
     // Probe reclamation before content capture rather than retaining a dense file.
     file.set_len(65_536).map_err(TelemetryError::Storage)?;
@@ -650,9 +651,4 @@ fn sparse_windows_error(code: u32) -> TelemetryError {
     TelemetryError::Storage(std::io::Error::from_raw_os_error(i32::from_ne_bytes(
         code.to_ne_bytes(),
     )))
-}
-
-#[cfg(not(windows))]
-fn prepare_sparse_file(_path: &Path) -> std::result::Result<(), TelemetryError> {
-    Ok(())
 }

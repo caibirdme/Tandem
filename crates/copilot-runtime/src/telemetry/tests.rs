@@ -368,6 +368,7 @@ fn sparse_reclaim_preserves_concurrent_append_offsets() -> TestResult {
         .write(true)
         .create_new(true)
         .open(&path)?;
+    #[cfg(windows)]
     prepare_sparse_file(&path)?;
     let mut writer = std::fs::OpenOptions::new().append(true).open(&path)?;
     writer.write_all(&vec![b'x'; 131_072])?;
