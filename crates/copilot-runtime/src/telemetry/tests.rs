@@ -384,3 +384,38 @@ fn sparse_reclaim_preserves_concurrent_append_offsets() -> TestResult {
     assert_eq!(suffix, "appended-record");
     Ok(())
 }
+
+#[test]
+fn transformed_tool_schema_amplification_stops_before_collecting_the_trace() -> TestResult {
+    let mut definition = record(
+        "chat",
+        "3333333333333333",
+        Some("2222222222222222"),
+        "user-session",
+    );
+    definition["attributes"]["gen_ai.tool.definitions"] = json!([{
+        "name":"view", "parameters":{"description":"x".repeat(256 * 1024)}
+    }])
+    .to_string()
+    .into();
+    let mut records = vec![definition];
+    for _ in 0..128 {
+        let mut tool = record(
+            "execute_tool",
+            "4444444444444444",
+            Some("2222222222222222"),
+            "user-session",
+        );
+        tool["attributes"]["gen_ai.tool.name"] = "view".into();
+        records.push(tool);
+    }
+    // This later malformed record would return InvalidSpan if transformation
+    // continued past the output budget (the entire native trace is under 1 MiB).
+    records.push(json!({"attributes":{"gen_ai.operation.name":"invoke_agent"}}));
+    assert!(serde_json::to_vec(&records)?.len() < 1024 * 1024);
+    assert!(matches!(
+        transform::trace(&records, "user-session"),
+        Err(TelemetryError::QueueLimit)
+    ));
+    Ok(())
+}
