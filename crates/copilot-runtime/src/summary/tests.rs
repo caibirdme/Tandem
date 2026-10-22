@@ -295,6 +295,7 @@ async fn inference_failures_and_timeout_abort_and_delete_without_exposing_provid
         ("rpc", SummaryError::InferenceFailed),
         ("event", SummaryError::InferenceFailed),
         ("no-text", SummaryError::NoText),
+        ("stale-idle", SummaryError::InferenceTimeout),
         ("timeout", SummaryError::InferenceTimeout),
     ] {
         let (mut server, create, result) = start(ProviderProtocol::OpenaiResponses).await;
@@ -304,21 +305,33 @@ async fn inference_failures_and_timeout_abort_and_delete_without_exposing_provid
         if failure == "rpc" {
             server.reject(&send).await;
         } else {
-            server.respond(&send, json!({})).await;
+            server
+                .respond(&send, json!({"messageId":"summary-request"}))
+                .await;
             match failure {
                 "event" => {
                     server
                         .event("session.error", json!({"message":"private-provider-error"}))
                         .await;
                 }
-                "no-text" => server.event("session.idle", json!({})).await,
+                "no-text" => {
+                    // SDK 1.0.25 correlates idle completion with the accepted request.
+                    server
+                        .event("user.message", json!({"messageId":"summary-request"}))
+                        .await;
+                    server.event("session.idle", json!({})).await;
+                }
+                "stale-idle" => server.event("session.idle", json!({})).await,
                 "timeout" => (),
                 _ => unreachable!(),
             }
         }
         server.cleaned(true).await;
         let error = outcome(result).await.expect_err("fixture must fail");
-        assert!(matches!(&error, Error::Summary(error) if *error == expected));
+        assert!(
+            matches!(&error, Error::Summary(error) if *error == expected),
+            "{failure}: expected {expected:?}, received {error:?}"
+        );
         assert!(!error.to_string().contains("private-provider-error"));
         assert!(!format!("{error:?}").contains("private-provider-error"));
         assert!(std::error::Error::source(&expected).is_none());

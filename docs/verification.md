@@ -1,5 +1,17 @@
 # Verification record
 
+## Full dependency refresh (2026-10-22)
+
+Developed in `.worktrees/update-all-dependencies` on `codex/update-all-dependencies`, based on deferred remote preparation commit `2a74472`. [The dependency inventory](dependency-refresh.md) records every frontend runtime/development dependency, Rust lockfile update, major-version compatibility review, toolchain/CI decision, and retained upstream constraint. The SDK is 1.0.25 with bundled CLI 1.0.102; pnpm is 12.14.0. The user approved narrowly scoped, exact-version release-age exceptions for the selected new npm releases; global protection remains enabled.
+
+Passed: frozen pnpm installation both in the worktree and in a fresh temporary project/store; 459 frontend tests; frontend lint, strict types, production build, and formatting; Rust formatting; workspace dependency boundaries; strict non-desktop workspace Clippy; 37 Python tests on both the cloud's Python 3.12.14 and an isolated, official-source CPython 3.15.1 build. `pnpm audit` reports zero advisories. The final `pnpm outdated --format json` lists only `@types/node` 24.19.2 versus 26.6.5, intentionally retained to match Node 24 LTS.
+
+The updated SDK now requires request-correlated completion in `send_and_wait`. The old summary no-text fixture sent an idle event without an accepted message identity; it passed on the baseline binary but reproducibly timed out with 1.0.25. The fixture now returns a message ID and emits its matching user-message event. A stale-idle case explicitly verifies timeout, with the original no-text, error-redaction, cancellation, and cleanup assertions preserved. No production fallback or weakened assertion was added.
+
+The full non-desktop Rust run passed 218 tests, including all 54 runtime tests and all 84 core tests, and failed only the same three daemon socket tests with `Operation not permitted`. Full `just check` passed formatting and frontend gates, then was blocked by missing GTK system dependencies (`glib-2.0` on the initial run and `cairo` on the final run) during desktop workspace Clippy. GTK/WebKit development libraries remain unavailable; desktop bundling and browser visual acceptance are not claimed.
+
+`just build` passed for the frontend and both service binaries with SDK 1.0.25. Local SDK acceptance used real bundled SDK/CLI and test inference/telemetry services, progressed to the existing automatically authorized `web_fetch` case, and failed there. Remote acceptance (`--skip-ssh`) failed at bundled runtime initialization before its stdio/daemon cases. These are the same baseline integration limits, not passing suites; no real paid provider was used. No sandbox restrictions were bypassed.
+
 ## Deferred remote environment preparation (2026-10-22)
 
 Developed from `main` (`c8b0ac4`) in `.worktrees/defer-remote-environment` on `codex/defer-remote-environment`, using the assistant's cloud environment. No dependencies or lockfiles changed. Existing CI path rules cover the new Rust integration-test directory and modified acceptance tests.
