@@ -1,4 +1,5 @@
 mod host;
+mod reviews;
 mod session;
 #[cfg(test)]
 mod tests;

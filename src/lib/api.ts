@@ -71,6 +71,8 @@ export async function subscribe(
           'title',
           'title_error',
           'context_usage',
+          'review_updated',
+          'review_invalidated',
         ].includes(String(payload.kind))
       ) {
         onEvent(payload as RuntimeEvent);

@@ -1,8 +1,10 @@
 import type { Messages } from './index';
 import { zhCNChat } from './messages/chat';
+import { zhCNReview } from './messages/review';
 
 export const zhCN = {
   ...zhCNChat,
+  ...zhCNReview,
   'panel.close': '关闭详情面板',
   'panel.resize': '调整详情面板宽度',
   'common.settings': '设置',

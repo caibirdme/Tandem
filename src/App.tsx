@@ -2,6 +2,7 @@ import * as Dropdown from '@radix-ui/react-dropdown-menu';
 import {
   ChevronRight,
   Folder,
+  FileDiff,
   MoreHorizontal,
   PanelLeft,
   Plus,
@@ -15,10 +16,12 @@ import {
 } from 'lucide-react';
 import { lazy, Suspense, useCallback, useEffect, useId, useRef, useState } from 'react';
 
+import { ChangesDetailPanel, ReviewCounts } from './components/ChangesDetailPanel';
 import { Chat } from './components/Chat';
 import { Sidebar } from './components/Sidebar';
 import { SubagentDetailPanel } from './components/SubagentDetailPanel';
 import { Modal, Notice, Spinner } from './components/ui';
+import { useReview } from './hooks/useReview';
 import { useTandem } from './hooks/useTandem';
 import { useI18n } from './i18n';
 import { dispatch, errorMessage } from './lib/api';
@@ -71,6 +74,11 @@ export function App() {
   const session = snapshot?.sessions.find((item) => item.id === tandem.activeSessionId);
   const project = snapshot?.projects.find((item) => item.id === (session?.projectId ?? projectId));
   const selectedDetail = resolveDetailPanel(detailPanel, viewKey, session?.id, tandem.conversation);
+  const review = useReview(
+    session?.projectId ? session.id : undefined,
+    selectedDetail?.kind === 'changes',
+    tandem.connected,
+  );
   const closeDetailPanel = useCallback(() => setDetailPanel(null), []);
   const sendScope = session?.id ?? viewKey;
   const sending = sendingScopes.has(sendScope);
@@ -270,6 +278,34 @@ export function App() {
             )}
           </div>
           <div className="topbar-actions">
+            {session?.projectId && (
+              <button
+                type="button"
+                className="review-header-button"
+                aria-label={t('review.open')}
+                aria-expanded={selectedDetail?.kind === 'changes'}
+                aria-controls={detailPanelId}
+                onClick={(event) => {
+                  detailPanelTrigger.current = event.currentTarget;
+                  if (selectedDetail?.kind === 'changes') closeDetailPanel();
+                  else setDetailPanel({ kind: 'changes', sessionId: session.id, viewKey });
+                }}
+              >
+                <FileDiff size={15} />
+                <span>{t('review.title')}</span>
+                {review.state.overview?.summary && (
+                  <>
+                    <span className="review-header-file-count">
+                      {review.state.overview.summary.filesTotal}
+                    </span>
+                    <ReviewCounts
+                      additions={review.state.overview.summary.additions}
+                      deletions={review.state.overview.summary.deletions}
+                    />
+                  </>
+                )}
+              </button>
+            )}
             {project && (
               <span className="environment-badge">
                 <span />
@@ -390,7 +426,13 @@ export function App() {
           <Chat
             key={viewKey}
             detailPanelId={detailPanelId}
-            selectedAgentId={selectedDetail?.agent.id ?? null}
+            selectedAgentId={selectedDetail?.kind === 'subagent' ? selectedDetail.agent.id : null}
+            onReviewTurn={(messageId, trigger) => {
+              if (!session?.projectId) return;
+              detailPanelTrigger.current = trigger;
+              review.controller.select({ kind: 'turn', messageId });
+              setDetailPanel({ kind: 'changes', sessionId: session.id, viewKey });
+            }}
             onSelectAgent={(agentId, trigger) => {
               detailPanelTrigger.current = trigger;
               if (session)
@@ -452,7 +494,18 @@ export function App() {
           />
         )}
       </main>
-      {selectedDetail && (
+      {selectedDetail?.kind === 'changes' && (
+        <ChangesDetailPanel
+          id={detailPanelId}
+          state={review.state}
+          controller={review.controller}
+          messages={tandem.conversation.messages}
+          running={session?.status === 'running'}
+          onClose={closeDetailPanel}
+          returnFocusRef={detailPanelTrigger}
+        />
+      )}
+      {selectedDetail?.kind === 'subagent' && (
         <SubagentDetailPanel
           id={detailPanelId}
           agent={selectedDetail.agent}

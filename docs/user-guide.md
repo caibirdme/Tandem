@@ -60,6 +60,20 @@ File reads and edits show the file name in the tool row, for example **Viewing f
 
 Activity groups stay in conversation order when another message is sent, when you reopen the conversation, and after restarting the application. The category describes known tool types; other combinations show **Agent activity**. If the model does not provide a progress sentence, only the category row appears. Tool failure notices stay visible when the group is collapsed; detailed failures and interruptions remain inside the group, with status also exposed to assistive technology. Permission requests remain separate approval cards, so you can respond without opening tool details.
 
+### Review code changes
+
+In a Work conversation, click **Changes** in the header to open the file list beside the chat. Select a file to read its additions and deletions. Use **Unified** or **Side by side**, turn **Wrap lines** on when needed, and filter the loaded paths. **Load more files** retrieves another page. The panel can be resized; Escape closes it and restores focus.
+
+Large reviews load individual diffs when you select a file. A `?` in the line totals means those counts are not available; it does not mean there were no changes or that the snapshot is incomplete.
+
+Choose **Workspace changes** for the directory's current changes, including untracked files. **Net changes** compares HEAD with working files while retaining staged changes cancelled by a later working edit; those files can have no net text change. **Staged** compares HEAD with the index, and **Unstaged** compares the index with working files. **Since session start** compares the files just before the first submitted task with the latest captured endpoint. **This turn**, or **Review this turn** beside a user message, shows a frozen comparison for that submission. Committing files does not erase captured session or turn changes.
+
+Review is read-only: changes are already saved in the project. Session and turn views can include edits by other sessions, editors, or tools during the same period. They cover the selected project directory; ignored files, nested repository contents, and changes elsewhere on the machine are outside coverage. Binary, oversized, conflicted, and unsupported files show an explanation instead of an incomplete text diff presented as complete. A partial capture is labeled explicitly.
+
+Click **Refresh changes** after editing files elsewhere. Git 2.45 or newer must be installed on the project's execution host, and the directory must be inside a Git worktree. Work remains available without Git. Remote review becomes available after normal Work preparation; previously loaded historical details can be read from the desktop cache when the host is unavailable. If a starting snapshot was unavailable, use **Workspace changes** rather than assuming the session had no edits.
+
+Workspace comparisons are unavailable when a repository assigns custom Git content filters; captured session and turn comparisons still work. Tandem reports the limitation instead of running those filters. Ordinary Git line-ending conversion is supported. Binary files and files above the review limits remain listed with an explanation; review history currently has no automatic retention cleanup.
+
 ### Read thinking text
 
 Click **Thinking** in the conversation to expand thinking text shared by the model and provider. Consecutive thinking blocks share one header, with their text kept in order and separated by blank lines. This also applies inside a subagent's output. Replies, tool activity, and other messages start a separate section. The header starts collapsed. The expanded area shows up to three lines at a time and scrolls for longer text. While new text arrives, it follows the latest content if you are at the bottom. Scroll up to read earlier text without losing your position; scroll back to the bottom to resume following updates.

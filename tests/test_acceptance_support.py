@@ -1,6 +1,7 @@
 """Fast harness regression checks; no SDK process or credential store needed."""
 
 import tempfile
+import threading
 import time
 import unittest
 from pathlib import Path
@@ -43,6 +44,43 @@ class SessionEventsTests(unittest.TestCase):
     def test_expired_wait_identifies_the_session(self):
         with self.assertRaisesRegex(TimeoutError, "missing-session"):
             SessionEvents().next("missing-session", time.monotonic() - 1)
+
+    def test_concurrent_consumers_receive_each_others_interleaved_events(self):
+        inbox = SessionEvents()
+        waiting = set()
+        both_waiting = threading.Event()
+        wait = inbox.condition.wait
+        received = {}
+        failures = []
+
+        def observed_wait(timeout):
+            waiting.add(threading.current_thread().name)
+            if len(waiting) == 2:
+                both_waiting.set()
+            return wait(timeout)
+
+        def receive(session_id):
+            try:
+                received[session_id] = inbox.next(session_id, time.monotonic() + 2)
+            except Exception as error:
+                failures.append(error)
+
+        threads = [threading.Thread(target=receive, args=(name,), name=name)
+                   for name in ("first", "second")]
+        with patch.object(inbox.condition, "wait", side_effect=observed_wait):
+            for thread in threads:
+                thread.start()
+            try:
+                self.assertTrue(both_waiting.wait(1), "Both consumers must be waiting")
+                inbox.put({"sessionId": "second", "sequence": 1})
+                inbox.put({"sessionId": "first", "sequence": 2})
+            finally:
+                for thread in threads:
+                    thread.join(timeout=3)
+        self.assertFalse(failures)
+        self.assertEqual(received["first"]["sequence"], 2)
+        self.assertEqual(received["second"]["sequence"], 1)
+        self.assertEqual(inbox.pending_counts(received), {"first": 0, "second": 0})
 
 
 class ApplicationCleanupTests(unittest.TestCase):

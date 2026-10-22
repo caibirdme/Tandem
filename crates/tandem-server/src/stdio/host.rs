@@ -34,6 +34,7 @@ pub(crate) struct AgentHost {
     next_connection: AtomicU64,
     stopping: AtomicBool,
     failed: watch::Sender<bool>,
+    reviews: super::reviews::ReviewHost,
 }
 
 enum TelemetryChoice {
@@ -49,6 +50,7 @@ impl AgentHost {
             next_connection: AtomicU64::new(1),
             stopping: AtomicBool::new(false),
             failed: watch::channel(false).0,
+            reviews: super::reviews::ReviewHost::default(),
         }
     }
 
@@ -129,6 +131,7 @@ impl AgentHost {
     }
 
     pub(super) async fn disconnect_owner(&self, owner: u64) {
+        self.reviews.disconnect(owner).await;
         let sessions: Vec<_> = self
             .sessions()
             .iter()
@@ -219,6 +222,16 @@ impl AgentHost {
             return Err(ServerError::ConnectionClosed);
         }
         match command {
+            "open_review_workspace"
+            | "capture_review_snapshot"
+            | "compare_review_snapshots"
+            | "get_workspace_review"
+            | "list_review_files"
+            | "get_review_file" => {
+                self.reviews
+                    .dispatch(connection.id, command, &payload)
+                    .await
+            }
             "server_info" => Ok(json!({
                 "processId": std::process::id(),
                 "serverVersion": env!("CARGO_PKG_VERSION"),

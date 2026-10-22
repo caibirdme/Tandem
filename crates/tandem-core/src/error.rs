@@ -18,6 +18,20 @@ pub enum Error {
     #[error(transparent)]
     Runtime(#[from] copilot_runtime::Error),
     #[error(transparent)]
+    Review(#[from] copilot_runtime::workspace::ReviewError),
+    #[error("The review operation stopped unexpectedly. Refresh the changes to try again.")]
+    ReviewTask(#[source] tokio::task::JoinError),
+    #[error(
+        "No captured baseline is available for this review. Run a new turn to record its changes."
+    )]
+    ReviewBaselineUnavailable,
+    #[error("This review does not belong to the selected conversation.")]
+    ReviewNotRegistered,
+    #[error("The review revision changed. Refresh the file list and try again.")]
+    ReviewRevisionExpired,
+    #[error("The review response has an invalid format.")]
+    InvalidReviewData(#[source] EventDecodeError),
+    #[error(transparent)]
     Attachment(#[from] copilot_runtime::AttachmentError),
     #[error("This conversation contains an attachment the selected provider cannot send: {source}")]
     ConversationAttachmentProtocol {
@@ -177,15 +191,25 @@ impl From<tandem_remote::RpcErrorCode> for ErrorCode {
     fn from(code: tandem_remote::RpcErrorCode) -> Self {
         match code {
             tandem_remote::RpcErrorCode::InvalidPayload
-            | tandem_remote::RpcErrorCode::UnsupportedCommand => Self::InvalidInput,
-            tandem_remote::RpcErrorCode::ApprovalNotFound => Self::NotFound,
-            tandem_remote::RpcErrorCode::RuntimeBusy => Self::Conflict,
-            tandem_remote::RpcErrorCode::Internal => Self::Internal,
+            | tandem_remote::RpcErrorCode::UnsupportedCommand
+            | tandem_remote::RpcErrorCode::ReviewInvalidInput => Self::InvalidInput,
+            tandem_remote::RpcErrorCode::ApprovalNotFound
+            | tandem_remote::RpcErrorCode::ReviewNotFound => Self::NotFound,
+            tandem_remote::RpcErrorCode::RuntimeBusy
+            | tandem_remote::RpcErrorCode::ReviewExpired => Self::Conflict,
+            tandem_remote::RpcErrorCode::Internal | tandem_remote::RpcErrorCode::ReviewFailure => {
+                Self::Internal
+            }
             tandem_remote::RpcErrorCode::SessionNotConnected
             | tandem_remote::RpcErrorCode::RuntimeUnavailable
             | tandem_remote::RpcErrorCode::RuntimeFailure
             | tandem_remote::RpcErrorCode::RuntimeTimeout
-            | tandem_remote::RpcErrorCode::StateDirectoryUnavailable => Self::Unavailable,
+            | tandem_remote::RpcErrorCode::StateDirectoryUnavailable
+            | tandem_remote::RpcErrorCode::ReviewUnavailable
+            | tandem_remote::RpcErrorCode::ReviewNotRepository
+            | tandem_remote::RpcErrorCode::ReviewGitUnavailable
+            | tandem_remote::RpcErrorCode::ReviewLimit
+            | tandem_remote::RpcErrorCode::ReviewTimeout => Self::Unavailable,
         }
     }
 }
@@ -216,6 +240,7 @@ impl Error {
             Self::ModelDiscovery(error) => error.code(),
             Self::Remote(error) => error.code().into(),
             Self::Runtime(error) => runtime_error_code(error),
+            Self::Review(error) => review_error_code(error.code()),
             Self::Attachment(_)
             | Self::ConversationAttachmentProtocol { .. }
             | Self::Validation(_)
@@ -237,6 +262,7 @@ impl Error {
                 | StorageError::AttachmentNotFound { .. },
             )
             | Self::ModelNotConfigured { .. }
+            | Self::ReviewNotRegistered
             | Self::CliNotFound { .. } => ErrorCode::NotFound,
             Self::Storage(
                 StorageError::ProviderInUse { .. }
@@ -254,6 +280,7 @@ impl Error {
             | Self::ModelChangeRunning
             | Self::ConversationRunning
             | Self::MessageAlreadyRecorded
+            | Self::ReviewRevisionExpired
             | Self::TitleConfigurationUpdating
             | Self::TitleQueueFull => ErrorCode::Conflict,
             Self::DataDirectoryUnavailable
@@ -269,6 +296,7 @@ impl Error {
             | Self::RemoteDisconnectTimeout(_)
             | Self::ForwardingStopped(_)
             | Self::CompletionTimeout(_)
+            | Self::ReviewBaselineUnavailable
             | Self::ShuttingDown
             | Self::TitleTimeout(_) => ErrorCode::Unavailable,
             Self::Storage(
@@ -292,10 +320,24 @@ impl Error {
             | Self::InvalidRemoteEvent(_)
             | Self::InvalidRuntimeState(_)
             | Self::InvalidSkillCatalog(_)
+            | Self::InvalidReviewData(_)
+            | Self::ReviewTask(_)
             | Self::PreparedTurnMismatch
             | Self::SessionStatePoisoned
             | Self::TitleStatePoisoned => ErrorCode::Internal,
         }
+    }
+}
+
+fn review_error_code(code: copilot_runtime::workspace::ReviewErrorCode) -> ErrorCode {
+    use copilot_runtime::workspace::ReviewErrorCode;
+
+    match code {
+        ReviewErrorCode::InvalidInput => ErrorCode::InvalidInput,
+        ReviewErrorCode::NotFound => ErrorCode::NotFound,
+        ReviewErrorCode::Expired => ErrorCode::Conflict,
+        ReviewErrorCode::Internal => ErrorCode::Internal,
+        _ => ErrorCode::Unavailable,
     }
 }
 

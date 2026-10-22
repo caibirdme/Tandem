@@ -90,6 +90,22 @@ impl Store {
              );
              CREATE INDEX IF NOT EXISTS attachments_by_session ON attachments(session_id);
              CREATE INDEX IF NOT EXISTS attachments_by_message ON attachments(message_id);
+             CREATE TABLE IF NOT EXISTS review_sessions (
+                 session_id TEXT PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,
+                 data TEXT NOT NULL
+             );
+             CREATE TABLE IF NOT EXISTS review_turns (
+                 session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+                 message_id TEXT NOT NULL,
+                 data TEXT NOT NULL,
+                 PRIMARY KEY(session_id,message_id)
+             );
+             CREATE TABLE IF NOT EXISTS review_results (
+                 session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+                 review_id TEXT NOT NULL,
+                 data TEXT NOT NULL,
+                 PRIMARY KEY(session_id,review_id)
+             );
              PRAGMA user_version=1;",
         )?;
         let store = Self {
@@ -151,6 +167,101 @@ impl Store {
                 || Ok(Preferences::default()),
                 |json| Ok(serde_json::from_str(&json)?),
             )
+        })
+    }
+
+    pub(crate) fn review_session<T: DeserializeOwned>(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<T>> {
+        self.with(|db| {
+            let data: Option<String> = db
+                .query_row(
+                    "SELECT data FROM review_sessions WHERE session_id=?1",
+                    [session_id],
+                    |row| row.get(0),
+                )
+                .optional()?;
+            data.map(|data| serde_json::from_str(&data))
+                .transpose()
+                .map_err(Into::into)
+        })
+    }
+
+    pub(crate) fn save_review_session(
+        &self,
+        session_id: &str,
+        data: &impl serde::Serialize,
+    ) -> Result<()> {
+        self.with(|db| {
+            db.execute(
+                "INSERT INTO review_sessions(session_id,data) VALUES(?1,?2)
+                 ON CONFLICT(session_id) DO UPDATE SET data=excluded.data",
+                params![session_id, serde_json::to_string(data)?],
+            )?;
+            Ok(())
+        })
+    }
+
+    pub(crate) fn review_turns<T: DeserializeOwned>(&self, session_id: &str) -> Result<Vec<T>> {
+        self.with(|db| {
+            let mut statement =
+                db.prepare("SELECT data FROM review_turns WHERE session_id=?1 ORDER BY rowid")?;
+            statement
+                .query_map([session_id], |row| row.get::<_, String>(0))?
+                .map(|row| Ok(serde_json::from_str(&row?)?))
+                .collect()
+        })
+    }
+
+    pub(crate) fn save_review_turn(
+        &self,
+        session_id: &str,
+        message_id: &str,
+        data: &impl serde::Serialize,
+    ) -> Result<()> {
+        self.with(|db| {
+            db.execute(
+                "INSERT INTO review_turns(session_id,message_id,data) VALUES(?1,?2,?3)
+                 ON CONFLICT(session_id,message_id) DO UPDATE SET data=excluded.data",
+                params![session_id, message_id, serde_json::to_string(data)?],
+            )?;
+            Ok(())
+        })
+    }
+
+    pub(crate) fn review_result<T: DeserializeOwned>(
+        &self,
+        session_id: &str,
+        review_id: &str,
+    ) -> Result<Option<T>> {
+        self.with(|db| {
+            let data: Option<String> = db
+                .query_row(
+                    "SELECT data FROM review_results WHERE session_id=?1 AND review_id=?2",
+                    params![session_id, review_id],
+                    |row| row.get(0),
+                )
+                .optional()?;
+            data.map(|data| serde_json::from_str(&data))
+                .transpose()
+                .map_err(Into::into)
+        })
+    }
+
+    pub(crate) fn save_review_result(
+        &self,
+        session_id: &str,
+        review_id: &str,
+        data: &impl serde::Serialize,
+    ) -> Result<()> {
+        self.with(|db| {
+            db.execute(
+                "INSERT INTO review_results(session_id,review_id,data) VALUES(?1,?2,?3)
+                 ON CONFLICT(session_id,review_id) DO UPDATE SET data=excluded.data",
+                params![session_id, review_id, serde_json::to_string(data)?],
+            )?;
+            Ok(())
         })
     }
 

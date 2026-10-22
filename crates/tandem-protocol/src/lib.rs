@@ -60,8 +60,8 @@ pub enum ProtocolError {
 pub const MAX_FRAME_BYTES: usize = 32 * 1024 * 1024;
 
 /// Version of the remote daemon's connection and session ownership contract.
-/// Version 2 includes explicit runtime readiness in the server handshake.
-pub const PROTOCOL_VERSION: u32 = 2;
+/// Version 3 includes connection-owned workspace review operations.
+pub const PROTOCOL_VERSION: u32 = 3;
 
 /// One request; its numeric identifier correlates an eventual response.
 #[derive(Deserialize, Serialize)]
@@ -123,6 +123,15 @@ pub enum RpcErrorCode {
     RuntimeTimeout,
     ApprovalNotFound,
     StateDirectoryUnavailable,
+    ReviewUnavailable,
+    ReviewNotRepository,
+    ReviewGitUnavailable,
+    ReviewNotFound,
+    ReviewExpired,
+    ReviewInvalidInput,
+    ReviewLimit,
+    ReviewTimeout,
+    ReviewFailure,
     Internal,
 }
 

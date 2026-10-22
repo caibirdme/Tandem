@@ -28,7 +28,7 @@ flowchart LR
 
 `tandem-core` stores projects, provider configuration, sessions, and messages, manages active sessions, and converts runtime events into UI events. It does not depend on Tauri, so desktop and browser development modes call the same service.
 
-`copilot-runtime` adapts only the official SDK. The SDK handles model requests, tool execution, context compaction, and session recovery. The application owns tool allowlists, permission requests, provider mapping, and telemetry parameters; it does not maintain a second agent loop.
+`copilot-runtime` adapts the official SDK and provides an independent `workspace` module for read-only Git inspection and file snapshots on the execution host. Review operations do not initialize the SDK. The SDK handles model requests, tool execution, context compaction, and session recovery. The application owns tool allowlists, permission requests, provider mapping, and telemetry parameters; it does not maintain a second agent loop.
 
 Fleet is an explicit per-submission option for Work. Before inference, the runtime updates the SDK session's tool allowlist under the submission reservation: Fleet adds delegation and coordination tools; an ordinary submission restores the Work list. Fleet submissions call the SDK's `session.fleet.start` RPC with the prepared prompt and attachments. The SDK owns task decomposition and worker scheduling. Chat rejects Fleet. Local and SSH submissions carry the same option and retain the conversation's existing approval policy.
 
@@ -62,15 +62,15 @@ The native file format omits metric instrument kind and aggregation temporality.
 
 `tandem-protocol` contains shared RPC frames, serialization, size limits, and error types. It depends only on Serde, JSON, Tokio, and error support, with no application service, SSH client, or SDK dependency. Sharing the protocol cannot pull local application features into the remote agent.
 
-| Module              | Allowed workspace dependencies       | Responsibility boundary                                                                     |
-| ------------------- | ------------------------------------ | ------------------------------------------------------------------------------------------- |
-| `tandem-desktop`    | `tandem-core`                        | Tauri windows, native directory selection, and command/event bridging                       |
-| `tandem-core`       | `copilot-runtime`, `tandem-remote`   | Application rules, history, and credentials; no window or HTTP framework                    |
-| `copilot-runtime`   | None                                 | SDK sessions, permission boundaries, and telemetry adaptation                               |
-| `tandem-remote`     | `tandem-protocol`                    | SSH client, remote deployment, and transport                                                |
-| `tandem-protocol`   | None                                 | Shared RPC format and frame I/O                                                             |
-| `tandem-server`     | `copilot-runtime`, `tandem-protocol` | Remote agent; no `tandem-core`, `tandem-remote`, Axum, SQLite, or credential store          |
-| `tandem-dev-server` | `tandem-core`                        | Local HTTP development entry point; excluded from remote and desktop distribution resources |
+| Module              | Allowed workspace dependencies       | Responsibility boundary                                                                        |
+| ------------------- | ------------------------------------ | ---------------------------------------------------------------------------------------------- |
+| `tandem-desktop`    | `tandem-core`                        | Tauri windows, native directory selection, and command/event bridging                          |
+| `tandem-core`       | `copilot-runtime`, `tandem-remote`   | Application rules, history, and credentials; no window or HTTP framework                       |
+| `copilot-runtime`   | None                                 | SDK sessions, permission boundaries, telemetry adaptation, and host-local workspace inspection |
+| `tandem-remote`     | `tandem-protocol`                    | SSH client, remote deployment, and transport                                                   |
+| `tandem-protocol`   | None                                 | Shared RPC format and frame I/O                                                                |
+| `tandem-server`     | `copilot-runtime`, `tandem-protocol` | Remote agent; no `tandem-core`, `tandem-remote`, Axum, SQLite, or credential store             |
+| `tandem-dev-server` | `tandem-core`                        | Local HTTP development entry point; excluded from remote and desktop distribution resources    |
 
 The application command entry point only dispatches requests and serializes results. Providers, projects, and sessions each own validation, concurrency rules, and persistence. `AgentHandle` contains the differences between local and remote agents; conversion from events to UI history is maintained separately. Session states and message roles use enums while retaining the existing JSON strings externally.
 
@@ -184,6 +184,20 @@ Error events invalidate the active connection and stop forwarding; the next expl
 
 Select a worker in the conversation to open its live trace beside the chat. The default sidebar-and-chat layout reserves no empty panel space. Closing the panel or pressing Escape restores focus to the selected worker; selecting a different session or draft clears the visible panel. The divider supports pointer dragging, arrow keys, Home, and End. At narrow widths the same panel becomes a full-screen modal with trapped focus.
 
-`DetailPanel` owns only presentation, resizing, and focus behavior. `DetailPanelSelection` is a discriminated identity-based selection, scoped to a session and navigation view; future content kinds can supply their own renderer without changing the shell. The current `subagent` kind resolves the latest lifecycle record from the conversation on every render and passes existing messages and agent-specific streams to `AgentOutput`. It does not start another subscription, copy a transcript into selection state, or change runtime/history protocols. The output keeps its own scrolling and follows new output only while the reader is near the bottom; changing agents resets that output viewport. Code-change recording and code-review panels are not implemented.
+`DetailPanel` owns only presentation, resizing, and focus behavior. `DetailPanelSelection` is a discriminated identity-based selection, scoped to a session and navigation view. The `subagent` kind resolves the latest lifecycle record from the conversation on every render and passes existing messages and agent-specific streams to `AgentOutput`. It does not start another subscription or copy a transcript into selection state. The output keeps its own scrolling and follows new output only while the reader is near the bottom; changing agents resets that output viewport. The `changes` kind renders the Work review described below in the same shell.
 
 Scrollable agent output is a named, keyboard-focusable live log so WebKit users can scroll it without a pointer. The accessibility lint rule explicitly permits `tabIndex` on the `log` role; other noninteractive roles remain checked.
+
+## Work change review
+
+Open **Changes** in a Work conversation to inspect workspace, session, or individual-turn changes. Workspace review compares HEAD, index, and current files; session and turn views compare captured raw working files, so changes remain reviewable after an agent commits them. These views describe changes during a period, including edits by other sessions or tools. They do not prove authorship or isolate concurrent writers.
+
+`copilot-runtime::workspace` discovers the selected directory's enclosing Git worktree, captures bounded content in private storage, and creates immutable summaries, file lists, and structured hunks. Git commands are read-only with optional locks, external diff, text conversion, and lazy fetching disabled. No snapshot creates a commit or changes the user's index, refs, or files. Text, binary, oversized, conflict, unsupported, and mode-only results remain distinct. The selected directory is the coverage boundary; ignored files and nested repository contents are excluded. Missing Git or a non-Git directory affects review only.
+
+Workspace inventory compares captured HEAD, index, and working-file manifests. Built-in line-ending and file-mode rules are applied in Rust; Git commands that inspect working files through content filters are not used. Custom filters produce an explicit unsupported result. Small reviews generate patches with bounded concurrency after releasing the worktree scan gate. Larger reviews first save immutable file metadata and generate each diff when requested, keeping boundary capture independent of the number of patches. Unknown line totals remain distinct from zero and from incomplete capture. Git 2.45 or newer is required for the no-lazy-fetch inspection option.
+
+`tandem-core::reviews` owns session/message associations and capture scheduling. It captures a baseline before delivering a user submission, saves the association with the confirmed message UUID, and captures the endpoint after the terminal event. A retained completion job survives replacement of the runtime connection; the next send waits for it. Review inspection has a bounded deadline and records partial/unavailable state independently of task success. SQLite stores metadata, while snapshot objects and immutable file details live under the application's `reviews/` directory. Ordinary snapshots and runtime events contain no review source bodies.
+
+Local inspection calls the runtime workspace module directly. SSH inspection uses connection-bound workspace IDs in `tandem-server` and private files under `~/.local/share/tandem/reviews/`; the remote executable still has no application services or SQLite dependency. Opening a review can reuse an existing transport or connect to an already prepared compatible server without starting an SDK session. Unprepared or unreachable hosts return an explicit unavailable state. The desktop caches retrieved file pages and details, allowing those historical artifacts to be read while offline. Uncached remote content still requires the host.
+
+Typed review commands use the existing Tauri/development dispatch. List and detail calls require a session-authorized review ID and matching immutable revision; the frontend discards late responses from a previous session, scope, or file selection. `review_updated` events invalidate the active review without broadcasting file content. Structured hunks render through existing React/CSS in unified or side-by-side mode with bounded visible rows. The design and product research are recorded in [Work session change review](work-session-review-design.md).

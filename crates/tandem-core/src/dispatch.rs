@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use copilot_runtime::{MessageAttachment, SkillSelection};
+use copilot_runtime::{MessageAttachment, SkillSelection, workspace::ReviewSelection};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use uuid::Uuid;
@@ -60,6 +60,72 @@ impl SendMessageRequest {
             self.fleet,
         )
         .await
+    }
+}
+
+/// A current or historical review selection within one session.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewSummaryRequest {
+    pub session_id: String,
+    pub selection: ReviewSelection,
+}
+
+impl ReviewSummaryRequest {
+    async fn execute(self, app: &App) -> Result<Value> {
+        response(
+            app.get_review_summary(&self.session_id, self.selection)
+                .await?,
+        )
+    }
+}
+
+/// One metadata page from an immutable review revision.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewFilesRequest {
+    pub session_id: String,
+    pub review_id: String,
+    pub revision: String,
+    #[serde(default)]
+    pub cursor: usize,
+}
+
+impl ReviewFilesRequest {
+    async fn execute(self, app: &App) -> Result<Value> {
+        response(
+            app.list_review_files(
+                &self.session_id,
+                &self.review_id,
+                &self.revision,
+                self.cursor,
+            )
+            .await?,
+        )
+    }
+}
+
+/// One file from an immutable review revision.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewFileRequest {
+    pub session_id: String,
+    pub review_id: String,
+    pub revision: String,
+    pub file_id: String,
+}
+
+impl ReviewFileRequest {
+    async fn execute(self, app: &App) -> Result<Value> {
+        response(
+            app.get_review_file(
+                &self.session_id,
+                &self.review_id,
+                &self.revision,
+                &self.file_id,
+            )
+            .await?,
+        )
     }
 }
 
@@ -143,6 +209,10 @@ pub enum Request {
         session_id: String,
         attachment_id: String,
     },
+    GetReviewSummary(ReviewSummaryRequest),
+    RefreshReview(ReviewSummaryRequest),
+    ListReviewFiles(ReviewFilesRequest),
+    GetReviewFile(ReviewFileRequest),
     SendMessage(SendMessageRequest),
     AbortSession {
         session_id: String,
@@ -240,6 +310,11 @@ impl App {
                 session_id,
                 attachment_id,
             } => response(self.store.attachment(&session_id, &attachment_id)?),
+            Request::GetReviewSummary(request) | Request::RefreshReview(request) => {
+                request.execute(self).await
+            }
+            Request::ListReviewFiles(request) => request.execute(self).await,
+            Request::GetReviewFile(request) => request.execute(self).await,
             Request::SendMessage(request) => response(request.execute(self).await?),
             Request::AbortSession { session_id } => {
                 response(self.abort_session(&session_id).await?)

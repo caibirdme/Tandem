@@ -14,6 +14,7 @@ mod permissions;
 mod skills;
 mod summary;
 mod telemetry;
+pub mod workspace;
 
 use std::{
     path::{Path, PathBuf},

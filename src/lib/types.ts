@@ -165,6 +165,7 @@ export type RuntimeEvent = { sessionId: string } & (
   | { kind: 'title'; data: { title: string } }
   | { kind: 'title_error'; data: { message: string } }
   | { kind: 'context_usage'; data: ContextUsage | null }
+  | { kind: 'review_updated' | 'review_invalidated'; data: Record<string, unknown> }
 );
 export interface DirectoryListing {
   path: string;
@@ -172,6 +173,22 @@ export interface DirectoryListing {
 }
 export type ProviderDraft = Omit<Provider, 'hasApiKey'>;
 export interface Commands {
+  get_review_summary: {
+    payload: { sessionId: string; selection: ReviewSelection };
+    result: ReviewOverview;
+  };
+  refresh_review: {
+    payload: { sessionId: string; selection: ReviewSelection };
+    result: ReviewOverview;
+  };
+  list_review_files: {
+    payload: { sessionId: string; reviewId: string; revision: string; cursor?: number };
+    result: ReviewFilePage;
+  };
+  get_review_file: {
+    payload: { sessionId: string; reviewId: string; revision: string; fileId: string };
+    result: ReviewFileDiff;
+  };
   snapshot: { payload: Record<string, never>; result: Snapshot };
   list_provider_models: {
     payload: { baseUrl: string; listModelsPath: string; apiKey?: string };
@@ -255,3 +272,9 @@ export interface DiscoveredModel {
   maxOutputTokens?: number;
   supportedReasoningEfforts?: ReasoningEffortValue[];
 }
+import type {
+  ReviewFileDiff,
+  ReviewFilePage,
+  ReviewOverview,
+  ReviewSelection,
+} from './reviewTypes';

@@ -44,6 +44,8 @@ jobs:
       # tests/fleet_acceptance.py is included by local and remote integration checks.
       # tests/agentlens_e2e.py verifies Chat/Work-only export with the real SDK below.
       # tests/grpc_e2e.py verifies native trace/metric export over local HTTP/2 gRPC.
+      # tests/review_acceptance.py verifies Git review state locally and through RPC;
+      # the SSH job also runs its Work lifecycle against an isolated OpenSSH daemon.
       - uses: dorny/paths-filter@v4
         id: filter
         with:
@@ -169,8 +171,34 @@ jobs:
       - run: python tests/runtime_e2e.py
       - run: python tests/agentlens_e2e.py
       - run: python tests/grpc_e2e.py
+      - run: python tests/review_acceptance.py
       # POSIX runs shared-daemon acceptance even when an SSH daemon is unavailable.
       - run: python tests/remote_e2e.py --skip-ssh
+
+  ssh:
+    name: SSH integration
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      CARGO_PROFILE_DEV_DEBUG: 0
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.15'
+      - run: rustup toolchain install
+      - uses: ./.github/actions/setup-rust-cache
+        with:
+          purpose: ssh-debug-linux
+      - run: sudo apt-get update && sudo apt-get install -y openssh-server
+      - run: sudo mkdir -p /run/sshd
+      # Hosted images provide Git >= 2.45, required for inspection without lazy fetch.
+      - run: git --version
+      - run: cargo build -p tandem-dev-server -p tandem-server --locked
+      # Each run owns its daemon, temporary home, host key and client identity.
+      - run: python tests/remote_e2e.py
 
   bundle:
     name: Desktop bundle
@@ -182,7 +210,7 @@ jobs:
   required:
     name: Required checks
     if: always()
-    needs: [changes, format, web, rust, bundle]
+    needs: [changes, format, web, rust, ssh, bundle]
     runs-on: ubuntu-24.04
     steps:
       - env:

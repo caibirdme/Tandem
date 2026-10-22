@@ -9,6 +9,7 @@ import {
   Compass,
   Copy,
   FileText,
+  FileDiff,
   Folder,
   Lightbulb,
   LockKeyhole,
@@ -96,6 +97,7 @@ interface ChatProps {
   detailPanelId: string;
   selectedAgentId: string | null;
   onSelectAgent: (id: string, trigger: HTMLButtonElement) => void;
+  onReviewTurn?: (messageId: string, trigger: HTMLButtonElement) => void;
 }
 
 export function Chat(props: ChatProps) {
@@ -522,6 +524,16 @@ export function Chat(props: ChatProps) {
                     )}
                     {message.id.startsWith('pending:') && (
                       <output className="pending-message">{t('chat.messagePending')}</output>
+                    )}
+                    {props.project && props.onReviewTurn && !message.id.startsWith('pending:') && (
+                      <button
+                        type="button"
+                        className="review-turn-button"
+                        onClick={(event) => props.onReviewTurn?.(message.id, event.currentTarget)}
+                      >
+                        <FileDiff size={13} />
+                        {t('review.reviewTurn')}
+                      </button>
                     )}
                   </div>
                 </div>

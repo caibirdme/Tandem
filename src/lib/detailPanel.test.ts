@@ -36,11 +36,22 @@ const conversation: Conversation = {
 };
 
 describe('detail panel selection', () => {
+  it('opens changes only in its originating session and navigation view', () => {
+    const changes: DetailPanelSelection = {
+      kind: 'changes',
+      sessionId: 'session',
+      viewKey: 'view',
+    };
+    expect(resolveDetailPanel(changes, 'view', 'session', emptyConversation)).toEqual({
+      kind: 'changes',
+    });
+    expect(resolveDetailPanel(changes, 'another', 'session', emptyConversation)).toBeNull();
+    expect(resolveDetailPanel(changes, 'view', 'other', emptyConversation)).toBeNull();
+  });
   it('starts closed and resolves the current agent rather than a captured snapshot', () => {
     expect(resolveDetailPanel(null, 'view', 'session', conversation)).toBeNull();
-    expect(resolveDetailPanel(selection, 'view', 'session', conversation)?.agent.status).toBe(
-      'running',
-    );
+    const running = resolveDetailPanel(selection, 'view', 'session', conversation);
+    expect(running?.kind === 'subagent' && running.agent.status).toBe('running');
     const updated: Conversation = {
       ...conversation,
       messages: conversation.messages.map((message) => ({
@@ -48,9 +59,8 @@ describe('detail panel selection', () => {
         agent: { ...agent, status: 'completed' },
       })),
     };
-    expect(resolveDetailPanel(selection, 'view', 'session', updated)?.agent.status).toBe(
-      'completed',
-    );
+    const completed = resolveDetailPanel(selection, 'view', 'session', updated);
+    expect(completed?.kind === 'subagent' && completed.agent.status).toBe('completed');
   });
 
   it.each([
