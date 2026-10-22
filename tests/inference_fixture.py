@@ -198,6 +198,31 @@ class Fixture:
             return "TANDEM_MODEL_SWITCH_OK " + body["model"]
         if "fixture:slow" in prompt:
             return "TANDEM_SLOW_OK"
+        if not completed_tool and "fixture:review-commit" in prompt:
+            names = {tool.get("function", tool).get("name") for tool in body.get("tools", [])}
+            directory = str(self.workspace)
+            if "powershell" in names and "bash" not in names:
+                tool = "powershell"
+                escaped = directory.replace("'", "''")
+                command = (
+                    f"Set-Location -LiteralPath '{escaped}'; "
+                    "Set-Content -LiteralPath 'verified.txt' -Value 'committed by SDK'; "
+                    "git add -- verified.txt; "
+                    "git -c user.name=Acceptance -c user.email=acceptance@example.invalid "
+                    "commit --only -m 'Record reviewed SDK changes' -- verified.txt"
+                )
+            else:
+                tool = "bash"
+                command = (
+                    f"cd {shlex.quote(directory)} && "
+                    "printf '%s\\n' 'committed by SDK' > verified.txt && "
+                    "git add -- verified.txt && "
+                    "git -c user.name=Acceptance -c user.email=acceptance@example.invalid "
+                    "commit --only -m 'Record reviewed SDK changes' -- verified.txt"
+                )
+            return {"name": tool, "arguments": {
+                "command": command, "description": "Edit and commit the review acceptance marker",
+            }}
         if not completed_tool and any(
             tag in prompt for tag in ("fixture:work-shell", "fixture:work-mode-shell")
         ):

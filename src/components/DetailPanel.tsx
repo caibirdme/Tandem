@@ -37,12 +37,14 @@ export function DetailPanel({
   children,
   onClose,
   returnFocusRef,
+  bodyClassName,
 }: {
   id: string;
   title: string;
   children: ReactNode;
   onClose: () => void;
   returnFocusRef?: RefObject<HTMLElement | null> | undefined;
+  bodyClassName?: string;
 }) {
   const { t } = useI18n();
   const narrow = useSyncExternalStore(subscribeToViewport, isNarrowViewport, serverViewport);
@@ -188,7 +190,7 @@ export function DetailPanel({
           <X size={18} />
         </button>
       </header>
-      <div className="detail-panel-body">{children}</div>
+      <div className={`detail-panel-body ${bodyClassName ?? ''}`}>{children}</div>
     </section>
   );
   if (!narrow) return content;

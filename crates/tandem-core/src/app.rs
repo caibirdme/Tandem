@@ -55,7 +55,7 @@ impl AppOptions {
 
 /// Durable application state plus lazily started agent processes.
 pub struct App {
-    pub(crate) store: Store,
+    pub(crate) store: Arc<Store>,
     pub(crate) options: AppOptions,
     pub(crate) events: broadcast::Sender<Event>,
     pub(crate) runtime: Mutex<Option<Arc<Runtime>>>,
@@ -66,6 +66,7 @@ pub struct App {
     pub(crate) submissions: Submissions,
     pub(crate) titles: TitleJobs,
     pub(crate) mutation_gate: Mutex<()>,
+    pub(crate) reviews: crate::reviews::ReviewCoordinator,
 }
 
 impl App {
@@ -83,7 +84,7 @@ impl App {
                 std::fs::Permissions::from_mode(0o700),
             )?;
         }
-        let store = Store::open(&options.data_directory.join("tandem.sqlite3"))?;
+        let store = Arc::new(Store::open(&options.data_directory.join("tandem.sqlite3"))?);
         let (events, _) = broadcast::channel(4096);
         Ok(Arc::new(Self {
             store,
@@ -97,6 +98,7 @@ impl App {
             submissions: Submissions::default(),
             titles: TitleJobs::default(),
             mutation_gate: Mutex::new(()),
+            reviews: crate::reviews::ReviewCoordinator::default(),
         }))
     }
 
@@ -265,6 +267,7 @@ impl App {
     pub async fn shutdown(&self) -> Result<()> {
         self.titles.shutdown().await;
         self.shutdown_sessions().await;
+        self.shutdown_review_locations().await;
         if let Some(runtime) = self.runtime.lock().await.take() {
             runtime.stop().await?;
         }

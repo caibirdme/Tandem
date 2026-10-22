@@ -26,12 +26,15 @@ The workspace default target is also `tandem-dev-server`, so `cargo run` starts 
 | Formatting                                    | `just format`, then `just check-format`                              |
 | Sessions, tools, providers, or telemetry      | `just integration`                                                   |
 | AgentLens export, content, or credentials     | `just integration-agentlens`                                         |
+| Git workspace, session, or turn review        | `just integration-review`, `just integration-ssh`                    |
 | SSH transport, deployment, or remote protocol | `just integration-ssh`                                               |
 | Windows, resources, or native features        | `just desktop-build`, then open and verify the generated application |
 
 Run `just check` before committing. oxlint enables React, TypeScript, accessibility, and strict rules. TypeScript uses strict mode; Rust runs Clippy all + pedantic with warnings treated as failures. Formatting uses oxfmt and nightly rustfmt; rustfmt merges imports by crate and groups standard library, external crate, and current crate imports.
 
 Unit tests cover state merging, permission denial, configuration boundaries, database relationships, SSH injection, and communication failures. `just check` also runs Python standard-library tests for event routing, process cleanup, and the dependency boundary checker. Integration tests use the real SDK and matching CLI, replacing only external inference and OTLP receivers with test endpoints, so paid credentials are unnecessary. The chat web-tool case reads `https://example.com` and needs public network access. Clear inherited overrides such as `COPILOT_OFFLINE` and `COPILOT_PROVIDER_*` before running, since they can affect isolated test sessions. These tests cannot establish whether a real provider supports a particular model or parameter.
+
+`just integration-review` uses temporary real Git repositories and the production SDK with test inference. It checks dirty initial files, staged cancellation, created/edited/shell-written files, commits during a turn, immutable revisions, session ownership, restart history, non-Git Work, and review RPC without SDK initialization. `just integration-ssh` repeats the Work review lifecycle over its isolated OpenSSH server. CI runs the local/protocol checks on Windows and macOS and the real SSH suite in a separate Ubuntu job included in **Required checks**.
 
 `just integration-agentlens` exercises complete Chat and Work content, excludes real title-helper traffic, checks the AgentLens resource and span conventions, retries a transient collector failure, and verifies local key persistence and remote stdio export with test credentials. CI runs it in the existing Rust job. For an explicitly authorized live receiver check, run `python tests/agentlens_e2e.py --live-endpoint <base-url>` and provide the access key on standard input. This uploads synthetic acceptance conversations using local inference fixtures; it never accepts a key on the command line or prints it. Verify the printed acceptance marker in the intended AgentLens workspace before claiming successful platform display.
 
@@ -152,6 +155,8 @@ macOS uses ad hoc signing without an Apple account. Users must remove quarantine
 ## Service contract
 
 The desktop calls `dispatch`; development mode calls `POST /api/dispatch`. Requests are `{ command, payload }`. Types are centralized in `src/lib/types.ts` and Rust's `Request`; update both sides together. Streaming events use Tauri's `runtime-event` or `/api/events`.
+
+Review uses `get_review_summary` or `refresh_review` with `{sessionId, selection}`. Selection is `{kind: "workspace", comparison: "net" | "staged" | "unstaged"}`, `{kind: "session"}`, or `{kind: "turn", messageId}`. Responses contain a nullable summary, a separate unavailable reason, and turn navigation metadata. `list_review_files {sessionId, reviewId, revision, cursor?}` returns a bounded page; `get_review_file {sessionId, reviewId, revision, fileId}` returns a bounded patch and structured hunks or an explicit non-text state. The same immutable revision must be used throughout. `review_updated`/`review_invalidated` are registered in the event transport. Remote protocol version 3 adds connection-scoped workspace inspection commands without adding core, HTTP, or database dependencies to the remote executable.
 
 Title settings use the separate command `save_title_model {titleModel: {providerId, modelId} | null}`. `null` follows the current session model, and `save_preferences` preserves the setting. `regenerate_title {sessionId}` only queues a background task. Completion sends a `title {title}` event; failure sends `title_error {message}`. Neither changes session execution state. Snapshot `titleGenerations` restores generation progress.
 

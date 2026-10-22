@@ -45,6 +45,7 @@ from inference_fixture import (
     require,
 )
 from permission_acceptance import check_permission_modes
+from review_acceptance import check_review_flow
 from model_switch_acceptance import require_wire_history
 from reasoning_acceptance import (
     check_pending_reasoning_change,
@@ -737,6 +738,10 @@ def check_ssh(remote_server, dev_server, root, endpoint, fixture):
         require((workspace / 'verified.txt').read_text() == 'verified by SDK\n', 'Remote reconnect did not resume executable work')
         check_permission_modes(app, project, provider, 'gpt-4.1', workspace)
         check_ssh_reasoning(app, fixture, app_directory, endpoint, project)
+        review_session, *_ = check_review_flow(
+            app, fixture, provider, workspace / 'review-project', ssh.connection,
+        )
+        app.command('delete_session', sessionId=review_session['id'])
         app.command('save_preferences', telemetry={'enabled': False, 'endpoint': '',
                     'protocol': 'http/json', 'captureContent': False}, cliPath=None)
         require(any(path == '/v1/traces' and 'json' in content_type and json_span_names(body)
@@ -797,7 +802,7 @@ def main():
             if not arguments.skip_ssh:
                 require(os.name == 'posix', 'Use --skip-ssh on hosts without a POSIX SSH daemon')
                 check_ssh(remote_server, dev_server, root, endpoint_url, fixture)
-                checks.append('OpenSSH: strict host trust, key rejection, concurrent atomic deployments share one daemon and CLI, literal directories, Fleet opt-in and isolated worker traces/permissions/cancellation, image/text attachments, grouped tool activity, confirmed skill selection metadata, repeated skill discovery reuses idle work without new SSH connections, remote tools, reconnect/resume, native thinking history and cancellation, core session reasoning changes, pending approval, and native-default reset with complete history')
+                checks.append('OpenSSH: strict host trust, key rejection, concurrent atomic deployments share one daemon and CLI, literal directories, Fleet opt-in and isolated worker traces/permissions/cancellation, image/text attachments, grouped tool activity, confirmed skill selection metadata, repeated skill discovery reuses idle work without new SSH connections, remote tools, reconnect/resume, native thinking history and cancellation, core session reasoning changes, pending approval, native-default reset with complete history, and immutable workspace/session/turn reviews including agent commits and cancellation')
             print(json.dumps({'result': 'passed', 'checks': checks, 'inferenceRequests': len(fixture.requests),
                               'telemetryExports': len(fixture.exports)}, indent=2))
         finally:

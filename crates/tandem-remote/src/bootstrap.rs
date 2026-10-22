@@ -242,6 +242,24 @@ impl RemoteClient {
         }
     }
 
+    /// Connect to an installed server for workspace inspection without starting an SDK.
+    ///
+    /// # Errors
+    /// Returns a connection or version error; this never deploys or initializes a runtime.
+    pub async fn connect_review(&self) -> Result<RemoteTransport, RemoteError> {
+        let transport = self.open_transport()?;
+        let result = transport
+            .request("server_info", serde_json::Value::Null)
+            .await;
+        match result {
+            Ok(value) if valid_server_info(&value) => Ok(transport),
+            result => {
+                transport.shutdown().await;
+                Err(result.err().unwrap_or(RemoteError::ServerVersionMismatch))
+            }
+        }
+    }
+
     /// Attach a proxy to a previously bootstrapped daemon without deployment checks.
     ///
     /// # Errors

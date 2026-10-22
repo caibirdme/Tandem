@@ -11,6 +11,7 @@ mod model_discovery;
 mod projects;
 mod providers;
 mod reasoning;
+mod reviews;
 mod session_models;
 mod session_reasoning;
 mod sessions;
