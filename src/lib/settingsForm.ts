@@ -1,6 +1,7 @@
 import { translate as t } from '../i18n';
 import type {
   Commands,
+  DiscoveredModel,
   Model,
   ModelSelection,
   Provider,
@@ -44,6 +45,20 @@ export function titleModelPayload(
 
 export type ModelFormDraft = Omit<Model, 'contextWindow'> & { contextWindowK: string };
 export type ProviderFormDraft = Omit<ProviderDraft, 'models'> & { models: ModelFormDraft[] };
+
+export function discoveredModelDraft(model: DiscoveredModel): ModelFormDraft {
+  return {
+    id: model.id,
+    name: model.displayName,
+    reasoningEffort: null,
+    contextWindowK:
+      model.contextWindow === undefined ? '' : contextWindowKilotokens(model.contextWindow),
+    maxOutputTokens: model.maxOutputTokens ?? null,
+    ...(model.supportedReasoningEfforts === undefined
+      ? {}
+      : { supportedReasoningEfforts: [...model.supportedReasoningEfforts] }),
+  };
+}
 
 export function contextWindowKilotokens(tokens: number): string {
   const count = BigInt(tokens);
@@ -110,6 +125,9 @@ export function providerPayload(
     reasoningEffort: model.reasoningEffort,
     contextWindow: contextWindowTokens(model.contextWindowK),
     maxOutputTokens: model.maxOutputTokens,
+    ...(model.supportedReasoningEfforts === undefined
+      ? {}
+      : { supportedReasoningEfforts: model.supportedReasoningEfforts }),
   }));
   return {
     provider: {

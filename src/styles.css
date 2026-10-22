@@ -1846,46 +1846,10 @@ select {
   margin-top: 7px;
   color: var(--secondary);
 }
-.model-editor {
-  position: relative;
-  border: 1px solid var(--line);
-  margin: -1px 0 0;
-  border-radius: 9px;
-  padding: 16px;
-  min-width: 0;
-}
-.model-editor legend {
-  font-size: 0.625rem;
-  color: var(--secondary);
-  padding: 0 6px;
-}
-.model-delete {
-  position: absolute;
-  right: 8px;
-  top: -16px;
-  height: 25px;
-  width: 25px;
-  background: var(--surface);
-}
-.advanced-model {
-  margin-top: 15px;
-}
-.advanced-model summary,
 .ssh-fields details summary {
   cursor: pointer;
   font-size: 0.625rem;
   color: var(--secondary);
-}
-.advanced-model[open] summary {
-  margin-bottom: 15px;
-}
-.advanced-model p {
-  font-size: 0.5625rem;
-  color: var(--secondary);
-  margin-top: 10px;
-}
-.advanced-model label {
-  font-size: 0.625rem;
 }
 .form-footer {
   display: flex;
@@ -2438,9 +2402,6 @@ select {
   }
   .key-status {
     display: none;
-  }
-  .model-editor {
-    padding: 13px;
   }
   .global-error {
     padding: 0 16px;

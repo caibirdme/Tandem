@@ -52,6 +52,20 @@ impl App {
             self.store.save_provider(&provider)?;
             self.clear_invalid_title_model()
         })?;
+        // Reconcile saved overrides before the first cancellation point after
+        // saving the provider, so later sends cannot retain an unsupported effort.
+        for session in &sessions {
+            let reset_effort = provider.models.iter().any(|model| {
+                model.id == session.model_id
+                    && !model.supports_reasoning_effort(session.reasoning_effort.as_deref())
+            });
+            if reset_effort {
+                self.store.update_session(&session.id, |session| {
+                    session.reasoning_effort = None;
+                    session.updated_at = crate::app::now();
+                })?;
+            }
+        }
         for session in sessions {
             self.disconnect_session(&session.id).await;
             if session.project_id.is_some() {
@@ -211,6 +225,45 @@ mod tests {
             &[bytes.to_vec()],
         )?;
         Ok(session)
+    }
+
+    #[tokio::test]
+    async fn capability_edits_reset_only_unsupported_saved_overrides() -> Result<()> {
+        for (effort, expected) in [
+            (None, None),
+            (Some("low"), Some("low")),
+            (Some("xhigh"), None),
+        ] {
+            let directory = TempDir::new()?;
+            let app = App::open(AppOptions::local(directory.path().into()))?;
+            let mut provider = app.save_provider(provider()?, None).await?;
+            let session = app
+                .create_session(
+                    None,
+                    provider.id.clone(),
+                    "fixture".into(),
+                    None,
+                    effort.map(str::to_owned),
+                )
+                .await?;
+            provider.models[0].supported_reasoning_efforts = Some(vec!["low".into()]);
+            let saved = app.save_provider(provider, None).await?;
+            assert_eq!(
+                app.store.session(&session.id)?.reasoning_effort.as_deref(),
+                expected
+            );
+            drop(app);
+            let app = App::open(AppOptions::local(directory.path().into()))?;
+            assert_eq!(
+                app.store.provider(&saved.id)?.models[0].supported_reasoning_efforts,
+                Some(vec!["low".into()])
+            );
+            assert_eq!(
+                app.store.session(&session.id)?.reasoning_effort.as_deref(),
+                expected
+            );
+        }
+        Ok(())
     }
 
     #[tokio::test]

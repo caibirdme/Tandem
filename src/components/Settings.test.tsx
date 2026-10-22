@@ -1,6 +1,7 @@
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 
+import { setLocale } from '../i18n';
 import type { Provider, ProviderProtocol } from '../lib/types';
 import { ProviderEditor } from './Settings';
 
@@ -28,56 +29,75 @@ function markup(value: Provider | null) {
   );
 }
 
-describe('provider editor fields', () => {
-  it('shows a required K input before advanced parameters and preserves individual tokens', () => {
-    const rendered = markup(provider);
-    const context = rendered.match(/<input[^>]*value="131\.072"[^>]*>/)?.[0];
-    expect(context).toBeDefined();
-    expect(context).toContain('required=""');
-    expect(context).toContain('class="number-input"');
-    expect(context).toContain('type="number"');
-    expect(context).toContain('min="0.001"');
-    expect(context).toContain('step="0.001"');
-    expect(context).toContain('aria-describedby="context-window-hint-');
-    expect(rendered).toContain('<span aria-hidden="true">K</span>');
-    expect(rendered).toContain('1 K = 1,000 tokens');
-    expect(rendered.indexOf('value="131.072"')).toBeLessThan(rendered.indexOf('<details'));
-  });
+afterEach(() => setLocale('en'));
 
-  it('places model discovery inside the form with one path input and an adjacent primary action', () => {
-    const rendered = markup(provider);
-    expect(rendered.match(/value="\/v1\/models"/g)).toHaveLength(1);
-    expect(rendered).toMatch(
-      /<form class="provider-form"[^]*<section class="model-discovery"[^]*<div class="model-discovery-controls"><input[^>]+><button type="button" class="button primary"/,
-    );
-  });
-
-  it('offers Max and preserves a saved Max model default', () => {
+describe('provider editor', () => {
+  it('shows saved models as compact edit buttons with their actual context limits', () => {
     const rendered = markup({
       ...provider,
-      models: provider.models.map((model) => ({ ...model, reasoningEffort: 'max' })),
+      models: provider.models.map((model) => ({
+        ...model,
+        contextWindow: 1_000_000,
+        maxOutputTokens: 128_000,
+      })),
     });
-    expect(rendered).toContain('<option value="max" selected="">Max</option>');
+    expect(rendered).toContain('class="provider-model-list"');
+    expect(rendered).toContain('class="provider-model-open"');
+    expect(rendered).toContain('<strong>Model</strong><code>model</code>');
+    expect(rendered).toContain('1000 K');
+    expect(rendered).toContain('Click a model to edit its parameters.');
+    expect(rendered).not.toContain('<fieldset');
+    expect(rendered).not.toContain('value="128000"');
+    expect(rendered).not.toContain('<details');
   });
 
-  it('marks required fields and preserves native validation for a new provider', () => {
+  it('opens discovery and manual addition from separate explicit actions', () => {
+    const rendered = markup(provider);
+    expect(rendered).toContain('Fetch models');
+    expect(rendered).toContain('Add model');
+    expect(rendered).not.toContain('value="/v1/models"');
+    expect(rendered).not.toContain('type="checkbox"');
+    expect(rendered).not.toContain('Model ID');
+    expect(rendered).not.toContain('Default reasoning effort');
+    expect(rendered.match(/<form /g)).toHaveLength(1);
+  });
+
+  it('starts a new provider with an empty model list instead of an unfinished inline form', () => {
+    const rendered = markup(null);
+    expect(rendered).toContain('Fetch models or add a model to get started.');
+    expect(rendered).not.toContain('provider-model-list');
+    expect(rendered).not.toContain('provider-model-open');
+    expect(rendered).not.toContain('provider-request-url');
+  });
+
+  it('allows removing any model, including the last one, before adding its replacement', () => {
+    const rendered = markup(provider);
+    expect(rendered).toContain('aria-label="Remove model 1"');
+    expect(rendered).toContain('Save provider');
+  });
+
+  it('marks required provider fields and preserves native validation', () => {
     const rendered = markup(null);
     const labels = [...rendered.matchAll(/<label(?: [^>]*)?>(.*?)<\/label>/g)].map(
       ([, label]) => label ?? '',
     );
-    for (const name of ['Name', 'Base URL', 'Model ID', 'Context window']) {
+    for (const name of ['Name', 'Base URL']) {
       const field = labels.find((label) => label.startsWith(`<span>${name}<`));
       expect(field).toBeDefined();
       expect(field).toContain('class="required-mark" aria-hidden="true">*</span>');
       expect(field).toContain('required=""');
     }
-    const displayName = labels.find((label) => label.startsWith('Display name<'));
-    expect(displayName).toBeDefined();
-    expect(displayName).not.toContain('required');
+    expect(rendered).toContain('class="provider-fields"');
     expect(rendered).toContain('type="submit"');
     expect(rendered).not.toContain('novalidate');
-    expect(rendered).not.toContain('(required)');
-    expect(rendered).not.toContain('provider-request-url');
+  });
+
+  it('uses the same compact list when the interface is Chinese', () => {
+    setLocale('zh-CN');
+    const rendered = markup(provider);
+    expect(rendered).toContain('点击模型可编辑参数。');
+    expect(rendered).toContain('131.072 K');
+    expect(rendered).not.toContain('<fieldset');
   });
 
   it.each([

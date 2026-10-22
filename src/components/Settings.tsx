@@ -1,6 +1,7 @@
 import {
   Check,
   ChevronLeft,
+  ChevronRight,
   ExternalLink,
   KeyRound,
   Plus,
@@ -11,7 +12,7 @@ import {
   Sparkles,
   Trash2,
 } from 'lucide-react';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 
 import { version } from '../../package.json';
 import { useProviderCredential } from '../hooks/useProviderCredential';
@@ -21,22 +22,18 @@ import { dispatch, errorMessage } from '../lib/api';
 import {
   completeProviderEdit,
   contextWindowKilotokens,
+  discoveredModelDraft,
   preferencesPayload,
   providerPayload,
   providerRequestUrl,
 } from '../lib/settingsForm';
 import type { ModelFormDraft, ProviderEditSession, ProviderFormDraft } from '../lib/settingsForm';
-import type {
-  Model,
-  Provider,
-  ProviderProtocol,
-  Settings as SettingsData,
-  Telemetry,
-} from '../lib/types';
+import type { Provider, ProviderProtocol, Settings as SettingsData, Telemetry } from '../lib/types';
 import { BrowserLink } from './BrowserLink';
 import { FontSizeSettings } from './FontSizeSettings';
 import { LanguageSettings } from './LanguageSettings';
 import { ProviderKeyInput } from './ProviderKeyInput';
+import { ProviderModelDialog } from './ProviderModelDialog';
 import { ProviderModelDiscovery } from './ProviderModelDiscovery';
 import { TitlePreferences } from './TitlePreferences';
 import { Modal, Notice, RequiredMark, Spinner, Toggle } from './ui';
@@ -48,13 +45,6 @@ const protocolNames: Record<ProviderProtocol, string> = {
   'openai-responses': 'OpenAI Responses',
   anthropic: 'Anthropic Messages',
 };
-const blankModel = (): ModelFormDraft => ({
-  id: '',
-  name: '',
-  reasoningEffort: null,
-  contextWindowK: '',
-  maxOutputTokens: null,
-});
 
 export function Settings({
   open,
@@ -260,23 +250,22 @@ export function ProviderEditor({
     protocol: provider?.protocol ?? 'openai-completions',
     baseUrl: provider?.baseUrl ?? '',
     listModelsPath: provider?.listModelsPath ?? '/v1/models',
-    models: (
-      provider?.models.map(({ contextWindow, ...model }) => ({
-        ...model,
-        contextWindowK: contextWindowKilotokens(contextWindow),
-      })) ?? [blankModel()]
-    ).map((model) => ({ ...model, key: crypto.randomUUID() })),
+    models: (provider?.models ?? []).map(({ contextWindow, ...model }) => ({
+      ...model,
+      contextWindowK: contextWindowKilotokens(contextWindow),
+      key: crypto.randomUUID(),
+    })),
   }));
   const credential = useProviderCredential(provider?.id ?? '', provider?.hasApiKey ?? false);
   const requestUrl = providerRequestUrl(draft.protocol, draft.baseUrl);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  function modelChange(index: number, patch: Partial<ModelFormDraft>) {
-    setDraft((current) => ({
-      ...current,
-      models: current.models.map((model, i) => (i === index ? { ...model, ...patch } : model)),
-    }));
-  }
+  const [modelEditor, setModelEditor] = useState<{
+    key: string | null;
+    model: ModelFormDraft | null;
+  } | null>(null);
+  const modelTrigger = useRef<HTMLElement | null>(null);
+
   async function save() {
     setError(null);
     try {
@@ -291,241 +280,206 @@ export function ProviderEditor({
     }
   }
   return (
-    <form
-      className="provider-form"
-      onSubmit={(event) => {
-        event.preventDefault();
-        void save();
-      }}
-    >
-      <button className="text-button back-button" type="button" onClick={onBack}>
-        <ChevronLeft size={15} />
-        {t('settings.allProviders')}
-      </button>
-      <h3>{provider ? t('settings.editProvider') : t('settings.addProvider')}</h3>
-      <div className="form-grid">
-        <label>
-          <span>
-            {t('settings.name')}
-            <RequiredMark />
-          </span>
-          <input
-            required
-            value={draft.name}
-            onChange={(event) => setDraft({ ...draft, name: event.target.value })}
-            placeholder={t('settings.providerExample')}
-          />
-        </label>
-        <label>
-          {t('settings.protocol')}
-          <select
-            value={draft.protocol}
-            onChange={(event) =>
-              setDraft({ ...draft, protocol: event.target.value as ProviderProtocol })
-            }
-          >
-            {Object.entries(protocolNames).map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </select>
-        </label>
-      </div>
-      <label>
-        <span>
-          {t('settings.baseUrl')}
-          <RequiredMark />
-        </span>
-        <input
-          required
-          type="url"
-          value={draft.baseUrl}
-          onChange={(event) => setDraft({ ...draft, baseUrl: event.target.value })}
-          placeholder={
-            draft.protocol === 'anthropic'
-              ? 'https://api.anthropic.com'
-              : 'https://api.openai.com/v1'
-          }
-        />
-        <small>{t('settings.baseUrlHint')}</small>
-        {requestUrl && (
-          <small className="provider-request-url" aria-live="polite">
-            <span>{t('settings.requestUrl')}</span>
-            <code>{requestUrl}</code>
-          </small>
-        )}
-      </label>
-      <ProviderKeyInput
-        state={credential.state}
-        hasSavedKey={provider?.hasApiKey ?? false}
-        update={credential.update}
-        onRetry={credential.retry}
-      />
-      <ProviderModelDiscovery
-        baseUrl={draft.baseUrl}
-        listModelsPath={draft.listModelsPath}
-        onListModelsPathChange={(listModelsPath) => setDraft({ ...draft, listModelsPath })}
-        protocol={draft.protocol}
-        credential={credential.state}
-        hasSavedKey={provider?.hasApiKey ?? false}
-        disabled={busy}
-        existingIds={draft.models.map((model) => model.id.trim())}
-        onAdd={(models) =>
-          setDraft((current) => ({
-            ...current,
-            models: [
-              ...current.models.filter(
-                (model) =>
-                  model.id ||
-                  model.name ||
-                  model.contextWindowK ||
-                  model.reasoningEffort ||
-                  model.maxOutputTokens !== null,
-              ),
-              ...models
-                .filter(
-                  (model) => !current.models.some((existing) => existing.id.trim() === model.id),
-                )
-                .map((model) => ({
-                  ...blankModel(),
-                  id: model.id,
-                  name: model.displayName,
-                  key: crypto.randomUUID(),
-                })),
-            ],
-          }))
-        }
-      />
-      <div className="models-heading">
-        <div>
-          <h4>{t('settings.models')}</h4>
-          <p>{t('settings.modelIdsHint')}</p>
-        </div>
-        <button
-          className="text-button"
-          type="button"
-          onClick={() =>
-            setDraft({
-              ...draft,
-              models: [...draft.models, { ...blankModel(), key: crypto.randomUUID() }],
-            })
-          }
-        >
-          <Plus size={14} />
-          {t('settings.addModel')}
+    <>
+      <form
+        className="provider-form"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void save();
+        }}
+      >
+        <button className="text-button back-button" type="button" onClick={onBack}>
+          <ChevronLeft size={15} />
+          {t('settings.allProviders')}
         </button>
-      </div>
-      {draft.models.map((model, index) => (
-        <fieldset className="model-editor" key={model.key}>
-          <legend>{t('settings.modelNumber', { number: index + 1 })}</legend>
-          {draft.models.length > 1 && (
-            <button
-              className="icon-button model-delete"
-              type="button"
-              aria-label={t('settings.removeModel', { number: index + 1 })}
-              onClick={() =>
-                setDraft({ ...draft, models: draft.models.filter((_, i) => i !== index) })
-              }
-            >
-              <Trash2 size={14} />
-            </button>
-          )}
-          <div className="form-grid">
-            <label>
-              <span>
-                {t('settings.modelId')}
-                <RequiredMark />
-              </span>
-              <input
-                required
-                value={model.id}
-                onChange={(event) => modelChange(index, { id: event.target.value })}
-                placeholder={t('settings.modelExample')}
-              />
-            </label>
-            <label>
-              {t('settings.displayName')}
-              <input
-                value={model.name}
-                onChange={(event) => modelChange(index, { name: event.target.value })}
-                placeholder={t('settings.displayNameHint')}
-              />
-            </label>
-          </div>
-          <label className="model-context-field">
+        <h3>{provider ? t('settings.editProvider') : t('settings.addProvider')}</h3>
+        <div className="provider-fields">
+          <label className="provider-field">
             <span>
-              {t('settings.contextWindow')}
+              {t('settings.name')}
               <RequiredMark />
             </span>
-            <span className="context-window-input">
-              <input
-                required
-                className="number-input"
-                type="number"
-                min="0.001"
-                step="0.001"
-                value={model.contextWindowK}
-                onChange={(event) => modelChange(index, { contextWindowK: event.target.value })}
-                aria-describedby={`context-window-hint-${model.key}`}
-                placeholder="256"
-              />
-              <span aria-hidden="true">K</span>
-            </span>
-            <small id={`context-window-hint-${model.key}`}>{t('settings.contextWindowHint')}</small>
+            <input
+              required
+              value={draft.name}
+              onChange={(event) => setDraft({ ...draft, name: event.target.value })}
+              placeholder={t('settings.providerExample')}
+            />
           </label>
-          <details className="advanced-model">
-            <summary>{t('settings.advanced')}</summary>
-            <div className="form-grid">
-              <label>
-                {t('settings.reasoning')}
-                <select
-                  value={model.reasoningEffort ?? ''}
-                  onChange={(event) =>
-                    modelChange(index, {
-                      reasoningEffort: (event.target.value || null) as Model['reasoningEffort'],
-                    })
-                  }
-                >
-                  <option value="">{t('settings.modelDefault')}</option>
-                  <option value="low">{t('settings.low')}</option>
-                  <option value="medium">{t('settings.medium')}</option>
-                  <option value="high">{t('settings.high')}</option>
-                  <option value="max">{t('settings.max')}</option>
-                </select>
-                <small>{t('settings.reasoningHint')}</small>
-              </label>
-              <label>
-                {t('settings.maxOutputTokens')}
-                <input
-                  type="number"
-                  min="1"
-                  step="1"
-                  value={model.maxOutputTokens ?? ''}
-                  onChange={(event) =>
-                    modelChange(index, {
-                      maxOutputTokens: event.target.value ? Number(event.target.value) : null,
-                    })
-                  }
-                  placeholder={t('settings.default')}
-                />
-              </label>
+          <label className="provider-field">
+            <span>{t('settings.protocol')}</span>
+            <select
+              value={draft.protocol}
+              onChange={(event) =>
+                setDraft({ ...draft, protocol: event.target.value as ProviderProtocol })
+              }
+            >
+              {Object.entries(protocolNames).map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="provider-field">
+            <span>
+              {t('settings.baseUrl')}
+              <RequiredMark />
+            </span>
+            <input
+              required
+              type="url"
+              value={draft.baseUrl}
+              onChange={(event) => setDraft({ ...draft, baseUrl: event.target.value })}
+              placeholder={
+                draft.protocol === 'anthropic'
+                  ? 'https://api.anthropic.com'
+                  : 'https://api.openai.com/v1'
+              }
+            />
+            {requestUrl ? (
+              <small className="provider-request-url" aria-live="polite">
+                <span>{t('settings.requestUrl')}</span>
+                <code>{requestUrl}</code>
+              </small>
+            ) : (
+              <small>{t('settings.baseUrlHint')}</small>
+            )}
+          </label>
+          <ProviderKeyInput
+            state={credential.state}
+            hasSavedKey={provider?.hasApiKey ?? false}
+            update={credential.update}
+            onRetry={credential.retry}
+          />
+        </div>
+        <div className="provider-model-section">
+          <div className="models-heading">
+            <div>
+              <h4>{t('settings.models')}</h4>
+              <p>{t('settings.modelListHint')}</p>
             </div>
-            <p>{t('settings.advancedHint')}</p>
-          </details>
-        </fieldset>
-      ))}
-      {error && <Notice>{error}</Notice>}
-      <div className="form-footer">
-        <button className="button" type="button" onClick={onBack}>
-          {t('common.cancel')}
-        </button>
-        <button className="button primary" type="submit" disabled={busy}>
-          {busy ? <Spinner /> : <Check size={15} />}
-          {t('settings.saveProvider')}
-        </button>
-      </div>
-    </form>
+            <span className="provider-model-count">{draft.models.length}</span>
+          </div>
+          <div className="provider-model-actions">
+            <ProviderModelDiscovery
+              baseUrl={draft.baseUrl}
+              listModelsPath={draft.listModelsPath}
+              onListModelsPathChange={(listModelsPath) =>
+                setDraft((current) => ({ ...current, listModelsPath }))
+              }
+              protocol={draft.protocol}
+              credential={credential.state}
+              hasSavedKey={provider?.hasApiKey ?? false}
+              disabled={busy}
+              existingIds={draft.models.map((model) => model.id.trim())}
+              onAdd={(models) => {
+                setError(null);
+                setDraft((current) => ({
+                  ...current,
+                  models: [
+                    ...current.models,
+                    ...models
+                      .filter(
+                        (model) =>
+                          !current.models.some((existing) => existing.id.trim() === model.id),
+                      )
+                      .map((model) => ({
+                        ...discoveredModelDraft(model),
+                        key: crypto.randomUUID(),
+                      })),
+                  ],
+                }));
+              }}
+            />
+            <button
+              className="button"
+              type="button"
+              disabled={busy}
+              onClick={(event) => {
+                modelTrigger.current = event.currentTarget;
+                setModelEditor({ key: null, model: null });
+              }}
+            >
+              <Plus size={14} aria-hidden="true" />
+              {t('settings.addModel')}
+            </button>
+          </div>
+          {draft.models.length === 0 ? (
+            <p className="provider-model-empty">{t('settings.noAddedModels')}</p>
+          ) : (
+            <ul className="provider-model-list" aria-label={t('settings.models')}>
+              {draft.models.map((model, index) => (
+                <li key={model.key}>
+                  <button
+                    className="provider-model-open"
+                    type="button"
+                    disabled={busy}
+                    onClick={(event) => {
+                      modelTrigger.current = event.currentTarget;
+                      setModelEditor({ key: model.key, model });
+                    }}
+                  >
+                    <span className="provider-model-name">
+                      <strong>{model.name || model.id}</strong>
+                      <code>{model.id}</code>
+                    </span>
+                    <span className="provider-model-context">{model.contextWindowK} K</span>
+                    <ChevronRight size={16} aria-hidden="true" />
+                  </button>
+                  <button
+                    className="icon-button"
+                    type="button"
+                    disabled={busy}
+                    aria-label={t('settings.removeModel', { number: index + 1 })}
+                    onClick={() =>
+                      setDraft((current) => ({
+                        ...current,
+                        models: current.models.filter((value) => value.key !== model.key),
+                      }))
+                    }
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+        {error && <Notice>{error}</Notice>}
+        <div className="form-footer">
+          <button className="button" type="button" onClick={onBack}>
+            {t('common.cancel')}
+          </button>
+          <button className="button primary" type="submit" disabled={busy}>
+            {busy ? <Spinner /> : <Check size={15} />}
+            {t('settings.saveProvider')}
+          </button>
+        </div>
+      </form>
+      {modelEditor && (
+        <ProviderModelDialog
+          model={modelEditor.model}
+          existingIds={draft.models
+            .filter((model) => model.key !== modelEditor.key)
+            .map((model) => model.id.trim())}
+          returnFocusRef={modelTrigger}
+          onClose={() => setModelEditor(null)}
+          onSave={(model) => {
+            setError(null);
+            setDraft((current) => ({
+              ...current,
+              models: modelEditor.key
+                ? current.models.map((value) =>
+                    value.key === modelEditor.key ? { ...model, key: value.key } : value,
+                  )
+                : [...current.models, { ...model, key: crypto.randomUUID() }],
+            }));
+            setModelEditor(null);
+          }}
+        />
+      )}
+    </>
   );
 }
 

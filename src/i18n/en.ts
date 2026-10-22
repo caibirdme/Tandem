@@ -44,11 +44,31 @@ export const en = {
   'settings.listModelsPath': 'Model list path',
   'settings.listModelsPathHint':
     'Appended to the Base URL. Defaults to /v1/models; uses the Anthropic model-list protocol.',
+  'settings.discoveryDescription':
+    'Select models to add with the returned limits. Default reasoning effort is left unset.',
+  'settings.refreshModels': 'Refresh',
+  'settings.expandModel': 'Show parameters for {name}',
+  'settings.collapseModel': 'Hide parameters for {name}',
+  'settings.supportedReasoning': 'Supported reasoning efforts',
+  'settings.notProvided': 'Not provided',
+  'settings.reasoningUnsupported': 'Not supported',
+  'settings.discoveryMissingContext': 'No context window returned. Add this model manually.',
+  'settings.discoveryConflictingLimits':
+    'The output limit is not smaller than the context window. Add this model manually with a suitable output limit.',
+  'settings.editModel': 'Edit model',
+  'settings.modelFormDescription': 'Use the model ID and limits supplied by your provider.',
+  'settings.modelListHint': 'Click a model to edit its parameters.',
+  'settings.noAddedModels': 'Fetch models or add a model to get started.',
+  'error.modelContextRange':
+    'Context window must be between 1 and 10,000,000 tokens (0.001–10,000 K).',
+  'error.modelOutputRange':
+    'Maximum output must be a whole number between 1 and 10,000,000 tokens.',
+  'error.modelOutputContext': 'Maximum output must be less than the context window.',
+  'error.modelReasoningUnsupported': 'Choose a reasoning effort supported by this model.',
   'settings.fetchModels': 'Fetch models',
   'settings.fetchingModels': 'Fetching models…',
   'settings.addSelectedModels': 'Add selected',
-  'settings.discoveryHint':
-    'No models are selected automatically. Select models to add, then enter their context windows below.',
+  'settings.discoveryHint': 'Select models to add. Expand a row to inspect its parameters.',
   'settings.noDiscoveredModels': 'No models were returned.',
   'settings.modelAlreadyAdded': 'Already added',
   'settings.discoveryCredentialBlank':

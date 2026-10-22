@@ -1020,84 +1020,86 @@ mod tests {
     #[test]
     fn fresh_and_resumed_byok_sessions_preserve_model_and_token_overrides()
     -> std::result::Result<(), Box<dyn std::error::Error>> {
-        for (protocol, model_id, output) in [
-            (
-                ProviderProtocol::Anthropic,
-                "claude-haiku-5.5",
-                Some(128_000),
-            ),
-            (ProviderProtocol::Anthropic, "glm-5.3-flashx", Some(128_000)),
-            (ProviderProtocol::OpenaiResponses, "gpt-6.1-sol", None),
-            (
-                ProviderProtocol::OpenaiResponses,
-                "deepseek-v4.1-flash",
-                None,
-            ),
-            (
-                ProviderProtocol::OpenaiCompletions,
-                "custom-model",
-                Some(4096),
-            ),
-        ] {
-            let options = SessionOptions {
-                session_id: Some("existing-session".into()),
-                permission_mode: PermissionMode::Ask,
-                mode: SessionMode::Chat,
-                provider: ProviderSettings {
-                    protocol,
-                    base_url: "https://example.com/v1".into(),
-                    api_key: None,
-                },
-                model: ModelSettings {
-                    id: model_id.into(),
-                    reasoning_effort: Some("max".into()),
-                    context_window: 1_000_000,
-                    max_output_tokens: output,
-                },
-                system_prompt: None,
-            };
-            let (events, _) = broadcast::channel(16);
-            let permissions = Permissions::new(&options.mode, options.permission_mode, events);
-            let fresh = create_config(&options, PathBuf::from("chat"), permissions.clone())?;
-            let resumed = resume_config(
-                "existing-session",
-                &options,
-                PathBuf::from("chat"),
-                permissions,
-            )?;
-            assert_eq!(fresh.model.as_deref(), Some(model_id));
-            assert_eq!(resumed.model, fresh.model);
-            assert_eq!(fresh.reasoning_effort.as_deref(), Some("max"));
-            assert_eq!(resumed.reasoning_effort, fresh.reasoning_effort);
-            assert_eq!(resumed.session_id.as_str(), "existing-session");
-            assert_eq!(resumed.continue_pending_work, Some(false));
-            assert!(fresh.providers.is_none() && resumed.providers.is_none());
-            assert!(fresh.models.is_none() && resumed.models.is_none());
-            let provider = serde_json::to_value(&fresh.provider)?;
-            assert_eq!(provider, serde_json::to_value(&resumed.provider)?);
-            assert_eq!(provider["maxPromptTokens"], 1_000_000 - output.unwrap_or(0));
-            assert_eq!(
-                provider.get("maxOutputTokens"),
-                output.map(serde_json::Value::from).as_ref()
-            );
-            let capabilities = serde_json::to_value(&fresh.model_capabilities)?;
-            assert_eq!(
-                capabilities,
-                serde_json::to_value(&resumed.model_capabilities)?
-            );
-            assert_eq!(
-                capabilities["limits"]["max_context_window_tokens"],
-                1_000_000
-            );
-            assert_eq!(
-                capabilities["limits"]["max_prompt_tokens"],
-                provider["maxPromptTokens"]
-            );
-            assert_eq!(
-                capabilities["limits"].get("max_output_tokens"),
-                provider.get("maxOutputTokens")
-            );
-            assert!(capabilities.get("supports").is_none());
+        for effort in ["max", "xhigh"] {
+            for (protocol, model_id, output) in [
+                (
+                    ProviderProtocol::Anthropic,
+                    "claude-haiku-5.5",
+                    Some(128_000),
+                ),
+                (ProviderProtocol::Anthropic, "glm-5.3-flashx", Some(128_000)),
+                (ProviderProtocol::OpenaiResponses, "gpt-6.1-sol", None),
+                (
+                    ProviderProtocol::OpenaiResponses,
+                    "deepseek-v4.1-flash",
+                    None,
+                ),
+                (
+                    ProviderProtocol::OpenaiCompletions,
+                    "custom-model",
+                    Some(4096),
+                ),
+            ] {
+                let options = SessionOptions {
+                    session_id: Some("existing-session".into()),
+                    permission_mode: PermissionMode::Ask,
+                    mode: SessionMode::Chat,
+                    provider: ProviderSettings {
+                        protocol,
+                        base_url: "https://example.com/v1".into(),
+                        api_key: None,
+                    },
+                    model: ModelSettings {
+                        id: model_id.into(),
+                        reasoning_effort: Some(effort.into()),
+                        context_window: 1_000_000,
+                        max_output_tokens: output,
+                    },
+                    system_prompt: None,
+                };
+                let (events, _) = broadcast::channel(16);
+                let permissions = Permissions::new(&options.mode, options.permission_mode, events);
+                let fresh = create_config(&options, PathBuf::from("chat"), permissions.clone())?;
+                let resumed = resume_config(
+                    "existing-session",
+                    &options,
+                    PathBuf::from("chat"),
+                    permissions,
+                )?;
+                assert_eq!(fresh.model.as_deref(), Some(model_id));
+                assert_eq!(resumed.model, fresh.model);
+                assert_eq!(fresh.reasoning_effort.as_deref(), Some(effort));
+                assert_eq!(resumed.reasoning_effort, fresh.reasoning_effort);
+                assert_eq!(resumed.session_id.as_str(), "existing-session");
+                assert_eq!(resumed.continue_pending_work, Some(false));
+                assert!(fresh.providers.is_none() && resumed.providers.is_none());
+                assert!(fresh.models.is_none() && resumed.models.is_none());
+                let provider = serde_json::to_value(&fresh.provider)?;
+                assert_eq!(provider, serde_json::to_value(&resumed.provider)?);
+                assert_eq!(provider["maxPromptTokens"], 1_000_000 - output.unwrap_or(0));
+                assert_eq!(
+                    provider.get("maxOutputTokens"),
+                    output.map(serde_json::Value::from).as_ref()
+                );
+                let capabilities = serde_json::to_value(&fresh.model_capabilities)?;
+                assert_eq!(
+                    capabilities,
+                    serde_json::to_value(&resumed.model_capabilities)?
+                );
+                assert_eq!(
+                    capabilities["limits"]["max_context_window_tokens"],
+                    1_000_000
+                );
+                assert_eq!(
+                    capabilities["limits"]["max_prompt_tokens"],
+                    provider["maxPromptTokens"]
+                );
+                assert_eq!(
+                    capabilities["limits"].get("max_output_tokens"),
+                    provider.get("maxOutputTokens")
+                );
+                assert!(capabilities.get("supports").is_none());
+            }
         }
         Ok(())
     }

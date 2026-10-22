@@ -1,5 +1,6 @@
 export type ProviderProtocol = 'openai-completions' | 'openai-responses' | 'anthropic';
-export type ReasoningEffort = 'low' | 'medium' | 'high' | 'max' | null;
+export type ReasoningEffortValue = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+export type ReasoningEffort = ReasoningEffortValue | null;
 export type FontSize = 'small' | 'medium' | 'large';
 export interface Model {
   id: string;
@@ -7,6 +8,7 @@ export interface Model {
   reasoningEffort: ReasoningEffort;
   contextWindow: number;
   maxOutputTokens: number | null;
+  supportedReasoningEfforts?: ReasoningEffortValue[] | null;
 }
 export interface ModelSelection {
   providerId: string;
@@ -249,4 +251,7 @@ export interface Commands {
 export interface DiscoveredModel {
   id: string;
   displayName: string;
+  contextWindow?: number;
+  maxOutputTokens?: number;
+  supportedReasoningEfforts?: ReasoningEffortValue[];
 }
