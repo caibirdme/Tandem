@@ -25,6 +25,8 @@ pub enum ConfigurationError {
     EndpointQuery,
     #[error("endpoint must not contain a fragment")]
     EndpointFragment,
+    #[error("gRPC endpoint must use only a host and optional port, without a signal path")]
+    GrpcEndpointPath,
     #[error("workspace must be a directory")]
     WorkspaceNotDirectory,
     #[error("prompt cannot be empty")]
@@ -120,7 +122,7 @@ pub enum Error {
     Skills(#[from] SkillError),
     #[error("message attachments: {0}")]
     Attachments(#[from] crate::AttachmentError),
-    #[error("AgentLens telemetry: {0}")]
+    #[error("telemetry: {0}")]
     Telemetry(#[from] crate::TelemetryError),
 }
 

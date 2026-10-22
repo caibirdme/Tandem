@@ -84,7 +84,27 @@ describe('telemetry destination settings', () => {
     );
     expect(rendered).toContain('Transport protocol');
     expect(rendered).toContain('HTTP / Protobuf');
+    expect(rendered).toContain('<option value="grpc">gRPC</option>');
     expect(rendered).not.toContain('AgentLens access key');
     expect(rendered).not.toContain('type="password"');
+  });
+
+  it.each([
+    ['en', 'http/json', '4318', 'Signal paths are added automatically'],
+    ['en', 'grpc', '4317', 'Use http:// for plaintext or https:// for TLS'],
+    ['zh-CN', 'http/protobuf', '4318', '对应信号路径会自动添加'],
+    ['zh-CN', 'grpc', '4317', '明文连接使用 http://，TLS 连接使用 https://'],
+  ] as const)('explains the %s %s endpoint', (locale, protocol, port, hint) => {
+    setLocale(locale);
+    const rendered = renderToStaticMarkup(
+      <Preferences
+        mode="telemetry"
+        settings={{ ...settings, telemetry: { ...settings.telemetry, protocol } }}
+        onSaved={async () => undefined}
+      />,
+    );
+    expect(rendered).toContain(`placeholder="http://localhost:${port}"`);
+    expect(rendered).toContain(hint);
+    expect(rendered).toContain(`<option value="${protocol}" selected=""`);
   });
 });

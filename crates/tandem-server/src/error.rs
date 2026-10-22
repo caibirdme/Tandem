@@ -96,6 +96,13 @@ impl ServerError {
                 _ => RpcErrorCode::InvalidPayload,
             },
             Self::Runtime(RuntimeError::Telemetry(error)) => match error {
+                copilot_runtime::TelemetryError::Grpc(error) => {
+                    if error.is_invalid_input() {
+                        RpcErrorCode::InvalidPayload
+                    } else {
+                        RpcErrorCode::RuntimeFailure
+                    }
+                }
                 copilot_runtime::TelemetryError::HttpStatus { status: 408 | 429 } => {
                     RpcErrorCode::RuntimeFailure
                 }
@@ -234,6 +241,23 @@ mod tests {
                     copilot_runtime::TelemetryError::FlushTimeout,
                 )),
                 RpcErrorCode::RuntimeTimeout,
+            ),
+            (
+                ServerError::Runtime(RuntimeError::Telemetry(
+                    copilot_runtime::TelemetryError::Grpc(copilot_runtime::GrpcError::Rejected {
+                        signal: "metric data points",
+                        count: 1,
+                    }),
+                )),
+                RpcErrorCode::InvalidPayload,
+            ),
+            (
+                ServerError::Runtime(RuntimeError::Telemetry(
+                    copilot_runtime::TelemetryError::Grpc(
+                        copilot_runtime::GrpcError::InvalidRecord { field: "timestamp" },
+                    ),
+                )),
+                RpcErrorCode::RuntimeFailure,
             ),
         ] {
             assert_eq!(error.into_rpc().code, expected);

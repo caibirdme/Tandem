@@ -26,6 +26,7 @@ The workspace default target is also `tandem-dev-server`, so `cargo run` starts 
 | Formatting                                    | `just format`, then `just check-format`                              |
 | Sessions, tools, providers, or telemetry      | `just integration`                                                   |
 | AgentLens export, content, or credentials     | `just integration-agentlens`                                         |
+| OTLP/gRPC transport, traces, or metrics       | `just integration-grpc`                                              |
 | SSH transport, deployment, or remote protocol | `just integration-ssh`                                               |
 | Windows, resources, or native features        | `just desktop-build`, then open and verify the generated application |
 
@@ -34,6 +35,8 @@ Run `just check` before committing. oxlint enables React, TypeScript, accessibil
 Unit tests cover state merging, permission denial, configuration boundaries, database relationships, SSH injection, and communication failures. `just check` also runs Python standard-library tests for event routing, process cleanup, and the dependency boundary checker. Integration tests use the real SDK and matching CLI, replacing only external inference and OTLP receivers with test endpoints, so paid credentials are unnecessary. The chat web-tool case reads `https://example.com` and needs public network access. Clear inherited overrides such as `COPILOT_OFFLINE` and `COPILOT_PROVIDER_*` before running, since they can affect isolated test sessions. These tests cannot establish whether a real provider supports a particular model or parameter.
 
 `just integration-agentlens` exercises complete Chat and Work content, excludes real title-helper traffic, checks the AgentLens resource and span conventions, retries a transient collector failure, and verifies local key persistence and remote stdio export with test credentials. CI runs it in the existing Rust job. For an explicitly authorized live receiver check, run `python tests/agentlens_e2e.py --live-endpoint <base-url>` and provide the access key on standard input. This uploads synthetic acceptance conversations using local inference fixtures; it never accepts a key on the command line or prints it. Verify the printed acceptance marker in the intended AgentLens workspace before claiming successful platform display.
+
+`just integration-grpc` uses the real SDK, local inference fixtures, and a Python standard-library HTTP/2 gRPC collector. It verifies local Chat and Work file creation/editing plus remote stdio sessions, native OTLP trace and metric protobuf messages, content capture enabled and disabled, saved protocol persistence, and retry after an `UNAVAILABLE` response. CI runs it in the existing Rust job on macOS and Windows. The collector checks HTTP/2 and unary gRPC framing and decodes OTLP signal bodies; request HPACK headers remain opaque. This check uses plaintext loopback test services and does not establish TLS interoperability with an external collector.
 
 ## Adding a language
 
@@ -103,13 +106,14 @@ The SDK's first build downloads the platform CLI; prepare a build cache before w
 
 Service build targets are listed below. Use the development host for local application debugging and build only the remote agent for remote distribution.
 
-| Command                | Build target and purpose                                                                          |
-| ---------------------- | ------------------------------------------------------------------------------------------------- |
-| `just build`           | Frontend plus debug `tandem-dev-server` and `tandem-server`                                       |
-| `just build-server`    | Both debug service binaries for local and SSH development                                         |
-| `just integration`     | Builds only `tandem-dev-server` and runs local SDK verification                                   |
-| `just integration-ssh` | Builds both services, starts the local development host, and deploys the remote agent through SSH |
-| `just remote-build`    | Builds only release `tandem-server` and copies it into desktop resources                          |
+| Command                 | Build target and purpose                                                                          |
+| ----------------------- | ------------------------------------------------------------------------------------------------- |
+| `just build`            | Frontend plus debug `tandem-dev-server` and `tandem-server`                                       |
+| `just build-server`     | Both debug service binaries for local and SSH development                                         |
+| `just integration`      | Builds only `tandem-dev-server` and runs local SDK verification                                   |
+| `just integration-grpc` | Builds both services and verifies local and remote native OTLP/gRPC export                        |
+| `just integration-ssh`  | Builds both services, starts the local development host, and deploys the remote agent through SSH |
+| `just remote-build`     | Builds only release `tandem-server` and copies it into desktop resources                          |
 
 Shared RPC definitions live in `tandem-protocol`, so the remote agent does not need the entire SSH client or application service merely to read requests. When changing dependencies, check the [architecture boundaries](architecture.md#responsibilities-and-dependencies). Keep development HTTP, SQLite, and system credential stores out of the remote binary.
 

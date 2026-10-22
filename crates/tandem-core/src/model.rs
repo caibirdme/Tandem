@@ -64,8 +64,10 @@ pub enum ValidationError {
     EndpointContainsQuery,
     #[error("The URL must not contain fragments.")]
     EndpointContainsFragment,
-    #[error("Copilot SDK telemetry export supports http/protobuf and http/json.")]
+    #[error("Telemetry export supports grpc, http/protobuf, and http/json.")]
     UnsupportedTelemetryProtocol { protocol: String },
+    #[error("Use a gRPC endpoint with only a host and optional port, without a signal path.")]
+    GrpcEndpointPath,
     #[error("Enter an AgentLens service name without control characters, up to 256 characters.")]
     InvalidAgentLensServiceName,
     #[error("Enter an AgentLens API key before enabling AgentLens telemetry.")]
@@ -255,17 +257,25 @@ fn default_telemetry_protocol() -> String {
 }
 
 impl Telemetry {
-    /// Check the endpoint and the export protocols supported by the SDK.
+    /// Check the endpoint and supported OTLP transports.
     ///
     /// # Errors
     /// Returns an error for invalid endpoints or unsupported protocols.
     pub fn validate(&self) -> Result<()> {
         if self.enabled {
             validate_endpoint(&self.endpoint)?;
-            if !["http/protobuf", "http/json"].contains(&self.protocol.as_str()) {
+            if !["grpc", "http/protobuf", "http/json"].contains(&self.protocol.as_str()) {
                 return Err(ValidationError::UnsupportedTelemetryProtocol {
                     protocol: self.protocol.clone(),
                 });
+            }
+            if self.protocol == "grpc"
+                && Url::parse(&self.endpoint)
+                    .map_err(|source| ValidationError::InvalidEndpoint { source })?
+                    .path()
+                    != "/"
+            {
+                return Err(ValidationError::GrpcEndpointPath);
             }
             if self.agentlens.as_ref().is_some_and(|config| {
                 config.service_name.trim().is_empty()
@@ -678,12 +688,12 @@ mod tests {
         ));
         let telemetry = Telemetry {
             enabled: true,
-            protocol: "grpc".into(),
+            protocol: "unsupported".into(),
             ..Telemetry::default()
         };
         assert!(matches!(
             telemetry.validate(),
-            Err(ValidationError::UnsupportedTelemetryProtocol { protocol }) if protocol == "grpc"
+            Err(ValidationError::UnsupportedTelemetryProtocol { protocol }) if protocol == "unsupported"
         ));
         Ok(())
     }

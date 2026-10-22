@@ -67,6 +67,10 @@ integration:
 integration-agentlens: build-server
     {{python}} tests/agentlens_e2e.py
 
+# Verify native trace and metric export over gRPC from local and remote sessions.
+integration-grpc: build-server
+    {{python}} tests/grpc_e2e.py
+
 # Verify provider model discovery with local HTTP fixtures and synthetic credentials.
 integration-models:
     cargo build -p tandem-dev-server

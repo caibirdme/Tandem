@@ -112,9 +112,11 @@ pub struct SessionOptions {
     pub system_prompt: Option<String>,
 }
 
-/// The native runtime supports OTLP over HTTP, in these two encodings.
+/// Supported OTLP transports; gRPC is exported by the Rust adapter.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum TelemetryProtocol {
+    #[serde(rename = "grpc")]
+    Grpc,
     #[serde(rename = "http/json")]
     HttpJson,
     #[serde(rename = "http/protobuf")]
@@ -196,16 +198,30 @@ impl ProviderSettings {
 impl TelemetrySettings {
     pub(crate) fn to_sdk(&self) -> Result<TelemetryConfig> {
         validate_http_endpoint(&self.endpoint)?;
+        if self.protocol == TelemetryProtocol::Grpc
+            && Url::parse(&self.endpoint)
+                .map_err(ConfigurationError::InvalidEndpoint)?
+                .path()
+                != "/"
+        {
+            return Err(ConfigurationError::GrpcEndpointPath.into());
+        }
+        if self.agentlens.is_some() && self.protocol != TelemetryProtocol::HttpJson {
+            return Err(ConfigurationError::AgentLensRequiresJson.into());
+        }
+        let config = TelemetryConfig::new()
+            .with_capture_content(self.capture_content)
+            .with_source_name("tandem");
         let protocol = match self.protocol {
+            // Runtime construction supplies a private file exporter for gRPC.
+            TelemetryProtocol::Grpc => return Ok(config),
             TelemetryProtocol::HttpJson => OtlpHttpProtocol::HttpJson,
             TelemetryProtocol::HttpProtobuf => OtlpHttpProtocol::HttpProtobuf,
         };
-        Ok(TelemetryConfig::new()
+        Ok(config
             .with_otlp_endpoint(&self.endpoint)
             .with_otlp_protocol(protocol)
-            .with_exporter_type(OtelExporterType::OtlpHttp)
-            .with_capture_content(self.capture_content)
-            .with_source_name("tandem"))
+            .with_exporter_type(OtelExporterType::OtlpHttp))
     }
 }
 
@@ -408,6 +424,70 @@ mod tests {
             assert_eq!(config.wire_api.as_deref(), wire_api);
             assert!(!format!("{settings:?}").contains("secret-for-test"));
         }
+        Ok(())
+    }
+
+    #[test]
+    fn telemetry_protocols_round_trip_and_select_their_exporter() -> Result<()> {
+        for (protocol, wire) in [
+            (TelemetryProtocol::Grpc, "grpc"),
+            (TelemetryProtocol::HttpJson, "http/json"),
+            (TelemetryProtocol::HttpProtobuf, "http/protobuf"),
+        ] {
+            let settings = TelemetrySettings {
+                endpoint: "https://collector.example:4317".into(),
+                protocol,
+                capture_content: true,
+                agentlens: None,
+            };
+            let encoded = serde_json::to_value(&settings)?;
+            assert_eq!(encoded["protocol"], wire);
+            let decoded: TelemetrySettings = serde_json::from_value(encoded)?;
+            assert_eq!(decoded.protocol, protocol);
+            let sdk = decoded.to_sdk()?;
+            assert_eq!(sdk.capture_content, Some(true));
+            assert_eq!(sdk.source_name.as_deref(), Some("tandem"));
+            if protocol == TelemetryProtocol::Grpc {
+                assert_eq!(sdk.exporter_type, None);
+                assert_eq!(sdk.otlp_protocol, None);
+                assert_eq!(sdk.otlp_endpoint, None);
+            } else {
+                assert_eq!(sdk.exporter_type, Some(OtelExporterType::OtlpHttp));
+                assert_eq!(sdk.otlp_protocol.map(OtlpHttpProtocol::as_str), Some(wire));
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn grpc_endpoints_reject_signal_paths_and_agentlens() -> Result<()> {
+        let mut settings = TelemetrySettings {
+            endpoint: "http://localhost:4317".into(),
+            protocol: TelemetryProtocol::Grpc,
+            capture_content: false,
+            agentlens: None,
+        };
+        settings.to_sdk()?;
+        settings.endpoint = "https://collector.example:4317/".into();
+        settings.to_sdk()?;
+        settings.endpoint = "http://localhost:4317/v1/traces".into();
+        assert!(matches!(
+            settings.to_sdk(),
+            Err(Error::InvalidConfiguration(
+                ConfigurationError::GrpcEndpointPath
+            ))
+        ));
+        settings.endpoint = "http://localhost:4317".into();
+        settings.agentlens = Some(AgentLensSettings {
+            service_name: "tandem".into(),
+            api_key: "fixture-key".into(),
+        });
+        assert!(matches!(
+            settings.to_sdk(),
+            Err(Error::InvalidConfiguration(
+                ConfigurationError::AgentLensRequiresJson
+            ))
+        ));
         Ok(())
     }
 

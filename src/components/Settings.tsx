@@ -494,6 +494,7 @@ export function Preferences({
 }) {
   const { t } = useI18n();
   const [telemetry, setTelemetry] = useState(settings.telemetry);
+  const isGrpc = !telemetry.agentlens && telemetry.protocol === 'grpc';
   const credential = useTelemetryCredential(mode === 'telemetry' && !!telemetry.agentlens);
   const [cliPath, setCliPath] = useState(settings.cliPath ?? '');
   const [busy, setBusy] = useState(false);
@@ -612,9 +613,9 @@ export function Preferences({
               required={telemetry.enabled}
               value={telemetry.endpoint}
               onChange={(event) => update({ endpoint: event.target.value })}
-              placeholder="http://localhost:4318"
+              placeholder={isGrpc ? 'http://localhost:4317' : 'http://localhost:4318'}
             />
-            <small>{t('settings.endpointHint')}</small>
+            <small>{t(isGrpc ? 'settings.endpointGrpcHint' : 'settings.endpointHint')}</small>
           </label>
           {!telemetry.agentlens && (
             <label>
@@ -627,6 +628,7 @@ export function Preferences({
               >
                 <option value="http/protobuf">HTTP / Protobuf</option>
                 <option value="http/json">HTTP / JSON</option>
+                <option value="grpc">gRPC</option>
               </select>
             </label>
           )}
