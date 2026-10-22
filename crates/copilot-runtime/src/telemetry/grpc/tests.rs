@@ -1,5 +1,6 @@
 use std::{
     convert::Infallible,
+    io::Write,
     sync::atomic::AtomicUsize,
     task::{Context, Poll},
 };
@@ -397,6 +398,48 @@ async fn private_spool_flushes_both_signals_and_is_removed() -> TestResult {
     assert_eq!(std::fs::read_dir(directory.path())?.count(), 0);
     let _ = stop.send(());
     task.await??;
+    Ok(())
+}
+
+#[tokio::test]
+async fn stop_after_inflight_eof_still_exports_both_late_signals() -> TestResult {
+    let (endpoint, collector, stop_collector, task) = collector(Behavior::Success).await?;
+    let directory = tempfile::tempdir()?;
+    let (temporary, file, path) = super::super::create_spool(directory.path(), "grpc-")?;
+    let (file, reached_eof, release_eof) =
+        super::super::test_io::GatedEofFile::new(tokio::fs::File::from_std(file));
+    let sender = Sender::new(&settings(endpoint))?;
+    let (stop, stopping) = watch::channel(false);
+    let producer_path = path.clone();
+    let producer = async move {
+        reached_eof.await?;
+        let mut writer = std::fs::OpenOptions::new()
+            .append(true)
+            .open(producer_path)?;
+        for record in [span_record(), metric_record(true), metric_record(false)] {
+            serde_json::to_writer(&mut writer, &record)?;
+            writer.write_all(b"\n")?;
+        }
+        writer.flush()?;
+        drop(writer);
+        stop.send(true)?;
+        release_eof.send(()).map_err(|()| "EOF reader stopped")?;
+        Ok::<(), Box<dyn std::error::Error>>(())
+    };
+    let result = tokio::time::timeout(Duration::from_secs(5), async {
+        tokio::join!(export_loop(path, file, sender, stopping), producer)
+    })
+    .await;
+    let cleanup = temporary.close();
+    let _ = stop_collector.send(());
+    task.await??;
+    cleanup?;
+    let (exported, appended) = result?;
+    appended?;
+    exported?;
+    assert_eq!(collector.traces.load(Ordering::SeqCst), 1);
+    assert_eq!(collector.metrics.load(Ordering::SeqCst), 1);
+    assert_eq!(std::fs::read_dir(directory.path())?.count(), 0);
     Ok(())
 }
 

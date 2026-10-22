@@ -20,7 +20,7 @@ use opentelemetry_proto::tonic::collector::{
 };
 use prost::Message;
 use tokio::{
-    io::{AsyncReadExt, AsyncSeekExt},
+    io::{AsyncRead, AsyncReadExt, AsyncSeek, AsyncSeekExt, AsyncWrite},
     sync::{Mutex, mpsc, watch},
     task::JoinHandle,
 };
@@ -358,12 +358,15 @@ async fn enqueue_or_error(
     Ok(())
 }
 
-async fn export_loop(
+async fn export_loop<F>(
     path: PathBuf,
-    mut file: tokio::fs::File,
+    mut file: F,
     mut sender: Sender,
     mut stop: watch::Receiver<bool>,
-) -> std::result::Result<(), TelemetryError> {
+) -> std::result::Result<(), TelemetryError>
+where
+    F: AsyncRead + AsyncSeek + AsyncWrite + Unpin,
+{
     let (exports, mut receiver) = mpsc::channel::<QueuedBatch>(MAX_PENDING_TRACES);
     let mut sending = super::SenderTask(tokio::spawn(async move {
         while let Some(queued) = receiver.recv().await {
@@ -382,6 +385,9 @@ async fn export_loop(
                 .await
                 .map_err(|_| TelemetryError::TaskStopped)?;
         }
+        // An EOF may complete before the producer appends its final records.
+        // Only a read begun after stop can confirm the spool is drained.
+        let stopping = *stop.borrow() || stop.has_changed().is_err();
         file.seek(std::io::SeekFrom::Start(offset))
             .await
             .map_err(TelemetryError::Storage)?;
@@ -390,7 +396,7 @@ async fn export_loop(
             .await
             .map_err(TelemetryError::Storage)?;
         if count == 0 {
-            if *stop.borrow() || stop.has_changed().is_err() {
+            if stopping {
                 break;
             }
             tokio::select! {

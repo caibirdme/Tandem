@@ -359,6 +359,53 @@ async fn incomplete_user_trace_is_reported_and_content_capture_can_be_disabled()
     Ok(())
 }
 
+#[tokio::test]
+async fn stop_after_inflight_eof_still_reports_late_incomplete_trace() -> TestResult {
+    let directory = tempfile::tempdir()?;
+    let (temporary, file, path) = create_spool(directory.path(), "agentlens-")?;
+    let (file, reached_eof, release_eof) =
+        test_io::GatedEofFile::new(tokio::fs::File::from_std(file));
+    let sender = Sender::new(&settings("http://127.0.0.1:1".into(), false))?;
+    let sessions = Arc::new(RwLock::new(HashSet::from(["user-session".to_owned()])));
+    let (stop, stopping) = watch::channel(false);
+    let producer_path = path.clone();
+    let producer = async move {
+        reached_eof.await?;
+        let mut writer = std::fs::OpenOptions::new()
+            .append(true)
+            .open(producer_path)?;
+        let child = record(
+            "chat",
+            "3333333333333333",
+            Some("2222222222222222"),
+            "user-session",
+        );
+        serde_json::to_writer(&mut writer, &child)?;
+        writer.write_all(b"\n")?;
+        writer.flush()?;
+        drop(writer);
+        stop.send(true)?;
+        release_eof.send(()).map_err(|()| "EOF reader stopped")?;
+        Ok::<(), Box<dyn std::error::Error>>(())
+    };
+    let result = tokio::time::timeout(Duration::from_secs(5), async {
+        tokio::join!(
+            export_loop(path, file, sender, sessions, stopping),
+            producer
+        )
+    })
+    .await;
+    temporary.close()?;
+    let (exported, appended) = result?;
+    appended?;
+    assert!(matches!(
+        exported,
+        Err(TelemetryError::IncompleteTrace { count: 1 })
+    ));
+    assert_eq!(std::fs::read_dir(directory.path())?.count(), 0);
+    Ok(())
+}
+
 #[test]
 fn sparse_reclaim_preserves_concurrent_append_offsets() -> TestResult {
     let directory = tempfile::tempdir()?;

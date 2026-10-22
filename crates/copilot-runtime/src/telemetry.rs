@@ -3,6 +3,8 @@
 pub(crate) mod grpc;
 
 #[cfg(test)]
+mod test_io;
+#[cfg(test)]
 mod tests;
 mod transform;
 
@@ -19,7 +21,7 @@ use std::{
 use github_copilot_sdk::{Client, OtelExporterType, TelemetryConfig};
 use serde_json::{Value, json};
 use tokio::{
-    io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt},
+    io::{AsyncRead, AsyncReadExt, AsyncSeek, AsyncSeekExt, AsyncWrite, AsyncWriteExt},
     sync::{Mutex, mpsc, watch},
     task::JoinHandle,
 };
@@ -449,13 +451,16 @@ impl Queue {
     }
 }
 
-async fn export_loop(
+async fn export_loop<F>(
     path: PathBuf,
-    mut file: tokio::fs::File,
+    mut file: F,
     sender: Sender,
     sessions: Arc<RwLock<HashSet<String>>>,
     mut stop: watch::Receiver<bool>,
-) -> std::result::Result<(), TelemetryError> {
+) -> std::result::Result<(), TelemetryError>
+where
+    F: AsyncRead + AsyncSeek + AsyncWrite + Unpin,
+{
     let mut queue = Queue::new();
     let mut pending = Vec::new();
     let mut buffer = vec![0_u8; 65_536].into_boxed_slice();
@@ -470,6 +475,9 @@ async fn export_loop(
                 .await
                 .map_err(|_| TelemetryError::TaskStopped)?;
         }
+        // An EOF may complete before the producer appends its final records.
+        // Only a read begun after stop can confirm the spool is drained.
+        let stopping = *stop.borrow() || stop.has_changed().is_err();
         file.seek(std::io::SeekFrom::Start(offset))
             .await
             .map_err(TelemetryError::Storage)?;
@@ -478,7 +486,7 @@ async fn export_loop(
             .await
             .map_err(TelemetryError::Storage)?;
         if count == 0 {
-            if *stop.borrow() || stop.has_changed().is_err() {
+            if stopping {
                 break;
             }
             tokio::select! {
@@ -553,11 +561,14 @@ async fn export_loop(
 
 struct SenderTask(JoinHandle<std::result::Result<(), TelemetryError>>);
 
-async fn scrub(
-    file: &mut tokio::fs::File,
+async fn scrub<F>(
+    file: &mut F,
     buffer: &mut [u8],
     offset: u64,
-) -> std::result::Result<(), TelemetryError> {
+) -> std::result::Result<(), TelemetryError>
+where
+    F: AsyncSeek + AsyncWrite + Unpin,
+{
     // Overwrite only bytes already read. The SDK's independent append handle
     // continues after EOF, so concurrent records cannot overlap this region.
     file.seek(std::io::SeekFrom::Start(
