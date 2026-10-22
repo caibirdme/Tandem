@@ -2,7 +2,11 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { setLocale } from '../i18n';
-import { initialCredentialEditor } from '../lib/credentialEditor';
+import {
+  initialCredentialEditor,
+  reduceCredentialEditor,
+  type CredentialEditorState,
+} from '../lib/credentialEditor';
 import type { DiscoveredModel } from '../lib/types';
 import {
   DiscoveredModelRow,
@@ -10,14 +14,22 @@ import {
   ProviderModelDiscovery,
 } from './ProviderModelDiscovery';
 
-function markup(saved = false, blank = false, disabled = false) {
+function markup(
+  saved = false,
+  blank = false,
+  disabled = false,
+  credential: CredentialEditorState = {
+    ...initialCredentialEditor(saved && !blank),
+    modified: blank,
+  },
+) {
   return renderToStaticMarkup(
     <ProviderModelDiscovery
       baseUrl="https://example.com"
       listModelsPath="/v1/models"
       onListModelsPathChange={() => undefined}
       protocol="anthropic"
-      credential={{ ...initialCredentialEditor(saved && !blank), modified: blank }}
+      credential={credential}
       hasSavedKey={saved}
       disabled={disabled}
       existingIds={[]}
@@ -75,6 +87,27 @@ describe('discovery dialog trigger', () => {
     expect(rendered).toContain('disabled=""');
     expect(rendered).toContain('Wait for the saved API key to load');
   });
+});
+
+describe('discovery after canceling credential removal', () => {
+  it.each(['pending', 'failed'] as const)(
+    'allows explicit keyless discovery but blocks canceled removal with a %s read',
+    (status) => {
+      const initial = initialCredentialEditor(true);
+      const unread =
+        status === 'pending'
+          ? initial
+          : reduceCredentialEditor(initial, {
+              type: 'loadFailed',
+              request: 0,
+              error: 'Fixture unavailable',
+            });
+      const removed = reduceCredentialEditor(unread, { type: 'removalToggled' });
+      expect(markup(true, false, false, removed)).not.toContain('disabled=""');
+      const canceled = reduceCredentialEditor(removed, { type: 'removalToggled' });
+      expect(markup(true, false, false, canceled)).toContain('disabled=""');
+    },
+  );
 });
 
 describe('catalog rows', () => {

@@ -26,6 +26,7 @@ use crate::{AgentLensSettings, ConfigurationError, Result, TelemetryProtocol, Te
 
 const MAX_RECORD_BYTES: usize = 16 * 1024 * 1024;
 const MAX_PENDING_BYTES: usize = 64 * 1024 * 1024;
+const MAX_EXPORTED_TRACE_BYTES: usize = 32 * 1024 * 1024;
 const MAX_PENDING_TRACES: usize = 128;
 const MAX_TRACE_SPANS: usize = 4096;
 const POLL_INTERVAL: Duration = Duration::from_millis(200);
@@ -536,7 +537,7 @@ fn queued_trace(
 ) -> std::result::Result<QueuedTrace, TelemetryError> {
     let mut size = EncodedSize(0);
     serde_json::to_writer(&mut size, &spans).map_err(TelemetryError::InvalidRecord)?;
-    if size.0 > 32 * 1024 * 1024 {
+    if size.0 > MAX_EXPORTED_TRACE_BYTES {
         return Err(TelemetryError::QueueLimit);
     }
     outstanding

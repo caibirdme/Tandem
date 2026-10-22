@@ -1,6 +1,6 @@
 use serde_json::{Map, Value, json};
 
-use super::TelemetryError;
+use super::{EncodedSize, MAX_EXPORTED_TRACE_BYTES, TelemetryError};
 
 pub(super) fn trace(records: &[Value], session: &str) -> Result<Vec<Value>, TelemetryError> {
     let definitions = records
@@ -9,30 +9,37 @@ pub(super) fn trace(records: &[Value], session: &str) -> Result<Vec<Value>, Tele
         .filter_map(|value| serde_json::from_str::<Vec<Value>>(value).ok())
         .flatten()
         .collect::<Vec<_>>();
-    let mut spans = records
-        .iter()
-        .map(|record| {
-            let mut record = record.clone();
-            if record["attributes"]["gen_ai.operation.name"] == "execute_tool"
-                && let Some(name) = record["attributes"]["gen_ai.tool.name"].as_str()
-                && let Some(parameters) = definitions
-                    .iter()
-                    .find(|definition| definition["name"] == name)
-                    .and_then(|definition| definition.get("parameters"))
-            {
-                record["attributes"]["tool.parameters"] = parameters.to_string().into();
-            }
-            if record["attributes"]["gen_ai.operation.name"] == "invoke_agent"
-                && record["attributes"].get("gen_ai.input.messages").is_none()
-                && let Some(prompt) = parent_task_prompt(records, &record)
-            {
-                record["attributes"]["input.value"] = prompt.into();
-                record["attributes"]["input.mime_type"] = "text/plain".into();
-                record["attributes"]["tandem.input.source"] = "parent_task_prompt".into();
-            }
-            span(&record, session)
-        })
-        .collect::<Result<Vec<_>, _>>()?;
+    let mut spans = Vec::with_capacity(records.len());
+    let mut size = EncodedSize(2); // JSON array brackets.
+    for record in records {
+        let mut record = record.clone();
+        if record["attributes"]["gen_ai.operation.name"] == "execute_tool"
+            && let Some(name) = record["attributes"]["gen_ai.tool.name"].as_str()
+            && let Some(parameters) = definitions
+                .iter()
+                .find(|definition| definition["name"] == name)
+                .and_then(|definition| definition.get("parameters"))
+        {
+            record["attributes"]["tool.parameters"] = parameters.to_string().into();
+        }
+        if record["attributes"]["gen_ai.operation.name"] == "invoke_agent"
+            && record["attributes"].get("gen_ai.input.messages").is_none()
+            && let Some(prompt) = parent_task_prompt(records, &record)
+        {
+            record["attributes"]["input.value"] = prompt.into();
+            record["attributes"]["input.mime_type"] = "text/plain".into();
+            record["attributes"]["tandem.input.source"] = "parent_task_prompt".into();
+        }
+        let transformed = span(&record, session)?;
+        // Tool schemas and message aliases can amplify a small native trace.
+        // Enforce the outbound budget as we build, not after collecting it.
+        serde_json::to_writer(&mut size, &transformed).map_err(TelemetryError::InvalidRecord)?;
+        size.0 = size.0.saturating_add(usize::from(!spans.is_empty()));
+        if size.0 > MAX_EXPORTED_TRACE_BYTES {
+            return Err(TelemetryError::QueueLimit);
+        }
+        spans.push(transformed);
+    }
     let first_token = records
         .iter()
         .filter(|record| record["attributes"]["gen_ai.operation.name"] == "chat")

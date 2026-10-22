@@ -38,6 +38,15 @@ impl App {
         }
         self.update_title_configuration(|| {
             let existing = self.store.optional_provider(&provider.id)?;
+            let previous_key = (api_key.is_some() || existing.is_none())
+                .then(|| {
+                    if existing.as_ref().is_some_and(|value| value.has_api_key) {
+                        self.options.secrets.get(&provider.id)
+                    } else {
+                        Ok(None)
+                    }
+                })
+                .transpose()?;
             if let Some(key) = api_key {
                 let key = key.trim().to_owned();
                 provider.has_api_key = !key.is_empty();
@@ -49,7 +58,20 @@ impl App {
                 self.options.secrets.set(&provider.id, None)?;
                 provider.has_api_key = false;
             }
-            self.store.save_provider(&provider)?;
+            if let Err(storage) = self.store.save_provider(&provider) {
+                if let Some(previous_key) = previous_key
+                    && let Err(secret) = self
+                        .options
+                        .secrets
+                        .set(&provider.id, previous_key.as_deref())
+                {
+                    return Err(Error::ProviderSaveRestore {
+                        storage: Box::new(storage),
+                        secret: Box::new(secret),
+                    });
+                }
+                return Err(storage.into());
+            }
             self.clear_invalid_title_model()
         })?;
         // Reconcile saved overrides before the first cancellation point after
@@ -225,6 +247,138 @@ mod tests {
             &[bytes.to_vec()],
         )?;
         Ok(session)
+    }
+
+    #[tokio::test]
+    async fn failed_provider_save_preserves_the_previous_credential() -> Result<()> {
+        for (existing_key, replacement) in [
+            (Some("original-key"), Some("replacement-key")),
+            (Some("original-key"), Some("")),
+            (None, Some("new-key")),
+        ] {
+            let directory = TempDir::new()?;
+            let app = App::open(AppOptions::local(directory.path().into()))?;
+            let original = app
+                .save_provider(provider()?, existing_key.map(str::to_owned))
+                .await?;
+            let database = rusqlite::Connection::open(directory.path().join("tandem.sqlite3"))?;
+            database.execute_batch(
+                "CREATE TRIGGER reject_provider BEFORE INSERT ON providers
+                 BEGIN SELECT RAISE(ABORT, 'fixture provider failure'); END;",
+            )?;
+            let mut edited = original.clone();
+            edited.name = "Rejected update".into();
+            let result = app
+                .save_provider(edited, replacement.map(str::to_owned))
+                .await;
+            assert!(matches!(result, Err(Error::Storage(_))));
+            assert_eq!(
+                app.options.secrets.get(&original.id)?.as_deref(),
+                existing_key
+            );
+            assert_eq!(
+                serde_json::to_value(app.store.provider(&original.id)?)?,
+                serde_json::to_value(original)?
+            );
+        }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn failed_new_provider_save_does_not_leave_a_credential() -> Result<()> {
+        for key in [None, Some(""), Some("new-provider-secret")] {
+            let directory = TempDir::new()?;
+            let app = App::open(AppOptions::local(directory.path().into()))?;
+            let database = rusqlite::Connection::open(directory.path().join("tandem.sqlite3"))?;
+            database.execute_batch(
+                "CREATE TRIGGER reject_provider BEFORE INSERT ON providers
+                 BEGIN SELECT RAISE(ABORT, 'fixture provider failure'); END;",
+            )?;
+            let draft = provider()?;
+            let id = draft.id.clone();
+            let result = app.save_provider(draft, key.map(str::to_owned)).await;
+            assert!(matches!(result, Err(Error::Storage(_))));
+            assert!(app.store.optional_provider(&id)?.is_none());
+            assert!(app.options.secrets.get(&id)?.is_none());
+        }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn failed_credential_rollback_reports_both_failures_without_secrets() -> Result<()> {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        #[derive(Default)]
+        struct RollbackFailureVault {
+            keys: MemoryVault,
+            writes: AtomicUsize,
+        }
+
+        impl SecretStore for RollbackFailureVault {
+            fn get(&self, id: &str) -> std::result::Result<Option<String>, SecretError> {
+                self.keys.get(id)
+            }
+
+            fn set(&self, id: &str, secret: Option<&str>) -> std::result::Result<(), SecretError> {
+                if self.writes.fetch_add(1, Ordering::SeqCst) == 2 {
+                    return Err(SecretError::LockPoisoned);
+                }
+                self.keys.set(id, secret)
+            }
+
+            fn get_telemetry_api_key(&self) -> std::result::Result<Option<String>, SecretError> {
+                self.keys.get_telemetry_api_key()
+            }
+
+            fn set_telemetry_api_key(
+                &self,
+                secret: Option<&str>,
+            ) -> std::result::Result<(), SecretError> {
+                self.keys.set_telemetry_api_key(secret)
+            }
+        }
+
+        let directory = TempDir::new()?;
+        let vault = Arc::new(RollbackFailureVault::default());
+        let mut options = AppOptions::local(directory.path().into());
+        options.secrets = vault.clone();
+        let app = App::open(options)?;
+        let original = app
+            .save_provider(provider()?, Some("original-sensitive-key".into()))
+            .await?;
+        let database = rusqlite::Connection::open(directory.path().join("tandem.sqlite3"))?;
+        database.execute_batch(
+            "CREATE TRIGGER reject_provider BEFORE INSERT ON providers
+             BEGIN SELECT RAISE(ABORT, 'fixture provider failure'); END;",
+        )?;
+        let mut edited = original.clone();
+        edited.name = "Rejected update".into();
+        let error = app
+            .save_provider(edited, Some("replacement-sensitive-key".into()))
+            .await
+            .err()
+            .context("provider save and credential rollback must fail")?;
+        assert!(matches!(
+            &error,
+            Error::ProviderSaveRestore { storage, secret }
+                if matches!(storage.as_ref(), crate::StorageError::Database(_))
+                    && matches!(secret.as_ref(), SecretError::LockPoisoned)
+        ));
+        assert_eq!(vault.writes.load(Ordering::SeqCst), 3);
+        let diagnostic = format!("{error} {error:?}");
+        assert!(diagnostic.contains("fixture provider failure"));
+        assert!(diagnostic.contains("Credential lock is unavailable"));
+        assert!(!diagnostic.contains("original-sensitive-key"));
+        assert!(!diagnostic.contains("replacement-sensitive-key"));
+        assert_eq!(
+            vault.get(&original.id)?.as_deref(),
+            Some("replacement-sensitive-key")
+        );
+        assert_eq!(
+            serde_json::to_value(app.store.provider(&original.id)?)?,
+            serde_json::to_value(original)?
+        );
+        Ok(())
     }
 
     #[tokio::test]

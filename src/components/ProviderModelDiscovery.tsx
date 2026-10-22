@@ -127,7 +127,8 @@ export function ProviderModelDiscovery({
   const apiKey = credential.removing ? '' : credential.value.trim();
   const ambiguousCredential = hasSavedKey && credential.modified && !apiKey && !credential.removing;
   const credentialPending =
-    credential.loadingRequest !== null || credential.error !== null || ambiguousCredential;
+    !credential.removing &&
+    (credential.loadingRequest !== null || credential.error !== null || ambiguousCredential);
   useEffect(() => {
     request.current += 1;
     inFlight.current = false;

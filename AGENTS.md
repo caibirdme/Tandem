@@ -21,14 +21,14 @@ Stack: Tauri 2, Rust 1.99.1 / edition 2024, React, TypeScript 7, Vite 8, and pnp
 | `crates/tandem-dev-server/` | Local HTTP development host that calls application services                       |
 | `tests/`                    | Integration verification against real protocols and test services                 |
 | `.github/workflows/`        | PR checks, desktop bundles, and tag releases                                      |
-| `docs/`                     | Architecture, development, and verification records                               |
+| `docs/`                     | Architecture, development, and verification guides                                |
 
 ## Documentation
 
 - [README](README.md): installation, startup, and first use.
 - [Architecture](docs/architecture.md): execution modes, permissions, and data flow.
 - [Development](docs/development.md): quality gates, PR checks, and releases.
-- [Verification](docs/verification.md): completed checks and their limits.
+- [Verification](docs/verification.md): current checks, manual acceptance, and PR evidence requirements.
 - [Original requirements](what-to-do.md): product scope and technical constraints.
 
 ## Development constraints
@@ -54,5 +54,5 @@ Stack: Tauri 2, Rust 1.99.1 / edition 2024, React, TypeScript 7, Vite 8, and pnp
 - `just build`: compile the frontend, `tandem-dev-server`, and `tandem-server`.
 - `just desktop-build`: successfully bundle the desktop application for the current platform.
 - PRs must pass CI's `Required checks` before merging into `main`. When adding directories, build inputs, or check commands, update the path rules and steps in `.github/workflows/ci.yml`.
-- Run the relevant integration verification for session, provider, or permission changes. State in the verification record whether it used real services or test services.
+- Run the relevant integration verification for session, provider, or permission changes. Record commands, results, tested platforms, and limitations in the PR description, including whether real services or test services were used. Keep `docs/verification.md` as the current verification guide; do not append per-change logs or historical run results.
 - Do not commit secrets, caches, build outputs, or local session data.
