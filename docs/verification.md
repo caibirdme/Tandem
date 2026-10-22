@@ -1,5 +1,15 @@
 # Verification record
 
+## Nested transcript scroll chaining (2026-10-22)
+
+Developed from `main` (`e3e2c53`) in `.worktrees/fix-chat-scroll` on `codex/fix-chat-scroll`. Source inspection identified a scroll trap: the thinking textarea and inline agent list used `overscroll-behavior: contain`, preventing scroll chaining to the main transcript when the pointer is over either nested region at its boundary. These two regions now allow normal vertical chaining. The independent detail-panel body and agent-output boundaries retain containment. No scroll event interception, dependencies, backend behavior, or version changes were added.
+
+Passed: all 486 frontend tests, 37 Python unit tests, workspace dependency boundaries, frontend lint, strict TypeScript, production build, formatting, and `git diff --check`. Four CSS contract regressions cover the two nested regions and the two retained panel boundaries; the nested-region assertions failed against the original CSS and passed after the fix. These verify declarations, not native wheel/touch behavior. Source review found no virtualized list, wheel cancellation, transcript position-restoration loop, or transcript-content height cap; automatic following only writes the bottom position when following latest is enabled.
+
+`just check` passed formatting and frontend lint/types, then failed in desktop workspace Clippy because the required `glib-2.0` system library is absent. Browser verification is blocked: local Chromium with a writable temporary profile aborted at socket creation with `Operation not permitted`. No restriction was bypassed. The exact user-reported incident was not reproduced; nested scroll containment is a concrete code defect and a strong explanation, not proof that no other cause exists.
+
+Remaining native acceptance: with long chat history, keep the pointer over expanded short and overflowing thinking text, scroll upward and then downward past both edges, and repeat over a short and overflowing agent list. Confirm the transcript continues to earlier/later content, then repeat while streaming and with the detail panel open. The panel must retain independent scrolling. Also check gestures over transcript whitespace and the jump-to-latest control to distinguish any unrelated failure.
+
 ## Compact model discovery controls (2026-10-22)
 
 Developed from `main` (`a792d21`) in `.worktrees/model-fetch-control` on `codex/model-fetch-control`. The supplied reference screenshot was inspected before editing. The model-list path is now capped at 24rem, with the existing filled primary button immediately beside it and help below. The row can wrap in narrow layouts. Fetching shows the shared spinner; labels, hints, disabled guards, errors, results, and request invalidation remain intact. No API, backend, dependency, or version changes were made.
