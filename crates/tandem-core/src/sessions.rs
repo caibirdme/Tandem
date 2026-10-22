@@ -521,6 +521,14 @@ impl App {
         mut incoming: AgentEvents,
         completion: TurnCompletion,
     ) -> JoinHandle<()> {
+        // Snapshot attribution for this connection. A later provider/model switch
+        // must not relabel a delayed event emitted by the previous runtime.
+        let usage_provider = self
+            .store
+            .session(&session_id)
+            .and_then(|session| self.store.provider(&session.provider_id))
+            .map(|provider| (provider.id, provider.name))
+            .ok();
         let app = Arc::downgrade(self);
         tokio::spawn(async move {
             loop {
@@ -542,7 +550,16 @@ impl App {
                     _ => {}
                 }
                 let keep_forwarding = completion.process_event(|| match event {
-                    Ok(event) => app.receive_event(&event),
+                    Ok(mut event) => {
+                        if matches!(event.kind, EventKind::Usage | EventKind::SkillUsage)
+                            && let Some((id, name)) = &usage_provider
+                            && let Some(data) = event.data.as_object_mut()
+                        {
+                            data.insert("providerId".into(), json!(id));
+                            data.insert("providerName".into(), json!(name));
+                        }
+                        app.receive_event(&event)
+                    }
                     Err(error) => {
                         app.fail_session(&session_id, &format!("{error:#}"));
                         EventOutcome::SessionFailed

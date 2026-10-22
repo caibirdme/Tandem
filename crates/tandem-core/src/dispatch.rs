@@ -139,6 +139,9 @@ impl ReviewFileRequest {
 )]
 pub enum Request {
     Snapshot {},
+    GetUsageDashboard {
+        days: Vec<crate::usage::UsageDay>,
+    },
     SaveProvider {
         provider: Provider,
         api_key: Option<String>,
@@ -241,6 +244,7 @@ impl App {
     pub async fn dispatch(self: &Arc<Self>, request: Request) -> Result<Value> {
         match request {
             Request::Snapshot {} => response(self.snapshot().await?),
+            Request::GetUsageDashboard { days } => response(self.usage_dashboard(days)?),
             Request::SaveProvider { provider, api_key } => {
                 response(self.save_provider(provider, api_key).await?)
             }
