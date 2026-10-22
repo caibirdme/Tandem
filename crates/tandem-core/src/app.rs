@@ -60,7 +60,7 @@ pub struct App {
     pub(crate) runtime: Mutex<Option<Arc<Runtime>>>,
     pub(crate) sessions: Mutex<HashMap<String, LiveSession>>,
     pub(crate) session_gates: Mutex<HashMap<String, Weak<Mutex<()>>>>,
-    pub(crate) remote_environments: Mutex<HashMap<String, Arc<Mutex<bool>>>>,
+    pub(crate) remote_environments: Mutex<HashMap<String, Arc<Mutex<()>>>>,
     pub(crate) turns: ActiveTurns,
     pub(crate) submissions: Submissions,
     pub(crate) titles: TitleJobs,

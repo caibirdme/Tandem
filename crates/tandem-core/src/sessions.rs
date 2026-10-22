@@ -468,24 +468,16 @@ impl App {
             .entry(key)
             .or_default()
             .clone();
-        let mut ready = if let Ok(ready) = gate.try_lock() {
-            ready
-        } else {
-            // Another conversation may already be preparing this host.
-            self.mark_preparing(session_id)?;
-            gate.lock().await
-        };
+        // Serializing checks avoids duplicate bootstrap work, but waiting for another
+        // conversation is not itself evidence that this host needs initialization.
+        let _guard = gate.lock().await;
         let client = self.remote_client(connection)?;
-        if *ready {
-            match client.connect_ready().await {
-                Ok(transport) => return Ok(transport),
-                Err(error) => tracing::debug!(%error, "remote environment must be prepared again"),
-            }
-            *ready = false;
+        match client.connect_ready().await {
+            Ok(transport) => return Ok(transport),
+            Err(error) => tracing::debug!(%error, "remote environment must be prepared"),
         }
         self.mark_preparing(session_id)?;
         let transport = client.connect().await?;
-        *ready = true;
         Ok(transport)
     }
 
@@ -741,11 +733,10 @@ mod tests {
             .entry(serde_json::to_string(&project.connection)?)
             .or_default()
             .clone();
-        let ready = gate.lock().await;
+        let _guard = gate.lock().await;
         for interruption in ["status", "preparation", "disconnect", "drop"] {
-            interrupt_preparation(&app, &work, interruption).await?;
+            interrupt_preparation(&app, &work, interruption, false).await?;
         }
-        assert!(!*ready);
         Ok(())
     }
 
@@ -782,10 +773,8 @@ mod tests {
     }
 
     #[cfg(unix)]
-    async fn check_ready_environment_reuse(app: &App, connection: &Connection) -> Result<()> {
+    fn write_ready_ssh_fixture() -> Result<()> {
         let ssh = std::env::var_os("TANDEM_TEST_SSH_PROGRAM").context("missing SSH fixture")?;
-        let calls = std::env::var_os("TANDEM_TEST_SSH_CALLS").context("missing calls path")?;
-        std::fs::write(&calls, "")?;
         std::fs::write(
             ssh,
             r#"#!/bin/sh
@@ -793,9 +782,12 @@ for argument do command=$argument; done
 case "$command" in
   *uname*)
     printf 'probe\n' >> "$TANDEM_TEST_SSH_CALLS"
-    printf 'Linux\000x86_64\000tandem-server %s (protocol 1)\n' "$TANDEM_TEST_VERSION"
+    printf 'Linux\000x86_64\000tandem-server %s (protocol %s)\n' "$TANDEM_TEST_VERSION" "$TANDEM_TEST_PROTOCOL"
     ;;
-  *--install-runtime*) printf 'runtime\n' >> "$TANDEM_TEST_SSH_CALLS" ;;
+  *--install-runtime*)
+    printf 'runtime\n' >> "$TANDEM_TEST_SSH_CALLS"
+    touch "$TANDEM_TEST_SSH_READY"
+    ;;
   *--proxy*)
     printf 'proxy\n' >> "$TANDEM_TEST_SSH_CALLS"
     read -r request
@@ -804,18 +796,44 @@ case "$command" in
       rm "$TANDEM_TEST_SSH_FAIL"
       version=stale
     fi
-    printf '{"id":1,"value":{"protocolVersion":1,"serverVersion":"%s","processId":123}}\n' "$version"
+    ready=false
+    if [ -f "$TANDEM_TEST_SSH_READY" ]; then ready=true; fi
+    printf '{"id":1,"value":{"protocolVersion":%s,"serverVersion":"%s","processId":123,"runtimeReady":%s}}\n' "$TANDEM_TEST_PROTOCOL" "$version" "$ready"
     cat >/dev/null
     ;;
   *) exit 71 ;;
 esac
 "#,
         )?;
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    async fn check_ready_environment_reuse(app: &App, connection: &Connection) -> Result<()> {
+        write_ready_ssh_fixture()?;
+        let calls = std::env::var_os("TANDEM_TEST_SSH_CALLS").context("missing calls path")?;
+        std::fs::write(&calls, "")?;
         // Clear the earlier failure marker before validating cold and warm connections.
         std::fs::remove_file(
             std::env::var_os("TANDEM_TEST_SSH_FAIL").context("missing failure path")?,
         )?;
-        for (id, expected_preparing) in [("first", true), ("reuse", false), ("stale", true)] {
+        for (id, expected_preparing) in [
+            ("first", true),
+            ("reuse", false),
+            ("new-app", false),
+            ("cold-daemon", true),
+            ("stale", true),
+        ] {
+            if id == "new-app" {
+                // A fresh desktop process has no cached host state, but the remote
+                // daemon can still be healthy and ready for another conversation.
+                app.remote_environments.lock().await.clear();
+            }
+            if id == "cold-daemon" {
+                std::fs::remove_file(
+                    std::env::var_os("TANDEM_TEST_SSH_READY").context("missing ready path")?,
+                )?;
+            }
             if id == "stale" {
                 std::fs::write(
                     std::env::var_os("TANDEM_TEST_SSH_FAIL").context("missing failure path")?,
@@ -826,14 +844,37 @@ esac
             let transport = app.remote_session_transport(id, connection).await?;
             assert_eq!(
                 app.submissions.preparing()?.contains(&id.to_owned()),
-                expected_preparing
+                expected_preparing,
+                "unexpected preparation status for {id}",
             );
             app.finish_submission(id);
             transport.shutdown().await;
         }
+        let gate = app
+            .remote_environments
+            .lock()
+            .await
+            .get(&serde_json::to_string(connection)?)
+            .context("missing host gate")?
+            .clone();
+        let guard = gate.lock().await;
+        let _cancel = app.submissions.begin("concurrent-ready")?;
+        let waiting = app.remote_session_transport("concurrent-ready", connection);
+        tokio::pin!(waiting);
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(20), &mut waiting)
+                .await
+                .is_err()
+        );
+        assert_eq!(app.submissions.preparing()?, Vec::<String>::new());
+        drop(guard);
+        let transport = waiting.await?;
+        assert_eq!(app.submissions.preparing()?, Vec::<String>::new());
+        app.finish_submission("concurrent-ready");
+        transport.shutdown().await;
         assert_eq!(
             std::fs::read_to_string(calls)?,
-            "probe\nruntime\nproxy\nproxy\nproxy\nprobe\nruntime\nproxy\n"
+            "proxy\nprobe\nruntime\nproxy\nproxy\nproxy\nproxy\nprobe\nruntime\nproxy\nproxy\nprobe\nruntime\nproxy\nproxy\n"
         );
         Ok(())
     }
@@ -873,7 +914,7 @@ esac
             "session creation and skill discovery must not invoke SSH"
         );
         for interruption in ["status", "preparation", "disconnect", "drop"] {
-            interrupt_preparation(&app, &work, interruption).await?;
+            interrupt_preparation(&app, &work, interruption, true).await?;
         }
         // A failed SSH attempt must release preparation and preserve the unsent message.
         std::fs::write(
@@ -898,6 +939,7 @@ esac
         app: &Arc<App>,
         work: &Session,
         interruption: &str,
+        expect_preparation: bool,
     ) -> Result<()> {
         let mut events = app.subscribe();
         let sending = tokio::spawn({
@@ -918,7 +960,7 @@ esac
         tokio::time::timeout(std::time::Duration::from_secs(5), async {
             loop {
                 let event = events.recv().await?;
-                if (interruption == "status" && event.kind == "status")
+                if ((interruption == "status" || !expect_preparation) && event.kind == "status")
                     || (interruption != "status"
                         && event.kind == "preparation"
                         && event.data["preparing"] == true)
@@ -929,7 +971,7 @@ esac
             Ok::<_, anyhow::Error>(())
         })
         .await??;
-        if interruption != "status" {
+        if interruption != "status" && expect_preparation {
             assert_eq!(
                 app.snapshot().await?.preparing_sessions,
                 std::slice::from_ref(&work.id)
@@ -988,7 +1030,13 @@ esac
         let ssh = directory.path().join("ssh");
         std::fs::write(
             &ssh,
-            "#!/bin/sh\nprintf '%s\\n' called >> \"$TANDEM_TEST_SSH_CALLS\"\nif [ -f \"$TANDEM_TEST_SSH_FAIL\" ]; then exit 1; fi\nexec sleep 60\n",
+            r#"#!/bin/sh
+printf '%s\n' called >> "$TANDEM_TEST_SSH_CALLS"
+for argument do command=$argument; done
+case "$command" in *--proxy*) exit 1 ;; esac
+if [ -f "$TANDEM_TEST_SSH_FAIL" ]; then exit 1; fi
+exec sleep 60
+"#,
         )?;
         std::fs::set_permissions(&ssh, std::fs::Permissions::from_mode(0o700))?;
         let path = format!("{}:{}", directory.path().display(), std::env::var("PATH")?);
@@ -1002,6 +1050,11 @@ esac
             .env("PATH", path)
             .env("TANDEM_TEST_SSH_PROGRAM", &ssh)
             .env("TANDEM_TEST_VERSION", env!("CARGO_PKG_VERSION"))
+            .env(
+                "TANDEM_TEST_PROTOCOL",
+                tandem_remote::PROTOCOL_VERSION.to_string(),
+            )
+            .env("TANDEM_TEST_SSH_READY", directory.path().join("ready"))
             .env("TANDEM_TEST_SSH_CALLS", directory.path().join("calls"))
             .env("TANDEM_TEST_SSH_FAIL", directory.path().join("fail"))
             .output()?;

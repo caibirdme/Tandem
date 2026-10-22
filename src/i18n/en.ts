@@ -160,7 +160,7 @@ export const en = {
   'project.browse': 'Browse directories',
   'project.loadingDirectories': 'Loading remote directories…',
   'project.remoteSetup':
-    'Test the connection to prepare the remote runtime, then browse and choose a directory here.',
+    'Test SSH access, then browse and choose a directory. The first message prepares the remote environment automatically if needed.',
   'project.directoryHint':
     'The agent can read files, edit code, and run commands in this directory.',
   'project.parentDirectory': 'Parent directory',

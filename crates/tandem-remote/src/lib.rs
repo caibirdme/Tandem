@@ -13,7 +13,7 @@ pub use bootstrap::{
 };
 pub use config::{SshConfigError, SshConfigLimit, list_ssh_hosts};
 pub use ssh::SshConnection;
-pub use tandem_protocol::RpcErrorCode;
+pub use tandem_protocol::{PROTOCOL_VERSION, RpcErrorCode};
 pub use transport::RemoteTransport;
 
 /// Invalid destination fields rejected before OpenSSH is launched.
@@ -156,6 +156,8 @@ pub enum RemoteError {
         "The remote server has an incompatible protocol or release. Reconnect the project to deploy the matching server."
     )]
     ServerVersionMismatch,
+    #[error("The remote agent runtime is not ready and must be initialized")]
+    RuntimeNotReady,
     #[error("Invalid remote RPC frame: {0}")]
     Protocol(#[from] tandem_protocol::ProtocolError),
     #[error(transparent)]
@@ -202,6 +204,7 @@ impl RemoteError {
             | Self::ArtifactMissing { .. }
             | Self::InvalidArtifact { .. }
             | Self::InvalidResponse(_)
+            | Self::RuntimeNotReady
             | Self::ServerVersionMismatch
             | Self::Disconnected(_)
             | Self::OutputTooLarge { .. }

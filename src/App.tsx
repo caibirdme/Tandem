@@ -56,7 +56,6 @@ export function App() {
   // Explicit navigation resets the view; creating a session from its draft keeps it mounted.
   const [viewKey, setViewKey] = useState(() => crypto.randomUUID());
   const navigationRevision = useRef(0);
-  const [installing, setInstalling] = useState(false);
   const [actionBusy, setActionBusy] = useState(false);
   const [sessionAction, setSessionAction] = useState<{
     session: Session;
@@ -165,18 +164,6 @@ export function App() {
         next.delete(requestScope);
         return next;
       });
-    }
-  }
-  async function install() {
-    setInstalling(true);
-    tandem.setError(null);
-    try {
-      await dispatch('install_runtime', {});
-      await tandem.reload();
-    } catch (reason) {
-      tandem.setError(errorMessage(reason));
-    } finally {
-      setInstalling(false);
     }
   }
   function selectSession(value: Session) {
@@ -449,11 +436,6 @@ export function App() {
             permissionModeError={tandem.permissionModeError}
             onConfirmPermissionMode={() => {
               if (session) void tandem.confirmPermissionMode(session.id);
-            }}
-            runtime={snapshot?.runtime}
-            installing={installing}
-            onInstall={() => {
-              void install();
             }}
             onSettings={() => setSettingsOpen(true)}
             onSend={send}

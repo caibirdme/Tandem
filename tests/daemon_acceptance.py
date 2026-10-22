@@ -134,6 +134,8 @@ def check_daemon(binary, endpoint, fixture):
 
             catalog = StdioServer(binary, home, mode='--proxy')
             clients.append(catalog)
+            require(catalog.command('server_info')['runtimeReady'] is True,
+                    'A new proxy failed to discover the already prepared shared runtime')
             replacement = home / 'tandem-server-next'
             shutil.copy2(binary, replacement)
             replacement.replace(binary)

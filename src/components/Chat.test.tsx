@@ -68,9 +68,6 @@ const props: ComponentProps<typeof Chat> = {
   onConfirmReasoningEffort: () => undefined,
   onConfirmModel: () => undefined,
   onConfirmPermissionMode: () => undefined,
-  runtime: undefined,
-  installing: false,
-  onInstall: () => undefined,
   onSettings: () => undefined,
   onSend: async () => undefined,
   onAbort: () => undefined,
@@ -692,54 +689,54 @@ describe('conversation model controls', () => {
   });
 });
 
-describe('runtime preparation notices', () => {
+describe('automatic runtime preparation', () => {
   it.each([
     { name: 'chat', project: undefined },
     { name: 'local work', project },
-  ])('offers local runtime preparation for $name before the first session', (view) => {
+    {
+      name: 'SSH work',
+      project: {
+        ...project,
+        connection: {
+          kind: 'ssh' as const,
+          host: 'server.example',
+          port: 22,
+          user: 'tandem',
+          identityFile: null,
+        },
+      },
+    },
+  ])('never offers manual initialization for $name', (view) => {
     const markup = renderToStaticMarkup(
       <Chat
         {...props}
         project={view.project}
         providers={[provider]}
         selection={{ providerId: provider.id, modelId: session.modelId }}
-        runtime={{
-          available: false,
-          version: null,
-          message: 'The local runtime is not initialized',
-        }}
       />,
     );
-    expect(markup).toContain('The local runtime is not initialized');
-    expect(markup).toContain('Prepare runtime');
+    expect(markup).not.toContain('Prepare runtime');
+    expect(markup).not.toContain('Prepare the agent runtime');
+    expect(markup).not.toContain('remote-preparation');
+    expect(markup).toContain('Model');
   });
 
-  it('does not offer local runtime preparation for SSH work', () => {
+  it('shows preparation only as a noninteractive pending-send status', () => {
     const markup = renderToStaticMarkup(
       <Chat
         {...props}
-        project={{
-          ...project,
-          connection: {
-            kind: 'ssh',
-            host: 'server.example',
-            port: 22,
-            user: 'tandem',
-            identityFile: null,
-          },
-        }}
-        providers={[provider]}
-        selection={{ providerId: provider.id, modelId: session.modelId }}
-        runtime={{
-          available: false,
-          version: null,
-          message: 'The local runtime is not initialized',
-        }}
+        session={session}
+        sending
+        conversation={{ ...emptyConversation, preparing: true }}
       />,
     );
-    expect(markup).not.toContain('The local runtime is not initialized');
-    expect(markup).not.toContain('Prepare runtime');
-    expect(markup).toContain('Model');
+    const notice = markup.match(
+      /<output[^>]*class="setup-banner remote-preparation"[^>]*>(.*?)<\/output>/s,
+    )?.[0];
+    expect(notice).toContain('Preparing the remote environment');
+    expect(notice).toContain('aria-live="polite"');
+    expect(notice).not.toContain('<button');
+    expect(markup).toContain('Cancel environment preparation');
   });
 });
 

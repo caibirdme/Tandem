@@ -61,6 +61,19 @@ impl AgentHost {
         self.sessions.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
+    async fn runtime_ready(&self) -> bool {
+        // Wait for any in-flight initialization or health check. Lock contention
+        // alone must not make an already prepared host appear uninitialized.
+        // This query never starts or replaces the runtime itself.
+        let state = self.runtime.lock().await;
+        match state.as_ref() {
+            Some(state) => {
+                state.runtime.is_healthy().await && !self.stopping.load(Ordering::Acquire)
+            }
+            None => false,
+        }
+    }
+
     pub(super) async fn install_runtime(&self) -> Result<()> {
         self.ensure_runtime(TelemetryChoice::Existing)
             .await
@@ -210,6 +223,7 @@ impl AgentHost {
                 "processId": std::process::id(),
                 "serverVersion": env!("CARGO_PKG_VERSION"),
                 "protocolVersion": tandem_protocol::PROTOCOL_VERSION,
+                "runtimeReady": self.runtime_ready().await,
             })),
             "install_runtime" => {
                 self.install_runtime().await?;
@@ -433,6 +447,30 @@ mod tests {
 
     use super::*;
     use crate::stdio::{NORMAL_REQUESTS, run_connection, tests::test_connection};
+
+    #[tokio::test]
+    async fn readiness_probe_does_not_initialize_and_serializes_runtime_checks() -> Result<()> {
+        let host = AgentHost::new();
+        let (connection, _receiver) = test_connection(1);
+        let info = host
+            .dispatch(&connection, "server_info", Value::Null)
+            .await?;
+        assert_eq!(info["runtimeReady"], false);
+        let state = host.runtime.lock().await;
+        assert!(state.is_none());
+        let checking = host.dispatch(&connection, "server_info", Value::Null);
+        tokio::pin!(checking);
+        assert!(
+            timeout(Duration::from_millis(20), &mut checking)
+                .await
+                .is_err()
+        );
+        drop(state);
+        let info = timeout(Duration::from_secs(1), checking).await??;
+        assert_eq!(info["runtimeReady"], false);
+        assert_eq!(info["protocolVersion"], tandem_protocol::PROTOCOL_VERSION);
+        Ok(())
+    }
 
     #[tokio::test]
     async fn uncertain_cleanup_closes_all_owners_and_wakes_service_shutdown() -> Result<()> {
