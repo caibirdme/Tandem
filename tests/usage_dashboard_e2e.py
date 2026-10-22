@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import tempfile
 import threading
 import time
@@ -20,7 +21,7 @@ from pathlib import Path
 from acceptance_support import Application, debug_binary
 from inference_fixture import FIXTURE_KEY, Fixture, handler_for, require
 from remote_protocol import StdioServer, private_environment
-from skill_acceptance import selection, write_project_skills
+from skill_acceptance import require_catalog, selection, write_project_skills
 
 
 def day_ranges(count, end=None):
@@ -119,7 +120,7 @@ def check_local(binary, root, fixture, endpoint):
         skills = write_project_skills(fixture.workspace, home)
         work = app.command("create_session", projectId=project["id"],
                            providerId=provider["id"], modelId="gpt-4.1")
-        app.command("list_project_skills", projectId=project["id"])
+        require_catalog(app.command("list_project_skills", projectId=project["id"]), skills)
         require(dashboard(app)["skillInvocations"] == 0,
                 "Listing available skills counted as an invocation")
         before = len(fixture.conversation_requests())
@@ -231,6 +232,12 @@ def main():
         root = Path(temporary)
         workspace = root / "project"
         workspace.mkdir()
+        if os.name != "nt":
+            # Exercise canonical catalog paths even where /tmp is not a symlink.
+            # Windows uses the same catalog identity without requiring symlink privileges.
+            linked_workspace = root / "project-link"
+            linked_workspace.symlink_to(workspace, target_is_directory=True)
+            workspace = linked_workspace
         fixture = Fixture(workspace)
         endpoint = ThreadingHTTPServer(("127.0.0.1", 0), handler_for(fixture))
         threading.Thread(target=endpoint.serve_forever, daemon=True).start()
