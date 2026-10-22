@@ -11,6 +11,7 @@ interface SkillPickerProps {
   loading: boolean;
   connected: boolean;
   filtered: boolean;
+  remotePreparationPending?: boolean;
   onIndex: (index: number) => void;
   onSelect: (skill: ProjectSkill) => void;
   onBlur: (next: EventTarget | null) => void;
@@ -28,7 +29,13 @@ export function SkillPicker(props: SkillPickerProps) {
     : props.loading
       ? t('chat.skillsLoading')
       : props.skills.length === 0
-        ? t(props.filtered ? 'chat.skillsNoMatch' : 'chat.skillsEmpty')
+        ? t(
+            props.remotePreparationPending
+              ? 'chat.skillsAwaitingRemote'
+              : props.filtered
+                ? 'chat.skillsNoMatch'
+                : 'chat.skillsEmpty',
+          )
         : null;
 
   return (

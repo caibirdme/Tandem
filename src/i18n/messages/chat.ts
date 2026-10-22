@@ -1,4 +1,8 @@
 export const enChat = {
+  'chat.preparingRemoteEnvironment':
+    'Preparing the remote environment. First-time setup may take around 10 seconds…',
+  'chat.cancelPreparation': 'Cancel environment preparation',
+  'chat.messagePending': 'Not sent yet',
   'fleet.title': 'Expert team mode',
   'fleet.toggleHint': 'Let the AI split your task and run independent parts with multiple agents.',
   'fleet.agentsLabel': 'Expert team collaboration',
@@ -146,6 +150,8 @@ export const enChat = {
   'chat.skillsLoading': 'Loading project skills…',
   'chat.skillsDisconnected': 'Reconnect to load project skills.',
   'chat.skillsEmpty': 'No project skills found.',
+  'chat.skillsAwaitingRemote':
+    'Remote skills become available after your first message prepares the environment.',
   'chat.skillsNoMatch': 'No skills match this prefix.',
   'chat.skillsKeyboardHint': '↑ ↓ to navigate · Enter or Tab to select · Esc to dismiss',
   'chat.copied': 'Copied',
@@ -153,6 +159,9 @@ export const enChat = {
 } as const;
 
 export const zhCNChat = {
+  'chat.preparingRemoteEnvironment': '正在准备远端环境，首次使用可能需要10秒左右…',
+  'chat.cancelPreparation': '取消环境准备',
+  'chat.messagePending': '尚未发送',
   'fleet.title': '专家团模式',
   'fleet.toggleHint': '自动拆分任务，让多个智能体并行协作。',
   'fleet.agentsLabel': '专家团协作',
@@ -294,6 +303,7 @@ export const zhCNChat = {
   'chat.skillsLoading': '正在加载项目技能…',
   'chat.skillsDisconnected': '重新连接后可加载项目技能。',
   'chat.skillsEmpty': '未找到项目技能。',
+  'chat.skillsAwaitingRemote': '发送第一条消息并完成远端环境准备后，即可发现远端技能。',
   'chat.skillsNoMatch': '没有匹配此前缀的技能。',
   'chat.skillsKeyboardHint': '↑ ↓ 浏览 · Enter 或 Tab 选择 · Esc 关闭',
   'chat.copied': '已复制',

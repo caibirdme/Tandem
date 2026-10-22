@@ -46,6 +46,7 @@ type TandemAction =
       snapshot: Snapshot;
       protectedIds: ReadonlySet<string>;
       titleProtectedIds?: ReadonlySet<string>;
+      preparationProtectedIds?: ReadonlySet<string>;
     }
   | { type: 'eventReceived'; event: RuntimeEvent }
   | {
@@ -78,6 +79,7 @@ function withoutDeletedItems(snapshot: Snapshot, state: TandemState): Snapshot {
   const retainedIds = new Set(sessions.map((session) => session.id));
   return {
     ...snapshot,
+    preparingSessions: snapshot.preparingSessions.filter((id) => retainedIds.has(id)),
     projects: snapshot.projects.filter((project) => !state.deletedProjectIds.has(project.id)),
     sessions,
     titleGenerations: snapshot.titleGenerations.filter((id) => retainedIds.has(id)),
@@ -147,6 +149,7 @@ export function reduceTandem(state: TandemState, action: TandemAction): TandemSt
         state.conversations,
         snapshot,
         action.protectedIds,
+        action.preparationProtectedIds,
       );
       const titleGenerations = new Set(snapshot.titleGenerations);
       for (const sessionId of titleProtectedIds) {
@@ -306,6 +309,7 @@ export function reduceTandem(state: TandemState, action: TandemAction): TandemSt
         ...conversation,
         messages: [...conversation.messages, action.message],
         status: 'running',
+        preparing: false,
         stream: '',
         agentStreams: {},
         permissions: [],

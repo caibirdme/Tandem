@@ -19,6 +19,7 @@ const session: Session = {
   permissionMode: 'ask',
 };
 const snapshot: Snapshot = {
+  preparingSessions: [],
   titleGenerations: [],
   sessions: [session],
   projects: [],
@@ -901,4 +902,115 @@ describe('workspace state transitions', () => {
       expect(result.conversations[session.id]?.failedSend).toEqual(recovered ? null : pending);
     },
   );
+});
+
+describe('remote preparation state', () => {
+  const pendingPreparation = {
+    id: 'pending:prepare-message',
+    sessionId: session.id,
+    role: 'user' as const,
+    content: 'First remote task',
+    attachments: [],
+    createdAt: session.createdAt,
+  };
+  const preparing = () =>
+    reduceTandem(reduceTandem(loaded, { type: 'sendStarted', message: pendingPreparation }), {
+      type: 'eventReceived',
+      event: { sessionId: session.id, kind: 'preparation', data: { preparing: true } },
+    });
+
+  it('keeps pending input unconfirmed through preparation and confirms exactly once after readiness', () => {
+    const state = preparing();
+    expect(state.conversations[session.id]?.preparing).toBe(true);
+    expect(state.conversations[session.id]?.messages).toEqual([pendingPreparation]);
+    const ready = reduceTandem(state, {
+      type: 'eventReceived',
+      event: { sessionId: session.id, kind: 'preparation', data: { preparing: false } },
+    });
+    expect(ready.conversations[session.id]?.messages).toEqual([pendingPreparation]);
+    const confirmation = {
+      type: 'eventReceived' as const,
+      event: {
+        sessionId: session.id,
+        kind: 'message' as const,
+        data: { ...pendingPreparation, id: 'prepare-message' },
+      },
+    };
+    const confirmed = reduceTandem(reduceTandem(ready, confirmation), confirmation);
+    expect(confirmed.conversations[session.id]?.messages).toHaveLength(1);
+    expect(confirmed.conversations[session.id]?.preparing).toBe(false);
+  });
+
+  it.each(['Preparation failed', 'Preparation canceled'])(
+    'preserves input for retry on %s',
+    (error) => {
+      const failed = reduceTandem(preparing(), {
+        type: 'sendFailed',
+        sessionId: session.id,
+        pendingId: pendingPreparation.id,
+        error,
+      });
+      expect(failed.conversations[session.id]?.preparing).toBe(false);
+      expect(failed.conversations[session.id]?.messages).toEqual([]);
+      expect(failed.conversations[session.id]?.failedSend).toEqual(pendingPreparation);
+      const retried = reduceTandem(failed, {
+        type: 'sendStarted',
+        message: { ...pendingPreparation, id: 'pending:retry' },
+      });
+      expect(retried.conversations[session.id]?.failedSend).toBeNull();
+      expect(retried.conversations[session.id]?.messages).toHaveLength(1);
+    },
+  );
+
+  it('restores preparation on reconnect and clears it on an idle snapshot', () => {
+    const restored = reduceTandem(loaded, {
+      type: 'snapshotReceived',
+      snapshot: {
+        ...snapshot,
+        sessions: [{ ...session, status: 'running' }],
+        preparingSessions: [session.id],
+      },
+      protectedIds: new Set(),
+    });
+    expect(restored.conversations[session.id]?.preparing).toBe(true);
+    const idle = reduceTandem(restored, {
+      type: 'snapshotReceived',
+      snapshot,
+      protectedIds: new Set(),
+    });
+    expect(idle.conversations[session.id]?.preparing).toBe(false);
+  });
+
+  it('does not let an old snapshot clear a newer preparation event', () => {
+    const state = reduceTandem(preparing(), {
+      type: 'snapshotReceived',
+      snapshot,
+      protectedIds: new Set([session.id]),
+    });
+    expect(state.conversations[session.id]?.preparing).toBe(true);
+  });
+});
+
+it('reconciles missed preparation during a pending send without replacing optimistic input', () => {
+  const state = reduceTandem(loaded, { type: 'sendStarted', message: pending });
+  const restored = reduceTandem(state, {
+    type: 'snapshotReceived',
+    snapshot: {
+      ...snapshot,
+      sessions: [{ ...session, status: 'running' }],
+      preparingSessions: [session.id],
+    },
+    protectedIds: new Set([session.id]),
+    preparationProtectedIds: new Set(),
+  });
+  expect(restored.conversations[session.id]?.preparing).toBe(true);
+  expect(restored.conversations[session.id]?.messages).toEqual([pending]);
+  const ready = reduceTandem(restored, {
+    type: 'snapshotReceived',
+    snapshot,
+    protectedIds: new Set([session.id]),
+    preparationProtectedIds: new Set(),
+  });
+  expect(ready.conversations[session.id]?.preparing).toBe(false);
+  expect(ready.conversations[session.id]?.messages).toEqual([pending]);
 });

@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from remote_e2e import stage_binaries
+from remote_e2e import require_preparation_before_delivery, stage_binaries
 
 
 class BinaryRolesTests(unittest.TestCase):
@@ -32,6 +32,18 @@ class BinaryRolesTests(unittest.TestCase):
                         self.assertEqual(remote.parent, dev.parent)
                     else:
                         self.assertIsNone(dev)
+
+
+class PreparationOrderTests(unittest.TestCase):
+    def test_delivery_requires_both_preparation_transitions_in_order(self):
+        started = {'kind': 'preparation', 'data': {'preparing': True}}
+        ready = {'kind': 'preparation', 'data': {'preparing': False}}
+        delivered = {'kind': 'message', 'data': {'role': 'user'}}
+        require_preparation_before_delivery([started, ready, delivered])
+        for events in ([delivered], [started, delivered], [ready, delivered],
+                       [started, delivered, ready], [ready, started, delivered]):
+            with self.subTest(events=events), self.assertRaises(AssertionError):
+                require_preparation_before_delivery(events)
 
 
 if __name__ == "__main__":

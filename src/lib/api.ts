@@ -66,6 +66,7 @@ export async function subscribe(
           'message',
           'permission',
           'status',
+          'preparation',
           'error',
           'title',
           'title_error',

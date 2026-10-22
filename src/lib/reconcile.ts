@@ -40,13 +40,24 @@ export function reconcileSessions(
 
 export function reconcileConversations(
   current: Record<string, Conversation>,
-  snapshot: Pick<Snapshot, 'sessions' | 'activeTurns'>,
+  snapshot: Pick<Snapshot, 'sessions' | 'activeTurns' | 'preparingSessions'>,
   protectedIds: ReadonlySet<string>,
+  preparationProtectedIds: ReadonlySet<string> = protectedIds,
 ): Record<string, Conversation> {
   const next = { ...current };
   for (const session of snapshot.sessions) {
-    if (protectedIds.has(session.id)) continue;
     const state = current[session.id] ?? emptyConversation;
+    if (protectedIds.has(session.id)) {
+      // A pending send protects optimistic input, not a newer preparation snapshot.
+      if (!preparationProtectedIds.has(session.id)) {
+        next[session.id] = {
+          ...state,
+          preparing:
+            session.status === 'running' && snapshot.preparingSessions.includes(session.id),
+        };
+      }
+      continue;
+    }
     const turn = snapshot.activeTurns[session.id];
     const reconciled = reduceEvent(state, {
       sessionId: session.id,
@@ -55,6 +66,7 @@ export function reconcileConversations(
     });
     next[session.id] = {
       ...reconciled,
+      preparing: session.status === 'running' && snapshot.preparingSessions.includes(session.id),
       stream: turn?.stream ?? '',
       agentStreams: turn?.agentStreams ?? {},
       permissions: turn?.permissions ?? [],

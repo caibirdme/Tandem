@@ -64,7 +64,7 @@ Log in once with your system terminal to confirm the host fingerprint and set up
 
 _Choose a remote directory in the project dialog, then start work with the same conversation controls._
 
-Tandem prepares the remote agent over SSH without opening an additional remote network port. Multiple Work conversations on the same host share a background runtime while keeping independent connections and permissions. See the [SSH guide](docs/user-guide.md#ssh-projects) for supported hosts and setup details.
+**Test connection** only verifies SSH access; it does not upload the server or prepare its runtime. Send the first message in a remote Work conversation to prepare the environment. The message stays pending while Tandem shows preparation progress; first use may take about 10 seconds, or longer depending on the host and connection. Tandem prepares the remote agent over SSH without opening an additional remote network port. Multiple Work conversations on the same host share a background runtime while keeping independent connections and permissions. See the [SSH guide](docs/user-guide.md#ssh-projects) for supported hosts and setup details.
 
 ## Run from source
 
@@ -77,7 +77,7 @@ just setup
 just dev
 ```
 
-Tandem uses React, Tauri 2, and Rust services built on GitHub Copilot SDK 1.x from crates.io. `Cargo.lock` currently resolves SDK `1.0.24`, and its matching Copilot CLI `1.0.101` is bundled automatically.
+Tandem uses React, Tauri 2, and Rust services built on GitHub Copilot SDK 1.x from crates.io. `Cargo.lock` currently resolves SDK `1.0.25`, and its matching Copilot CLI `1.0.102` is bundled automatically.
 
 ## Learn more
 

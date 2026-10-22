@@ -49,3 +49,13 @@ describe('project skill picker', () => {
     expect(markup).not.toContain('Retry');
   });
 });
+
+it('explains deferred remote discovery instead of claiming the project has no skills', () => {
+  const markup = renderToStaticMarkup(
+    <SkillPicker {...props} skills={[]} remotePreparationPending />,
+  );
+  expect(markup).toContain(
+    'Remote skills become available after your first message prepares the environment.',
+  );
+  expect(markup).not.toContain('No project skills found.');
+});

@@ -94,7 +94,7 @@ Each retry creates new isolated sessions and reruns chat and work for the select
 
 ## Dependencies and the first build
 
-`rust-toolchain.toml` pins the compiler. Cargo dependencies use compatible major version ranges, or the current minor range for 0.x libraries. The Copilot SDK uses `github-copilot-sdk = "1"` from crates.io; `Cargo.lock` currently resolves `1.0.24`, which bundles Copilot CLI `1.0.101`. Commit `Cargo.lock` and `pnpm-lock.yaml`, and rerun quality gates after upgrades.
+`rust-toolchain.toml` pins the compiler. Cargo dependencies use compatible major version ranges, or the current minor range for 0.x libraries. The Copilot SDK uses `github-copilot-sdk = "1"` from crates.io; `Cargo.lock` currently resolves `1.0.25`, which bundles Copilot CLI `1.0.102`. Commit `Cargo.lock` and `pnpm-lock.yaml`, and rerun quality gates after upgrades. See the [2026-10-22 dependency inventory](dependency-refresh.md) for version changes and compatibility decisions.
 
 The SDK's first build downloads the platform CLI; prepare a build cache before working offline. If Cargo reports mirror TLS or DNS failures, inspect local Cargo source configuration first. Do not weaken certificate verification.
 
@@ -120,7 +120,7 @@ On Windows, use the NSIS `x64-setup.exe` installer in `target/release/bundle/nsi
 
 Use `CI=true just desktop-build` on a locked screen or in automation to skip DMG window decoration that requires Finder interaction.
 
-Released installers bundle remote agents for Linux x64 (`x86_64-unknown-linux-gnu`) and Apple Silicon macOS (`aarch64-apple-darwin`). The application also recognizes Linux arm64 and Intel Mac hosts, but installers do not contain those binaries and report a missing artifact when connecting. Build the required target yourself and use `scripts/prepare-remote.mjs <target>` to add it to resources.
+Released installers bundle remote agents for Linux x64 (`x86_64-unknown-linux-gnu`) and Apple Silicon macOS (`aarch64-apple-darwin`). The application also recognizes Linux arm64 and Intel Mac hosts, but installers do not contain those binaries and report a missing artifact when preparing the first remote message. Build the required target yourself and use `scripts/prepare-remote.mjs <target>` to add it to resources.
 
 The Windows executable without an installer is `target/release/tandem-desktop.exe`; the remote artifact is `tandem-server`. Set `TANDEM_REMOTE_ARTIFACTS` for a custom artifact directory containing that binary.
 
@@ -154,7 +154,9 @@ Title settings use the separate command `save_title_model {titleModel: {provider
 
 The provider editor reads the saved key with `get_provider_api_key` (`id`), which returns a string or `null` and errors if the provider does not exist. Ordinary `snapshot` and `save_provider` responses contain only `hasApiKey`. Omitting `apiKey` from a save preserves the value; a nonempty string replaces it; an empty string clears it. Keys are stored only in local SQLite's `provider_secrets.secret`, never in messages, logs, or remote state. The development host's `--data-dir` selects storage for both configuration and keys; `--ephemeral-secrets` switches to an in-process test store.
 
-`send_message` requires a caller-supplied `messageId` UUID. The saved user message retains that ID so the UI can merge it accurately with history after a lost live confirmation. The database rejects repeated submissions with the same ID rather than executing them again.
+SSH `check_connection` verifies connectivity only; creating a project/session or scanning skills does not deploy the server. On the first remote send, `preparation {preparing: true}` begins the pending environment stage; `preparation {preparing: false}` ends it before message confirmation. Snapshots include `preparingSessions` for reconnect recovery. `abort_session` can cancel this stage before the user message is persisted or sent.
+
+`send_message` requires a caller-supplied `messageId` UUID. The saved user message retains that ID so the UI can merge it accurately with history after a lost live confirmation. A retry with an already persisted message ID is rejected as a conflict without executing it again; the caller should review the recorded conversation instead of assuming delivery. Overlapping submissions are rejected while the session is busy.
 
 User messages also retain their validated `selectedSkills` identities. Both the send confirmation and history return these selections, allowing the UI to distinguish selected skill mentions from ordinary `$` text. Empty selections are omitted.
 

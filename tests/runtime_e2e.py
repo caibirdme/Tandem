@@ -248,9 +248,8 @@ def main():
                         raise AssertionError(
                             "A repeated client message ID was accepted"
                         )
-                    app.wait_event(
-                        session["id"], lambda event: event["kind"] == "error"
-                    )
+                    # Duplicate IDs are rejected before mutating session state or emitting
+                    # runtime events; the command conflict is the authoritative result.
                     require(
                         len(fixture.conversation_requests()) == request_count,
                         "Duplicate submission reached inference",

@@ -151,6 +151,22 @@ impl RemoteClient {
         })
     }
 
+    /// Test SSH authentication and remote command execution without installing anything.
+    ///
+    /// # Errors
+    /// Returns an SSH process, authentication, connectivity, or timeout error.
+    pub async fn check_connection(&self) -> Result<(), RemoteError> {
+        run(
+            &self.connection,
+            "connection test",
+            "true",
+            None,
+            PROBE_TIMEOUT,
+        )
+        .await?;
+        Ok(())
+    }
+
     /// Verify host access, atomically deploy the matching server, and prepare its runtime.
     ///
     /// # Errors
@@ -199,6 +215,14 @@ impl RemoteClient {
     /// Returns a bootstrap or process startup error.
     pub async fn connect(&self) -> Result<RemoteTransport, RemoteError> {
         self.bootstrap().await?;
+        self.connect_ready().await
+    }
+
+    /// Reattach to a prepared host, validating its server without uploading or installing.
+    ///
+    /// # Errors
+    /// Returns a process, transport, or server-version error if the host is no longer ready.
+    pub async fn connect_ready(&self) -> Result<RemoteTransport, RemoteError> {
         let transport = self.open_transport()?;
         let result = transport
             .request("server_info", serde_json::Value::Null)

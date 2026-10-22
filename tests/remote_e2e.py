@@ -236,21 +236,9 @@ class IsolatedSsh:
                           'if "uname -s" in os.environ["SSH_ORIGINAL_COMMAND"] and delay.exists():\n'
                           '    Path("bootstrap-waiting").touch()\n'
                           '    while delay.exists(): time.sleep(.05)\n'
-                          'race = Path("race-bootstrap")\n'
                           'command = os.environ["SSH_ORIGINAL_COMMAND"]\n'
-                          'if race.exists() and "uname -s" in command:\n'
-                          '    result = subprocess.run(["/bin/sh", "-c", command], capture_output=True)\n'
-                          '    (race / f"probe-{os.getpid()}").touch()\n'
-                          '    while not (race / "proceed").exists(): time.sleep(.02)\n'
-                          '    sys.stdout.buffer.write(result.stdout)\n'
-                          '    sys.stderr.buffer.write(result.stderr)\n'
-                          '    sys.exit(result.returncode)\n'
-                          'if race.exists() and "destination=" in command:\n'
-                          '    try:\n'
-                          '        (race / "first-upload").mkdir()\n'
-                          '    except FileExistsError:\n'
-                          '        (race / "second-upload").touch()\n'
-                          '        while not (race / "release-second").exists(): time.sleep(.02)\n'
+                          'if "uname -s" in command:\n'
+                          '    with open("environment-probes", "ab", buffering=0) as probes: probes.write(b"x")\n'
                           'os.execv("/bin/sh", ["sh", "-c", os.environ["SSH_ORIGINAL_COMMAND"]])\n')
         config = directory / 'sshd_config'
         config.write_text('\n'.join([
@@ -361,52 +349,111 @@ def expect_command_error(app, command, expected, **payload):
         raise AssertionError(f'{command} unexpectedly succeeded')
 
 
-def check_concurrent_bootstrap(app, ssh):
-    """Force two fresh probes to deploy the same build across a live daemon."""
-    race = ssh.home / 'race-bootstrap'
-    race.mkdir()
+def check_concurrent_bootstrap(app, ssh, project, provider):
+    """Concurrent first sends share one host preparation and keep separate sessions."""
+    probes = ssh.home / 'environment-probes'
+    before = probes.stat().st_size if probes.exists() else 0
     results = queue.Queue()
+    sessions = [app.command('create_session', projectId=project['id'],
+                            providerId=provider['id'], modelId='gpt-4.1') for _ in range(2)]
 
-    def bootstrap():
+    def bootstrap(session):
         try:
-            app.command('check_connection', connection=ssh.connection)
+            events = app.turn(session, 'fixture:chat Initialize this remote session.')
+            if any(event['kind'] == 'preparation' and event['data']['preparing'] for event in events):
+                require_preparation_before_delivery(events)
+            app.wait_title(session['id'], events)
             results.put(None)
         except Exception as error:
             results.put(error)
 
-    starters = [threading.Thread(target=bootstrap, daemon=True) for _ in range(2)]
+    starters = [threading.Thread(target=bootstrap, args=(session,), daemon=True) for session in sessions]
     for starter in starters:
         starter.start()
     try:
-        deadline = time.monotonic() + 15
-        while len(list(race.glob('probe-*'))) < 2 and time.monotonic() < deadline:
-            time.sleep(.02)
-        require(len(list(race.glob('probe-*'))) == 2, 'Concurrent SSH bootstrap did not perform two fresh probes')
-        (race / 'proceed').touch()
-        first = results.get(timeout=45)
-        if first:
-            raise first
-        deadline = time.monotonic() + 15
-        while not (race / 'second-upload').exists() and time.monotonic() < deadline:
-            time.sleep(.02)
-        require((race / 'second-upload').exists(), 'The second SSH deployment did not reach its controlled pause')
+        for _ in starters:
+            result = results.get(timeout=90)
+            if result:
+                raise result
+        require(probes.stat().st_size == before + 1,
+                'Concurrent first sends did not share one remote environment preparation')
         ssh.identify_runtime_daemon()
-        daemon = ssh.runtime_daemon
-        runtime = require_runtime(daemon)
-        (race / 'release-second').touch()
-        second = results.get(timeout=45)
-        if second:
-            raise second
-        ssh.identify_runtime_daemon()
-        require(ssh.runtime_daemon == daemon, 'Identical concurrent deployments created different remote daemons')
-        require_runtime(daemon, runtime)
+        require_runtime(ssh.runtime_daemon)
     finally:
-        (race / 'proceed').touch()
-        (race / 'release-second').touch()
         for starter in starters:
             starter.join(timeout=45)
-        require(not any(starter.is_alive() for starter in starters), 'Concurrent SSH bootstrap did not finish')
-        shutil.rmtree(race)
+        require(not any(starter.is_alive() for starter in starters), 'Concurrent SSH preparation did not finish')
+    for session in sessions:
+        app.command('delete_session', sessionId=session['id'])
+
+
+def replace_with_obsolete_server(deployed):
+    previous_protocol = deployed.with_name('previous-protocol')
+    previous_protocol.write_text('#!/bin/sh\n[ "$1" = "--version" ] || exit 97\nprintf "tandem-server 0.0.3\\n"\n')
+    previous_protocol.chmod(0o700)
+    previous_protocol.replace(deployed)
+
+
+def require_preparation_before_delivery(events):
+    """A remote send is confirmed only after its environment is ready."""
+    started = next((index for index, event in enumerate(events)
+                    if event['kind'] == 'preparation' and event['data']['preparing']), None)
+    ready = next((index for index, event in enumerate(events)
+                  if event['kind'] == 'preparation' and not event['data']['preparing']), None)
+    delivered = next((index for index, event in enumerate(events)
+                      if event['kind'] == 'message' and event['data'].get('role') == 'user'), None)
+    require(started is not None and ready is not None and delivered is not None
+            and started < ready < delivered, 'Remote message was confirmed before preparation completed')
+
+
+def check_cancel_preparation(app, session, ssh):
+    """Stop a cold send before any deployment or message confirmation."""
+    delay = ssh.home / 'delay-bootstrap'
+    waiting = ssh.home / 'bootstrap-waiting'
+    waiting.unlink(missing_ok=True)
+    delay.touch()
+    result = queue.Queue()
+
+    def send():
+        try:
+            app.command('send_message', sessionId=session['id'],
+                        content='fixture:chat This canceled preparation must not send.',
+                        messageId=str(uuid.uuid4()))
+            result.put(None)
+        except Exception as error:
+            result.put(error)
+
+    sender = threading.Thread(target=send, daemon=True)
+    sender.start()
+    try:
+        deadline = time.monotonic() + 10
+        while not waiting.exists() and time.monotonic() < deadline:
+            time.sleep(.02)
+        require(waiting.exists(), 'Cold send did not reach the controlled preparation pause')
+        require(session['id'] in app.command('snapshot')['preparingSessions'],
+                'Reconnect snapshot lost pending remote preparation')
+        require(app.command('messages', sessionId=session['id']) == [],
+                'Pending preparation prematurely persisted the user message')
+        app.command('abort_session', sessionId=session['id'])
+        canceled = result.get(timeout=3)
+        require(isinstance(canceled, Exception), 'Canceled preparation reported send success')
+        require(app.command('messages', sessionId=session['id']) == [],
+                'Canceling preparation persisted an unsent message')
+        require(session['id'] not in app.command('snapshot')['preparingSessions'],
+                'Canceled preparation remained active in the snapshot')
+        require(not (ssh.home / '.local/share/tandem/bin/tandem-server').exists(),
+                'Canceled preparation deployed the remote server')
+        # Drain cancellation events before retrying this same conversation.
+        deadline = time.monotonic() + 10
+        while True:
+            event = app.events.next(session['id'], deadline)
+            if event['kind'] == 'status' and event['data']['status'] == 'idle':
+                break
+    finally:
+        delay.unlink(missing_ok=True)
+        waiting.unlink(missing_ok=True)
+        sender.join(timeout=30)
+        require(not sender.is_alive(), 'Canceled preparation request did not settle')
 
 
 def check_independent_stop(app, work, second, ssh, fixture):
@@ -417,6 +464,8 @@ def check_independent_stop(app, work, second, ssh, fixture):
     app.wait_event(work['id'], lambda event: event['kind'] == 'delta')
     live = app.command('snapshot')['activeTurns'][work['id']]
     require(bool(live['stream']), 'Snapshot did not preserve current streamed output')
+    # Invalidate host readiness without disturbing the first session's live proxy.
+    replace_with_obsolete_server(ssh.home / '.local/share/tandem/bin/tandem-server')
     delay = ssh.home / 'delay-bootstrap'
     waiting = ssh.home / 'bootstrap-waiting'
     delay.touch()
@@ -548,22 +597,12 @@ def check_ssh(remote_server, dev_server, root, endpoint, fixture):
         trusted_before = ssh.known_hosts.read_bytes()
         wrong_key = {**ssh.connection, 'identityFile': str(ssh.directory / 'wrong-identity')}
         expect_command_error(app, 'check_connection', 'authentication', connection=wrong_key)
-        check_concurrent_bootstrap(app, ssh)
         deployed = ssh.home / '.local/share/tandem/bin/tandem-server'
-        require(deployed.is_file(), 'SSH bootstrap did not deploy tandem-server')
-        require(deployed.stat().st_mode & 0o777 == 0o700, 'Deployed server is not private and executable')
-        require(digest(deployed) == digest(remote_server), 'SSH deployed bytes differ from tandem-server (the remote artifact)')
-        modification = deployed.stat().st_mtime_ns
         app.command('check_connection', connection=ssh.connection)
-        require(deployed.stat().st_mtime_ns == modification, 'Matching server version was needlessly replaced')
-        previous_protocol = deployed.with_name('previous-protocol')
-        previous_protocol.write_text('#!/bin/sh\n[ "$1" = "--version" ] || exit 97\nprintf "tandem-server 0.0.3\\n"\n')
-        previous_protocol.chmod(0o700)
-        previous_protocol.replace(deployed)
         app.command('check_connection', connection=ssh.connection)
-        require(digest(deployed) == digest(remote_server),
-                'A server without the current protocol version was reused')
-        ssh.identify_runtime_daemon()
+        require(not deployed.exists(), 'Connection testing deployed the remote server')
+        require(not (ssh.home / '.local/share/tandem/runtime').exists(),
+                'Connection testing initialized the remote runtime')
         configured_connection = {'kind': 'ssh', 'host': 'tandem-config-target',
                                  'port': None, 'user': None, 'identityFile': None}
         app.command('check_connection', connection=configured_connection)
@@ -591,26 +630,65 @@ def check_ssh(remote_server, dev_server, root, endpoint, fixture):
         require_local_secret(app_directory, provider['id'], FIXTURE_KEY)
         configured_session = app.command('create_session', projectId=configured_project['id'],
                                           providerId=provider['id'], modelId='gpt-4.1')
+        commands_before_skills = ssh.command_count()
+        require(app.command('list_project_skills', projectId=configured_project['id']) == [],
+                'An unprepared SSH project unexpectedly returned a skill catalog')
+        require(ssh.command_count() == commands_before_skills,
+                'Opening the skill picker connected before the first send')
+        require(not deployed.exists(), 'Browsing or creating a project/session deployed the server')
+        require(not (ssh.home / '.local/share/tandem/runtime').exists(),
+                'Browsing or creating a project/session initialized the runtime')
+        check_cancel_preparation(app, configured_session, ssh)
         configured_events = app.turn(configured_session,
                                      'fixture:chat Verify the configured SSH alias through the SDK transport.')
+        require_preparation_before_delivery(configured_events)
+        require(deployed.is_file(), 'First send did not deploy tandem-server')
+        require(deployed.stat().st_mode & 0o777 == 0o700, 'Deployed server is not private and executable')
+        require(digest(deployed) == digest(remote_server), 'SSH deployed bytes differ from the remote artifact')
+        modification = deployed.stat().st_mtime_ns
+        app.command('check_connection', connection=ssh.connection)
+        require(deployed.stat().st_mtime_ns == modification, 'Connection testing changed the deployed server')
+        app.wait_title(configured_session['id'], configured_events)
+        reused_events = app.turn(configured_session, 'fixture:chat Reuse the ready remote environment.')
+        require(not any(event['kind'] == 'preparation' and event['data']['preparing']
+                        for event in reused_events), 'A ready session repeated environment preparation')
+        require(deployed.stat().st_mtime_ns == modification, 'Ready reuse replaced the matching server')
+        ssh.identify_runtime_daemon()
         require_context_usage(configured_events, 128000)
         require(any(event['kind'] == 'message' and event['data'].get('content') == 'TANDEM_CHAT_OK'
                     for event in configured_events),
                 'The configured SSH alias did not complete an SDK work turn')
-        app.wait_title(configured_session['id'], configured_events)
+        ready_session = app.command('create_session', projectId=configured_project['id'],
+                                    providerId=provider['id'], modelId='gpt-4.1')
+        ready_events = app.turn(ready_session, 'fixture:chat Reuse this host in a new conversation.')
+        require(not any(event['kind'] == 'preparation' and event['data']['preparing']
+                        for event in ready_events), 'A new session reinitialized a ready SSH host')
+        require(deployed.stat().st_mtime_ns == modification, 'A new session redeployed a ready SSH host')
+        app.wait_title(ready_session['id'], ready_events)
+        app.command('delete_session', sessionId=ready_session['id'])
         app.command('delete_session', sessionId=configured_session['id'])
         app.command('delete_project', id=configured_project['id'])
         app.command('save_preferences', telemetry={'enabled': True, 'endpoint': endpoint,
                     'protocol': 'http/json', 'captureContent': False}, cliPath=None)
         project = app.command('create_project', name='SSH work', path=str(workspace), connection=ssh.connection)
+        replace_with_obsolete_server(deployed)
+        app.command('check_connection', connection=ssh.connection)
+        require(digest(deployed) != digest(remote_server), 'Connection testing replaced an outdated server')
+        check_concurrent_bootstrap(app, ssh, project, provider)
+        require(digest(deployed) == digest(remote_server), 'First sends reused an outdated protocol server')
         fleet_session, _ = check_fleet(app, fixture, project, provider, 'gpt-4.1', workspace)
         app.command('delete_session', sessionId=fleet_session['id'])
         grouped_session, _ = check_grouped_activity(app, project, provider, 'gpt-4.1', workspace)
         app.command('delete_session', sessionId=grouped_session['id'])
         for session, _inputs, _marker, _metadata in check_attachments(app, fixture, project, provider, 'gpt-4.1'):
             app.command('delete_session', sessionId=session['id'])
+        skill_host = app.command('create_session', projectId=project['id'],
+                                 providerId=provider['id'], modelId='gpt-4.1')
+        skill_host_events = app.turn(skill_host, 'fixture:chat Prepare the remote project for skill discovery.')
+        app.wait_title(skill_host['id'], skill_host_events)
         skill_session, _ = check_project_skills(app, fixture, project, provider, 'gpt-4.1', workspace, ssh.home)
         app.command('delete_session', sessionId=skill_session['id'])
+        app.command('delete_session', sessionId=skill_host['id'])
         work = app.command('create_session', projectId=project['id'], providerId=provider['id'],
                            modelId='gpt-4.1', permissionMode='ask')
         first_work_events = app.turn(work, 'fixture:work-create Create verified.txt on the SSH host.')

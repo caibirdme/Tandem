@@ -1,10 +1,18 @@
 import { useEffect, useMemo, useState } from 'react';
 
 import { projectSkills } from '../lib/projectSkills';
-import type { ProjectSkill } from '../lib/types';
+import type { ProjectSkill, SessionStatus } from '../lib/types';
 
-export function useProjectSkills(projectId: string | undefined, open: boolean, connected: boolean) {
-  const request = useMemo(() => ({ projectId, connected }), [projectId, connected]);
+export function useProjectSkills(
+  projectId: string | undefined,
+  open: boolean,
+  connected: boolean,
+  sessionStatus: SessionStatus,
+) {
+  const request = useMemo(
+    () => ({ projectId, connected, sessionStatus }),
+    [projectId, connected, sessionStatus],
+  );
   const [catalog, setCatalog] = useState<{
     request: typeof request;
     skills: ProjectSkill[];

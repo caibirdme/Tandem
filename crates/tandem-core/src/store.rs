@@ -216,6 +216,16 @@ impl Store {
         })
     }
 
+    pub fn has_message(&self, session_id: &str, message_id: &str) -> Result<bool> {
+        self.with(|db| {
+            Ok(db.query_row(
+                "SELECT EXISTS(SELECT 1 FROM messages WHERE session_id=?1 AND id=?2)",
+                params![session_id, message_id],
+                |row| row.get(0),
+            )?)
+        })
+    }
+
     pub fn has_messages(&self, session_id: &str) -> Result<bool> {
         self.with(|db| {
             Ok(db.query_row(

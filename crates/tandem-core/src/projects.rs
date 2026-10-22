@@ -141,11 +141,8 @@ impl App {
         if matches!(connection, Connection::Local) {
             return Ok("Local connection is ready".into());
         }
-        let report = self.remote_client(connection)?.bootstrap().await?;
-        Ok(format!(
-            "SSH connected; remote service is ready ({} / {})",
-            report.platform.os, report.platform.architecture
-        ))
+        self.remote_client(connection)?.check_connection().await?;
+        Ok("SSH connection is ready".into())
     }
 }
 

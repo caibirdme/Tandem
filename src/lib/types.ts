@@ -109,6 +109,7 @@ export interface RuntimeStatus {
   message: string;
 }
 export interface Snapshot {
+  preparingSessions: string[];
   titleGenerations: string[];
   activeTurns: Record<
     string,
@@ -155,6 +156,7 @@ export type RuntimeEvent = { sessionId: string } & (
   | { kind: 'message'; data: Message }
   | { kind: 'permission'; data: Permission }
   | { kind: 'status'; data: { status: SessionStatus } }
+  | { kind: 'preparation'; data: { preparing: boolean } }
   | { kind: 'error'; data: { message: string } }
   | { kind: 'title'; data: { title: string } }
   | { kind: 'title_error'; data: { message: string } }
