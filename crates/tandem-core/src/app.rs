@@ -316,7 +316,13 @@ mod tests {
             "models": [{"id": "chat", "name": "Chat", "contextWindow": 200_000}]
         }))?, None).await?;
         let mut session = app
-            .create_session(None, provider.id, "chat".into(), PermissionMode::Ask, None)
+            .create_session(
+                None,
+                provider.id,
+                "chat".into(),
+                Some(PermissionMode::Ask),
+                None,
+            )
             .await?;
         session.status = SessionStatus::Running;
         app.store.save_session(&session)?;

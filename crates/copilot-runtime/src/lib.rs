@@ -983,7 +983,7 @@ mod tests {
                 },
                 model: ModelSettings {
                     id: model_id.into(),
-                    reasoning_effort: Some("high".into()),
+                    reasoning_effort: Some("max".into()),
                     context_window: 1_000_000,
                     max_output_tokens: output,
                 },
@@ -1000,7 +1000,7 @@ mod tests {
             )?;
             assert_eq!(fresh.model.as_deref(), Some(model_id));
             assert_eq!(resumed.model, fresh.model);
-            assert_eq!(fresh.reasoning_effort.as_deref(), Some("high"));
+            assert_eq!(fresh.reasoning_effort.as_deref(), Some("max"));
             assert_eq!(resumed.reasoning_effort, fresh.reasoning_effort);
             assert_eq!(resumed.session_id.as_str(), "existing-session");
             assert_eq!(resumed.continue_pending_work, Some(false));

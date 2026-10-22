@@ -1,5 +1,5 @@
 export type ProviderProtocol = 'openai-completions' | 'openai-responses' | 'anthropic';
-export type ReasoningEffort = 'low' | 'medium' | 'high' | null;
+export type ReasoningEffort = 'low' | 'medium' | 'high' | 'max' | null;
 export type FontSize = 'small' | 'medium' | 'large';
 export interface Model {
   id: string;

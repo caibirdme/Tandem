@@ -7,7 +7,7 @@ from reasoning_acceptance import require_wire_effort
 
 class ReasoningWireTests(unittest.TestCase):
     def test_explicit_and_inherited_values_use_each_provider_wire_shape(self):
-        for effort in (None, "low", "medium", "high"):
+        for effort in (None, "low", "medium", "high", "max"):
             for path, body in (
                 ("/v1/chat/completions", {"reasoning_effort": effort}),
                 ("/v1/responses", {"reasoning": {"effort": effort}}),

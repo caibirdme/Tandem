@@ -11,7 +11,7 @@ pub enum ConfigurationError {
     OutputExceedsContextWindow,
     #[error("model ID cannot be empty")]
     EmptyModelId,
-    #[error("reasoning effort must be low, medium, or high")]
+    #[error("reasoning effort must be low, medium, high, or max")]
     UnsupportedReasoningEffort,
     #[error("endpoint must be an absolute HTTP(S) URL")]
     InvalidEndpoint(#[source] url::ParseError),

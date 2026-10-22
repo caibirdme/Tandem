@@ -186,7 +186,7 @@ def check_model_switching(app, fixture, providers, directory, automatic):
 
     asking = app.command(
         "create_session", projectId=automatic["projectId"],
-        providerId=provider["id"], modelId=original_model,
+        providerId=provider["id"], modelId=original_model, permissionMode="ask",
     )
     seed = app.turn(asking, "fixture:chat Seed the interactive work conversation.")
     app.wait_title(asking["id"], seed)

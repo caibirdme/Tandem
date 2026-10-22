@@ -16,7 +16,7 @@ async fn application() -> Result<(TempDir, Arc<App>, String)> {
             None,
             provider.id,
             "fixture".into(),
-            PermissionMode::Ask,
+            Some(PermissionMode::Ask),
             None,
         )
         .await?;
@@ -406,7 +406,7 @@ async fn duplicate_message_ids_cannot_overwrite_users_or_other_conversations() -
             None,
             session.provider_id,
             session.model_id,
-            PermissionMode::Ask,
+            Some(PermissionMode::Ask),
             None,
         )
         .await?;
@@ -636,6 +636,60 @@ async fn unfinished_agents_are_interrupted_on_restart() -> Result<()> {
             .all(|message| message.interrupted)
     );
     assert!(reopened.store.title_exchange(&id)?.is_none());
+    Ok(())
+}
+
+#[tokio::test]
+async fn late_worker_completion_cannot_recreate_settled_cards_or_change_a_later_turn() -> Result<()>
+{
+    let (directory, app, id) = application().await?;
+    receive(
+        &app,
+        &id,
+        EventKind::Agent,
+        json!({"event":"subagent.started","toolCallId":"stopped-call","agentId":"stopped-worker"}),
+    );
+    receive(&app, &id, EventKind::Status, json!({"state":"idle"}));
+    let stopped = serde_json::to_value(app.messages(&id)?)?;
+    assert_eq!(stopped[0]["agent"]["status"], "interrupted");
+    for next_turn in [false, true] {
+        if next_turn {
+            receive(
+                &app,
+                &id,
+                EventKind::Agent,
+                json!({"event":"subagent.started","toolCallId":"next-call","agentId":"next-worker"}),
+            );
+        }
+        let history = serde_json::to_value(app.messages(&id)?)?;
+        let active = serde_json::to_value(app.turns.snapshot()?)?;
+        for event in ["subagent.completed", "subagent.failed"] {
+            receive(
+                &app,
+                &id,
+                EventKind::Agent,
+                json!({
+                    "event":event,"toolCallId":"stopped-call","agentId":"stopped-worker",
+                    "cancelled":true,"error":"Stopped worker"
+                }),
+            );
+            assert_eq!(serde_json::to_value(app.messages(&id)?)?, history);
+            assert_eq!(serde_json::to_value(app.turns.snapshot()?)?, active);
+        }
+    }
+    receive(
+        &app,
+        &id,
+        EventKind::Agent,
+        json!({"event":"subagent.completed","toolCallId":"next-call","agentId":"next-worker"}),
+    );
+    let history = serde_json::to_value(app.messages(&id)?)?;
+    assert_eq!(history.as_array().context("history")?.len(), 2);
+    assert_eq!(history[0], stopped[0]);
+    assert_eq!(history[1]["agent"]["status"], "completed");
+    receive(&app, &id, EventKind::Status, json!({"state":"idle"}));
+    let reopened = App::open(AppOptions::local(directory.path().into()))?;
+    assert_eq!(serde_json::to_value(reopened.messages(&id)?)?, history);
     Ok(())
 }
 

@@ -59,7 +59,7 @@ mod tests {
                 None,
                 provider.id,
                 "fixture".into(),
-                PermissionMode::Ask,
+                Some(PermissionMode::Ask),
                 None,
             )
             .await?;
@@ -115,7 +115,7 @@ mod tests {
                 })?;
             }
             let history = serde_json::to_value(app.store.messages(&session.id)?)?;
-            for effort in [Some("low"), Some("medium"), Some("high"), None] {
+            for effort in [Some("low"), Some("medium"), Some("high"), Some("max"), None] {
                 let request: Request = serde_json::from_value(
                     json!({"command":"set_session_reasoning_effort", "payload":{"sessionId":session.id,"reasoningEffort":effort}}),
                 )?;
@@ -199,7 +199,7 @@ mod tests {
                     None,
                     session.provider_id.clone(),
                     session.model_id.clone(),
-                    PermissionMode::Ask,
+                    Some(PermissionMode::Ask),
                     Some(effort.into())
                 )
                 .await
@@ -231,7 +231,13 @@ mod tests {
                 .is_err()
             );
         }
-        for effort in [json!(null), json!("low"), json!("medium"), json!("high")] {
+        for effort in [
+            json!(null),
+            json!("low"),
+            json!("medium"),
+            json!("high"),
+            json!("max"),
+        ] {
             assert!(serde_json::from_value::<Request>(json!({"command":"set_session_reasoning_effort","payload":{"sessionId":"fixture","reasoningEffort":effort}})).is_ok());
         }
     }

@@ -58,11 +58,11 @@ Keep each skill's `SKILL.md` in its own subdirectory under the project's `.agent
 
 ### Run a task with multiple agents
 
-In a local or SSH Work conversation, check **Multi-agent** in the composer before sending a task. This option starts unchecked and applies to that submission. The main agent decides how to divide the work and can run independent subtasks in parallel. You do not need to define subagents first. Chat does not offer this option.
+In a local or SSH Work conversation, click **Expert team mode** in the composer before sending a task. The button starts off; its highlighted appearance indicates it is on. This choice applies to that submission. The main agent decides how to divide the work and can run independent subtasks in parallel. You do not need to define subagents first. Chat does not offer this option.
 
-When subagents start, a **Multi-agent** card lists their names and running, completed, failed, or stopped status. Select an agent to open its output, thinking text, and tool calls inside the card. Switch between agents while they work; the main conversation stays in place. Completed agent traces remain available when reopening the conversation. **Stop** interrupts the parent task and its workers.
+When subagents start, an **Expert team mode** card lists their names and running, completed, failed, or stopped status. Select an agent to open its output, thinking text, and tool calls inside the card. Switch between agents while they work; the main conversation stays in place. Completed agent traces remain available when reopening the conversation. **Stop** interrupts the parent task and its workers.
 
-Subagents use the conversation's tool permission policy. Requests still appear as approval cards in **Ask each time**. Multiple workers can produce multiple permission requests. Using multiple agents may increase model usage; parallel execution does not guarantee a lower cost. Clear **Multi-agent** before a later submission to use ordinary execution again.
+Subagents use the conversation's full-access tool policy. Using multiple agents may increase model usage; parallel execution does not guarantee a lower cost. Click **Expert team mode** again to turn it off before a later submission to use ordinary execution again.
 
 ### Switch models
 
@@ -72,24 +72,15 @@ Wait for generation or tool approval to finish, or click **Stop**, before switch
 
 ### Choose reasoning effort
 
-Use **Reasoning effort** beside the composer in any chat or local/SSH work session. Choose **Low**, **Medium**, or **High** to override the model's configured default for that conversation, or choose **Default** to follow it. When the provider leaves its default unset, the model chooses its own effort. Only use effort levels supported by your model and provider.
+Use **Reasoning effort** beside the composer in any chat or local/SSH work session. Choose **Low**, **Medium**, **High**, or **Max** to override the model's configured default for that conversation, or choose **Default** to follow it. When the provider leaves its default unset, the model chooses its own effort. Only use effort levels supported by your model and provider.
 
 You can choose before the first message and change it at any time, including during a reply or tool approval. Changes apply to the next message; the current response continues with its original setting. Each conversation saves its own choice, restores it when reopened, and keeps it when switching models. Choose **Default** again to follow the newly selected model's default. Changing one conversation never changes the provider or other conversations.
 
 If a connection failure leaves the choice unconfirmed, use **Confirm reasoning effort again** before sending the next message.
 
-### Choose tool permissions
+### Full-access work
 
-Use the permission control beside the composer in a work session:
-
-| Mode              | Behavior                                                                                    |
-| ----------------- | ------------------------------------------------------------------------------------------- |
-| **Ask each time** | Allow or deny each tool permission request. This is the default for every new work session. |
-| **Full access**   | Automatically approve file access, command execution, and other tool requests.              |
-
-Permission mode is saved with each work session and restored when you reopen it. You can switch after a task finishes or fails, but not during execution or while approval is pending. Local and SSH work follow the same rules.
-
-Before the first message in **Ask each time**, a reminder explains that tool approvals may interrupt frequently. Choose **Confirm and continue**, **Switch to full access and continue**, or **Cancel**. Canceling or closing the dialog preserves the draft.
+Send your task directly in a local or SSH Work conversation. Work uses **Full access**, automatically approving file access, command execution, and other tool requests. There is no permission selector or first-message confirmation dialog. The composer confirms full access with the service before sending; if that save cannot be confirmed, use **Confirm permissions again** before retrying.
 
 Work is not a directory sandbox: commands can access anything the current user can access on the execution machine. Chat has no permission switch.
 

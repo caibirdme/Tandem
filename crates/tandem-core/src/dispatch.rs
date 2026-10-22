@@ -17,8 +17,7 @@ pub struct CreateSessionRequest {
     pub project_id: Option<String>,
     pub provider_id: String,
     pub model_id: String,
-    #[serde(default)]
-    pub permission_mode: PermissionMode,
+    pub permission_mode: Option<PermissionMode>,
     pub reasoning_effort: Option<String>,
 }
 

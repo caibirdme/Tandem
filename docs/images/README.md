@@ -2,11 +2,11 @@
 
 These images show the actual Tandem React interface in English, captured in browser development mode with an isolated `tandem-dev-server` data directory. Conversation messages, project names, model settings, and SSH details are illustrative. No real provider credentials, private conversations, or remote hosts are used.
 
-| Image                   | View                                                                                                 |
-| ----------------------- | ---------------------------------------------------------------------------------------------------- |
-| `work-session.jpg`      | A local project conversation with model selection and the default **Ask each time** permission mode. |
-| `provider-settings.jpg` | The provider editor's request URL preview, API key field, and model configuration.                   |
-| `ssh-project.jpg`       | The remote project form with example SSH connection details and a working directory.                 |
+| Image                   | View                                                                                                                                                     |
+| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `work-session.jpg`      | An earlier interface showing a local project conversation and permission selection. Current Work sessions use full access without a permission selector. |
+| `provider-settings.jpg` | The provider editor's request URL preview, API key field, and model configuration.                                                                       |
+| `ssh-project.jpg`       | The remote project form with example SSH connection details and a working directory.                                                                     |
 
 To refresh the images:
 

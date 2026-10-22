@@ -174,7 +174,7 @@ def check_stdio_reasoning(server, fixture, endpoint):
     options['model']['id'] = 'gpt-5'
     transcript = []
     native_effort = None
-    for index, effort in enumerate((None, 'low', 'high', None)):
+    for index, effort in enumerate((None, 'low', 'high', 'max', None)):
         options['model']['reasoningEffort'] = effort
         server.command('start_agent', options=options, resume=bool(transcript))
         prompt = f'fixture:chat Preserve STDIO_REASONING_HISTORY with effort {effort}.'
@@ -509,7 +509,7 @@ def check_ssh_reasoning(app, fixture, directory, endpoint, project):
     native_effort = wire_effort(*requests[0])
     for path, body in requests:
         require_wire_effort(path, body, native_effort)
-    for effort in ('high', 'low'):
+    for effort in ('high', 'max', 'low'):
         work = set_effort(app, directory, work, effort)
         check_reasoning_turn(app, fixture, work,
                              f'fixture:chat Apply SSH reasoning override {effort} in the original conversation.', effort)
@@ -611,7 +611,8 @@ def check_ssh(remote_server, dev_server, root, endpoint, fixture):
             app.command('delete_session', sessionId=session['id'])
         skill_session, _ = check_project_skills(app, fixture, project, provider, 'gpt-4.1', workspace, ssh.home)
         app.command('delete_session', sessionId=skill_session['id'])
-        work = app.command('create_session', projectId=project['id'], providerId=provider['id'], modelId='gpt-4.1')
+        work = app.command('create_session', projectId=project['id'], providerId=provider['id'],
+                           modelId='gpt-4.1', permissionMode='ask')
         first_work_events = app.turn(work, 'fixture:work-create Create verified.txt on the SSH host.')
         require(app.wait_title(work['id'], first_work_events) == 'Acceptance file operations', 'SSH work title was not summarized')
         require((workspace / 'verified.txt').read_text() == 'first version\n', 'Remote SDK tool did not create the file')

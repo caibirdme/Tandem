@@ -43,6 +43,14 @@ describe('provider editor fields', () => {
     expect(rendered.indexOf('value="131.072"')).toBeLessThan(rendered.indexOf('<details'));
   });
 
+  it('offers Max and preserves a saved Max model default', () => {
+    const rendered = markup({
+      ...provider,
+      models: provider.models.map((model) => ({ ...model, reasoningEffort: 'max' })),
+    });
+    expect(rendered).toContain('<option value="max" selected="">Max</option>');
+  });
+
   it('marks required fields and preserves native validation for a new provider', () => {
     const rendered = markup(null);
     const labels = [...rendered.matchAll(/<label(?: [^>]*)?>(.*?)<\/label>/g)].map(

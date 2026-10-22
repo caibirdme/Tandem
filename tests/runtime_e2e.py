@@ -340,6 +340,7 @@ def main():
                 projectId=project["id"],
                 providerId=provider["id"],
                 modelId=model,
+                permissionMode="ask",
             )
             create_events = app.turn(
                 work,
@@ -432,7 +433,7 @@ def main():
             )
             automatic = check_permission_modes(app, project, provider, model, workspace)
             summary.append(
-                "work permission modes: automatic read/write/edit/shell, interactive denial, busy-change rejection, and policy changes on resume succeeded"
+                "work permission modes: default full access and automatic read/write/edit/shell, interactive denial, busy-change rejection, and policy changes on resume succeeded"
             )
             switched_chat, automatic = check_model_switching(
                 app, fixture, providers, root, automatic
@@ -442,7 +443,7 @@ def main():
             )
             reasoning_state = check_reasoning_efforts(app, fixture, root, fixture_url, project)
             summary.append(
-                "session reasoning: provider defaults, explicit overrides, reset, Chat/Work isolation, live and pending-approval changes, model/provider changes, malformed inputs, persistence, and actual OpenAI request effort verified"
+                "session reasoning: provider defaults, explicit overrides including max, reset, Chat/Work isolation, live and pending-approval changes, model/provider changes, malformed inputs, persistence, and actual OpenAI request effort verified"
             )
             thinking_provider, thinking_model = providers["anthropic"]
             thinking_state = check_thinking_text(app, fixture, thinking_provider, thinking_model)

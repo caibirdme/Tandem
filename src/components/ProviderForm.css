@@ -5,7 +5,7 @@
 }
 .provider-request-url code {
   overflow-wrap: anywhere;
-  color: #5c5f58;
+  color: var(--secondary);
 }
 .model-context-field {
   margin-top: 14px;
@@ -25,5 +25,5 @@
   right: 12px;
   pointer-events: none;
   font-size: 0.75rem;
-  color: #787b74;
+  color: var(--secondary);
 }

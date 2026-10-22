@@ -2,7 +2,7 @@
 
 ## Project overview
 
-Tandem is an agent desktop application for local directories and SSH projects. Chat exposes only web tools and automatically approves every tool permission request without prompting the user. Work runs in a selected directory and asks for each permission by default; users can also grant full access for that session. GitHub Copilot SDK provides the agent loop.
+Tandem is an agent desktop application for local directories and SSH projects. Chat exposes only web tools and automatically approves every tool permission request without prompting the user. Work runs in a selected directory with full access by default; the composer does not expose a permission selector. GitHub Copilot SDK provides the agent loop.
 
 Stack: Tauri 2, Rust 1.99.1 / edition 2024, React, TypeScript 7, Vite 8, and pnpm. All backend business logic is written in Rust.
 

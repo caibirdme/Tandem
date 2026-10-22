@@ -134,7 +134,7 @@ mod tests {
                 None,
                 original.id,
                 "original".into(),
-                PermissionMode::Ask,
+                Some(PermissionMode::Ask),
                 None,
             )
             .await?;
