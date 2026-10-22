@@ -136,6 +136,7 @@ async fn start(protocol: ProviderProtocol) -> (Server, Value, JoinHandle<Result<
     let client = Client::from_streams(client_reader, client_writer, directory.clone())
         .expect("valid SDK fixture");
     let runtime = Runtime {
+        agentlens: None,
         client,
         chat_directory: directory,
     };
@@ -395,6 +396,7 @@ async fn runtime_shutdown_retains_the_sdk_error_aggregate_and_source_chain() {
         .expect("valid SDK fixture")
         .expect("valid SDK fixture");
     let runtime = Runtime {
+        agentlens: None,
         client,
         chat_directory: directory,
     };

@@ -142,15 +142,42 @@ export function providerPayload(
   };
 }
 
-type PreferenceEdit = { kind: 'telemetry'; value: Telemetry } | { kind: 'cliPath'; value: string };
+type PreferenceEdit =
+  | { kind: 'telemetry'; value: Telemetry; credential?: CredentialEdit }
+  | { kind: 'cliPath'; value: string };
 
 /** Only the visible settings page owns a draft; other values come from the latest snapshot. */
 export function preferencesPayload(
   settings: Settings,
   edit: PreferenceEdit,
 ): Commands['save_preferences']['payload'] {
+  if (edit.kind === 'telemetry' && edit.value.agentlens) {
+    if (edit.value.enabled && !edit.value.agentlens.serviceName.trim()) {
+      throw new Error(t('error.telemetryServiceName'));
+    }
+    if (edit.credential?.kind === 'replace' && !edit.credential.value.trim()) {
+      throw new Error(t('error.blankReplacement'));
+    }
+  }
   return {
-    telemetry: edit.kind === 'telemetry' ? edit.value : settings.telemetry,
+    telemetry:
+      edit.kind === 'telemetry'
+        ? {
+            ...edit.value,
+            endpoint: edit.value.endpoint.trim(),
+            ...(edit.value.agentlens
+              ? {
+                  agentlens: { serviceName: edit.value.agentlens.serviceName.trim() },
+                  protocol: 'http/json' as const,
+                }
+              : {}),
+          }
+        : settings.telemetry,
     cliPath: edit.kind === 'cliPath' ? edit.value.trim() || null : settings.cliPath,
+    ...(edit.kind === 'telemetry' && edit.value.agentlens && edit.credential?.kind === 'replace'
+      ? { telemetryApiKey: edit.credential.value.trim() }
+      : edit.kind === 'telemetry' && edit.value.agentlens && edit.credential?.kind === 'remove'
+        ? { telemetryApiKey: '' }
+        : {}),
   };
 }

@@ -129,6 +129,26 @@ pub struct TelemetrySettings {
     pub protocol: TelemetryProtocol,
     #[serde(default)]
     pub capture_content: bool,
+    #[serde(default)]
+    pub agentlens: Option<AgentLensSettings>,
+}
+
+/// `AgentLens` resource configuration. Credentials are never included in diagnostics.
+#[derive(Clone, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentLensSettings {
+    pub service_name: String,
+    pub api_key: String,
+}
+
+impl fmt::Debug for AgentLensSettings {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("AgentLensSettings")
+            .field("service_name", &self.service_name)
+            .field("api_key", &"[redacted]")
+            .finish()
+    }
 }
 
 /// State is private to this application, independently of the user's CLI state.

@@ -59,6 +59,14 @@ pub enum Error {
         #[source]
         storage: Box<StorageError>,
     },
+    #[error(
+        "Saving telemetry settings failed ({storage}), and the previous API key could not be restored: {secret}"
+    )]
+    TelemetryPreferencesRestore {
+        #[source]
+        storage: Box<StorageError>,
+        secret: Box<SecretError>,
+    },
     #[error("Wait for this provider's conversations to finish before changing its settings.")]
     ProviderRunning,
     #[error("The selected model is not configured for this provider. Select a model again.")]
@@ -270,6 +278,7 @@ impl Error {
             | Self::Io(_)
             | Self::Json(_)
             | Self::ProviderRestore { .. }
+            | Self::TelemetryPreferencesRestore { .. }
             | Self::ModelConnectionCleanup(_)
             | Self::InvalidRemoteEvent(_)
             | Self::InvalidRuntimeState(_)
@@ -293,6 +302,27 @@ fn runtime_error_code(error: &copilot_runtime::Error) -> ErrorCode {
             ErrorCode::InvalidInput
         }
         RuntimeError::UnknownApproval => ErrorCode::NotFound,
+        RuntimeError::Telemetry(error) => match error {
+            copilot_runtime::TelemetryError::HttpStatus { status: 408 | 429 } => {
+                ErrorCode::Unavailable
+            }
+            copilot_runtime::TelemetryError::HttpStatus { status: 400..=499 }
+            | copilot_runtime::TelemetryError::RejectedSpans { .. } => ErrorCode::InvalidInput,
+            copilot_runtime::TelemetryError::Transport(_)
+            | copilot_runtime::TelemetryError::HttpStatus { .. }
+            | copilot_runtime::TelemetryError::InvalidResponse
+            | copilot_runtime::TelemetryError::IncompleteTrace { .. }
+            | copilot_runtime::TelemetryError::SparseFile(_)
+            | copilot_runtime::TelemetryError::SparseFileSetup
+            | copilot_runtime::TelemetryError::FlushTimeout => ErrorCode::Unavailable,
+            copilot_runtime::TelemetryError::Storage(_)
+            | copilot_runtime::TelemetryError::Client(_)
+            | copilot_runtime::TelemetryError::InvalidRecord(_)
+            | copilot_runtime::TelemetryError::RecordLimit
+            | copilot_runtime::TelemetryError::QueueLimit
+            | copilot_runtime::TelemetryError::InvalidSpan
+            | copilot_runtime::TelemetryError::TaskStopped => ErrorCode::Internal,
+        },
         RuntimeError::Busy => ErrorCode::Conflict,
         RuntimeError::Serialization(_) => ErrorCode::Internal,
         RuntimeError::Sdk(_)

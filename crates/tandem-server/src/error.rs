@@ -95,6 +95,31 @@ impl ServerError {
                 | copilot_runtime::SkillError::DiscoveryTimeout => RpcErrorCode::RuntimeTimeout,
                 _ => RpcErrorCode::InvalidPayload,
             },
+            Self::Runtime(RuntimeError::Telemetry(error)) => match error {
+                copilot_runtime::TelemetryError::HttpStatus { status: 408 | 429 } => {
+                    RpcErrorCode::RuntimeFailure
+                }
+                copilot_runtime::TelemetryError::HttpStatus { status: 400..=499 }
+                | copilot_runtime::TelemetryError::RejectedSpans { .. } => {
+                    RpcErrorCode::InvalidPayload
+                }
+                copilot_runtime::TelemetryError::FlushTimeout => RpcErrorCode::RuntimeTimeout,
+                copilot_runtime::TelemetryError::SparseFile(_)
+                | copilot_runtime::TelemetryError::SparseFileSetup => {
+                    RpcErrorCode::RuntimeUnavailable
+                }
+                copilot_runtime::TelemetryError::Storage(_)
+                | copilot_runtime::TelemetryError::Client(_)
+                | copilot_runtime::TelemetryError::Transport(_)
+                | copilot_runtime::TelemetryError::HttpStatus { .. }
+                | copilot_runtime::TelemetryError::InvalidResponse
+                | copilot_runtime::TelemetryError::IncompleteTrace { .. }
+                | copilot_runtime::TelemetryError::InvalidRecord(_)
+                | copilot_runtime::TelemetryError::RecordLimit
+                | copilot_runtime::TelemetryError::QueueLimit
+                | copilot_runtime::TelemetryError::InvalidSpan
+                | copilot_runtime::TelemetryError::TaskStopped => RpcErrorCode::RuntimeFailure,
+            },
             Self::RequiredField { .. }
             | Self::InvalidBoolean { .. }
             | Self::InvalidPayload { .. }
@@ -191,6 +216,24 @@ mod tests {
                     copilot_runtime::AttachmentError::TooMany { limit: 10 },
                 )),
                 RpcErrorCode::InvalidPayload,
+            ),
+            (
+                ServerError::Runtime(RuntimeError::Telemetry(
+                    copilot_runtime::TelemetryError::HttpStatus { status: 401 },
+                )),
+                RpcErrorCode::InvalidPayload,
+            ),
+            (
+                ServerError::Runtime(RuntimeError::Telemetry(
+                    copilot_runtime::TelemetryError::HttpStatus { status: 429 },
+                )),
+                RpcErrorCode::RuntimeFailure,
+            ),
+            (
+                ServerError::Runtime(RuntimeError::Telemetry(
+                    copilot_runtime::TelemetryError::FlushTimeout,
+                )),
+                RpcErrorCode::RuntimeTimeout,
             ),
         ] {
             assert_eq!(error.into_rpc().code, expected);

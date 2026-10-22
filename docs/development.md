@@ -25,12 +25,15 @@ The workspace default target is also `tandem-dev-server`, so `cargo run` starts 
 | Verification scripts and event waiting        | `just test-python`                                                   |
 | Formatting                                    | `just format`, then `just check-format`                              |
 | Sessions, tools, providers, or telemetry      | `just integration`                                                   |
+| AgentLens export, content, or credentials     | `just integration-agentlens`                                         |
 | SSH transport, deployment, or remote protocol | `just integration-ssh`                                               |
 | Windows, resources, or native features        | `just desktop-build`, then open and verify the generated application |
 
 Run `just check` before committing. oxlint enables React, TypeScript, accessibility, and strict rules. TypeScript uses strict mode; Rust runs Clippy all + pedantic with warnings treated as failures. Formatting uses oxfmt and nightly rustfmt; rustfmt merges imports by crate and groups standard library, external crate, and current crate imports.
 
 Unit tests cover state merging, permission denial, configuration boundaries, database relationships, SSH injection, and communication failures. `just check` also runs Python standard-library tests for event routing, process cleanup, and the dependency boundary checker. Integration tests use the real SDK and matching CLI, replacing only external inference and OTLP receivers with test endpoints, so paid credentials are unnecessary. The chat web-tool case reads `https://example.com` and needs public network access. Clear inherited overrides such as `COPILOT_OFFLINE` and `COPILOT_PROVIDER_*` before running, since they can affect isolated test sessions. These tests cannot establish whether a real provider supports a particular model or parameter.
+
+`just integration-agentlens` exercises complete Chat and Work content, excludes real title-helper traffic, checks the AgentLens resource and span conventions, retries a transient collector failure, and verifies local key persistence and remote stdio export with test credentials. CI runs it in the existing Rust job. For an explicitly authorized live receiver check, run `python tests/agentlens_e2e.py --live-endpoint <base-url>` and provide the access key on standard input. This uploads synthetic acceptance conversations using local inference fixtures; it never accepts a key on the command line or prints it. Verify the printed acceptance marker in the intended AgentLens workspace before claiming successful platform display.
 
 ## Adding a language
 

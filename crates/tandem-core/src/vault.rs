@@ -30,6 +30,16 @@ pub trait SecretStore: Send + Sync {
     /// # Errors
     /// Returns an error when credential storage is unavailable.
     fn set(&self, id: &str, secret: Option<&str>) -> Result<()>;
+    /// Read the `AgentLens` credential on demand.
+    ///
+    /// # Errors
+    /// Returns an error when credential storage is unavailable.
+    fn get_telemetry_api_key(&self) -> Result<Option<String>>;
+    /// Replace or remove the `AgentLens` credential independently of provider keys.
+    ///
+    /// # Errors
+    /// Returns an error when credential storage is unavailable.
+    fn set_telemetry_api_key(&self, secret: Option<&str>) -> Result<()>;
 }
 
 /// Plaintext credentials stored separately from provider metadata in the local database.
@@ -51,6 +61,9 @@ impl LocalVault {
         database.execute_batch(
             "CREATE TABLE IF NOT EXISTS provider_secrets (
                 id TEXT PRIMARY KEY, secret TEXT
+            );
+            CREATE TABLE IF NOT EXISTS telemetry_secrets (
+                id INTEGER PRIMARY KEY CHECK(id=1), secret TEXT
             );",
         )?;
         Ok(database)
@@ -78,11 +91,38 @@ impl SecretStore for LocalVault {
         )?;
         Ok(())
     }
+
+    fn get_telemetry_api_key(&self) -> Result<Option<String>> {
+        Ok(self
+            .open()?
+            .query_row(
+                "SELECT secret FROM telemetry_secrets WHERE id=1",
+                [],
+                |row| row.get::<_, Option<String>>(0),
+            )
+            .optional()?
+            .flatten())
+    }
+
+    fn set_telemetry_api_key(&self, secret: Option<&str>) -> Result<()> {
+        self.open()?.execute(
+            "INSERT INTO telemetry_secrets(id,secret) VALUES(1,?1)
+             ON CONFLICT(id) DO UPDATE SET secret=excluded.secret",
+            [secret.filter(|value| !value.is_empty())],
+        )?;
+        Ok(())
+    }
 }
 
 /// Explicitly opt-in test store. Credentials disappear with the process.
 #[derive(Default)]
-pub struct MemoryVault(Mutex<HashMap<String, String>>);
+pub struct MemoryVault(Mutex<MemorySecrets>);
+
+#[derive(Default)]
+struct MemorySecrets {
+    providers: HashMap<String, String>,
+    telemetry: Option<String>,
+}
 
 impl SecretStore for MemoryVault {
     fn get(&self, id: &str) -> Result<Option<String>> {
@@ -90,6 +130,7 @@ impl SecretStore for MemoryVault {
             .0
             .lock()
             .map_err(|_| SecretError::LockPoisoned)?
+            .providers
             .get(id)
             .cloned())
     }
@@ -97,10 +138,27 @@ impl SecretStore for MemoryVault {
     fn set(&self, id: &str, secret: Option<&str>) -> Result<()> {
         let mut entries = self.0.lock().map_err(|_| SecretError::LockPoisoned)?;
         if let Some(value) = secret.filter(|value| !value.is_empty()) {
-            entries.insert(id.into(), value.into());
+            entries.providers.insert(id.into(), value.into());
         } else {
-            entries.remove(id);
+            entries.providers.remove(id);
         }
+        Ok(())
+    }
+
+    fn get_telemetry_api_key(&self) -> Result<Option<String>> {
+        Ok(self
+            .0
+            .lock()
+            .map_err(|_| SecretError::LockPoisoned)?
+            .telemetry
+            .clone())
+    }
+
+    fn set_telemetry_api_key(&self, secret: Option<&str>) -> Result<()> {
+        self.0
+            .lock()
+            .map_err(|_| SecretError::LockPoisoned)?
+            .telemetry = secret.filter(|value| !value.is_empty()).map(str::to_owned);
         Ok(())
     }
 }
@@ -131,6 +189,8 @@ mod tests {
         for result in [
             vault.get("provider").map(|_| ()),
             vault.set("provider", None),
+            vault.get_telemetry_api_key().map(|_| ()),
+            vault.set_telemetry_api_key(None),
         ] {
             let error = result.err().context("poisoned credential lock must fail")?;
             assert!(matches!(error, SecretError::LockPoisoned));
@@ -162,19 +222,24 @@ mod tests {
         let directory = TempDir::new()?;
         let path = directory.path().join("tandem.sqlite3");
         Connection::open(&path)?.execute_batch(
-            "CREATE TABLE provider_secrets (id TEXT PRIMARY KEY, secret TEXT CHECK(secret IS NULL));"
+            "CREATE TABLE provider_secrets (id TEXT PRIMARY KEY, secret TEXT CHECK(secret IS NULL));
+             CREATE TABLE telemetry_secrets (id INTEGER PRIMARY KEY, secret TEXT CHECK(secret IS NULL));"
         )?;
         let vault = LocalVault::new(path);
-        let error = vault
-            .set("provider", Some("fixture-sensitive-key"))
-            .err()
-            .context("the fixture constraint must reject credentials")?;
-        assert!(matches!(error, SecretError::Database(_)));
-        let source = error
-            .source()
-            .context("database failure must retain its source")?;
-        assert!(source.downcast_ref::<rusqlite::Error>().is_some());
-        assert!(!format!("{error} {error:?} {source}").contains("fixture-sensitive-key"));
+        for result in [
+            vault.set("provider", Some("fixture-sensitive-key")),
+            vault.set_telemetry_api_key(Some("fixture-sensitive-key")),
+        ] {
+            let error = result
+                .err()
+                .context("the fixture constraint must reject credentials")?;
+            assert!(matches!(error, SecretError::Database(_)));
+            let source = error
+                .source()
+                .context("database failure must retain its source")?;
+            assert!(source.downcast_ref::<rusqlite::Error>().is_some());
+            assert!(!format!("{error} {error:?} {source}").contains("fixture-sensitive-key"));
+        }
         Ok(())
     }
 
@@ -199,6 +264,38 @@ mod tests {
             )?;
             assert_eq!(persisted.as_deref(), expected);
         }
+        Ok(())
+    }
+
+    #[test]
+    fn telemetry_credentials_are_independent_and_clears_survive_restart() -> Result<()> {
+        for value in [Some("fixture-replacement-tenant"), None, Some("")] {
+            let directory = TempDir::new()?;
+            let path = directory.path().join("tandem.sqlite3");
+            let vault = LocalVault::new(path.clone());
+            vault.set("telemetry", Some("fixture-provider-key"))?;
+            vault.set_telemetry_api_key(Some("fixture-initial-tenant"))?;
+            vault.set_telemetry_api_key(value)?;
+            drop(vault);
+            let reopened = LocalVault::new(path);
+            assert_eq!(
+                reopened.get_telemetry_api_key()?.as_deref(),
+                value.filter(|value| !value.is_empty())
+            );
+            assert_eq!(
+                reopened.get("telemetry")?.as_deref(),
+                Some("fixture-provider-key")
+            );
+        }
+        let memory = MemoryVault::default();
+        memory.set("telemetry", Some("fixture-provider-key"))?;
+        memory.set_telemetry_api_key(Some("fixture-tenant"))?;
+        assert_eq!(
+            memory.get("telemetry")?.as_deref(),
+            Some("fixture-provider-key")
+        );
+        memory.set_telemetry_api_key(None)?;
+        assert!(memory.get_telemetry_api_key()?.is_none());
         Ok(())
     }
 }

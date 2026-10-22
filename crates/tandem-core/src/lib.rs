@@ -18,6 +18,7 @@ mod skills;
 mod store;
 mod subagents;
 mod submissions;
+mod telemetry;
 mod titles;
 mod turns;
 mod vault;

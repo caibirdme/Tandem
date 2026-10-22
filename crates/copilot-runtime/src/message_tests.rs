@@ -187,6 +187,7 @@ async fn attachment_only_and_skill_messages_reach_sdk_with_original_blobs() -> T
         let (writer, client_reader) = duplex(65_536);
         let client = Client::from_streams(client_reader, client_writer, canonical.clone())?;
         let runtime = Runtime {
+            agentlens: None,
             client,
             chat_directory: canonical.clone(),
         };
@@ -243,6 +244,7 @@ async fn unsupported_pdf_is_rejected_before_the_sdk_receives_a_message() -> Test
     let (writer, client_reader) = duplex(65_536);
     let client = Client::from_streams(client_reader, client_writer, directory.0.clone())?;
     let runtime = Runtime {
+        agentlens: None,
         client,
         chat_directory: directory.0.clone(),
     };
@@ -296,6 +298,7 @@ async fn fleet_is_explicit_and_restores_the_tool_boundary_for_the_next_turn() ->
     let (client_writer, reader) = duplex(65_536);
     let (writer, client_reader) = duplex(65_536);
     let runtime = Runtime {
+        agentlens: None,
         client: Client::from_streams(client_reader, client_writer, canonical.clone())?,
         chat_directory: canonical.clone(),
     };
@@ -377,6 +380,7 @@ async fn fleet_cannot_expand_chat_capabilities() -> TestResult {
     let (client_writer, reader) = duplex(65_536);
     let (writer, client_reader) = duplex(65_536);
     let runtime = Runtime {
+        agentlens: None,
         client: Client::from_streams(client_reader, client_writer, directory.0.clone())?,
         chat_directory: directory.0.clone(),
     };
@@ -417,6 +421,7 @@ async fn rejected_fleet_setup_never_starts_inference_and_releases_the_reservatio
         let (client_writer, reader) = duplex(65_536);
         let (writer, client_reader) = duplex(65_536);
         let runtime = Runtime {
+            agentlens: None,
             client: Client::from_streams(client_reader, client_writer, canonical.clone())?,
             chat_directory: canonical.clone(),
         };
@@ -473,6 +478,7 @@ async fn skill_discovery_preserves_sdk_failures_and_can_retry_an_empty_catalog()
     let (writer, client_reader) = duplex(65_536);
     let client = Client::from_streams(client_reader, client_writer, canonical.clone())?;
     let runtime = Runtime {
+        agentlens: None,
         client,
         chat_directory: canonical.clone(),
     };
@@ -518,6 +524,7 @@ async fn skill_discovery_timeout_remains_distinct_from_an_empty_catalog() -> Tes
     let (writer, client_reader) = duplex(65_536);
     let client = Client::from_streams(client_reader, client_writer, canonical.clone())?;
     let runtime = Runtime {
+        agentlens: None,
         client,
         chat_directory: canonical.clone(),
     };
@@ -545,6 +552,7 @@ async fn force_stop_releases_sessions_after_graceful_detach_is_cancelled() -> Te
     let (client_writer, reader) = duplex(65_536);
     let (writer, client_reader) = duplex(65_536);
     let runtime = Runtime {
+        agentlens: None,
         client: Client::from_streams(client_reader, client_writer, directory.0.clone())?,
         chat_directory: directory.0.clone(),
     };

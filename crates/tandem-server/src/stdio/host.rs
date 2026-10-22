@@ -409,6 +409,13 @@ fn telemetry_matches(left: Option<&TelemetrySettings>, right: Option<&TelemetryS
             left.endpoint == right.endpoint
                 && left.protocol == right.protocol
                 && left.capture_content == right.capture_content
+                && match (&left.agentlens, &right.agentlens) {
+                    (None, None) => true,
+                    (Some(left), Some(right)) => {
+                        left.service_name == right.service_name && left.api_key == right.api_key
+                    }
+                    _ => false,
+                }
         }
         _ => false,
     }
@@ -610,12 +617,47 @@ mod tests {
             json!("private-value"),
             json!({"enabled":"private-value"}),
             json!({"enabled":true}),
+            json!({"enabled":true,"endpoint":"https://collector.example:4318","protocol":"http/json",
+                "agentlens":{"serviceName":"tandem","apiKey":{"private-value":true}}}),
         ] {
             let error = telemetry_choice(&json!({"telemetry":value}))
                 .err()
                 .context("invalid telemetry")?;
             assert!(!format!("{error:?}").contains("private-value"));
         }
+        Ok(())
+    }
+
+    #[test]
+    fn telemetry_reconfiguration_compares_agentlens_service_and_credential() -> Result<()> {
+        let payload = json!({
+            "endpoint":"https://collector.example:4318", "protocol":"http/json",
+            "captureContent":false, "agentlens":{
+                "serviceName":"tandem-test", "apiKey":"fixture-private-tenant"
+            }
+        });
+        let original: TelemetrySettings = serde_json::from_value(payload.clone())?;
+        let copied: TelemetrySettings = serde_json::from_value(payload.clone())?;
+        assert!(telemetry_matches(Some(&original), Some(&copied)));
+        assert!(!format!("{original:?}").contains("fixture-private-tenant"));
+        for agentlens in [
+            Value::Null,
+            json!({"serviceName":"other-service","apiKey":"fixture-private-tenant"}),
+            json!({"serviceName":"tandem-test","apiKey":"fixture-replaced-tenant"}),
+        ] {
+            let mut changed = payload.clone();
+            changed["agentlens"] = agentlens;
+            let changed: TelemetrySettings = serde_json::from_value(changed)?;
+            assert!(!telemetry_matches(Some(&original), Some(&changed)));
+        }
+        let choice = telemetry_choice(&json!({"telemetry": {
+            "enabled":true, "endpoint":payload["endpoint"], "protocol":payload["protocol"],
+            "agentlens":payload["agentlens"]
+        }}))?;
+        let TelemetryChoice::Configure(Some(decoded)) = choice else {
+            anyhow::bail!("enabled AgentLens telemetry must be configured")
+        };
+        assert!(telemetry_matches(Some(&original), Some(&decoded)));
         Ok(())
     }
 }

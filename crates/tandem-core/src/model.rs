@@ -66,6 +66,12 @@ pub enum ValidationError {
     EndpointContainsFragment,
     #[error("Copilot SDK telemetry export supports http/protobuf and http/json.")]
     UnsupportedTelemetryProtocol { protocol: String },
+    #[error("Enter an AgentLens service name without control characters, up to 256 characters.")]
+    InvalidAgentLensServiceName,
+    #[error("Enter an AgentLens API key before enabling AgentLens telemetry.")]
+    MissingAgentLensApiKey,
+    #[error("Select HTTP / JSON for AgentLens telemetry.")]
+    AgentLensRequiresJson,
 }
 
 type Result<T> = std::result::Result<T, ValidationError>;
@@ -221,6 +227,15 @@ pub struct Telemetry {
     pub protocol: String,
     #[serde(default)]
     pub capture_content: bool,
+    #[serde(default)]
+    pub agentlens: Option<AgentLensConfig>,
+}
+
+/// Public `AgentLens` configuration. The credential is stored separately.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentLensConfig {
+    pub service_name: String,
 }
 
 impl Default for Telemetry {
@@ -230,6 +245,7 @@ impl Default for Telemetry {
             endpoint: "http://127.0.0.1:4318".into(),
             protocol: default_telemetry_protocol(),
             capture_content: false,
+            agentlens: None,
         }
     }
 }
@@ -250,6 +266,16 @@ impl Telemetry {
                 return Err(ValidationError::UnsupportedTelemetryProtocol {
                     protocol: self.protocol.clone(),
                 });
+            }
+            if self.agentlens.as_ref().is_some_and(|config| {
+                config.service_name.trim().is_empty()
+                    || config.service_name.chars().count() > 256
+                    || config.service_name.chars().any(char::is_control)
+            }) {
+                return Err(ValidationError::InvalidAgentLensServiceName);
+            }
+            if self.agentlens.is_some() && self.protocol != "http/json" {
+                return Err(ValidationError::AgentLensRequiresJson);
             }
         }
         Ok(())

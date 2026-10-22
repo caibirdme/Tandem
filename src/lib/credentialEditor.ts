@@ -15,7 +15,8 @@ export type CredentialEditorAction =
   | { type: 'loadFailed'; request: number; error: string }
   | { type: 'edited'; value: string }
   | { type: 'visibilityToggled' }
-  | { type: 'removalToggled' };
+  | { type: 'removalToggled' }
+  | { type: 'saved'; submitted: CredentialEditorState };
 
 export function initialCredentialEditor(hasSavedKey: boolean): CredentialEditorState {
   return {
@@ -61,6 +62,19 @@ export function reduceCredentialEditor(
         loadingRequest: null,
         error: null,
       };
+    case 'saved': {
+      // Completing an earlier save must never reset a newer credential draft.
+      if (state !== action.submitted) return state;
+      const edit = credentialEdit(state);
+      return {
+        ...state,
+        value:
+          edit.kind === 'remove' ? '' : edit.kind === 'replace' ? edit.value.trim() : state.value,
+        modified: false,
+        removing: false,
+        visible: false,
+      };
+    }
   }
 }
 
