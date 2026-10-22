@@ -18,7 +18,9 @@ def private_environment(home):
     environment = os.environ.copy()
     environment.update(HOME=str(home), USERPROFILE=str(home), XDG_CACHE_HOME=str(home / '.cache'),
                        XDG_CONFIG_HOME=str(home / '.config'), XDG_STATE_HOME=str(home / '.state'))
-    for key in ('COPILOT_CLI_PATH', 'GITHUB_TOKEN', 'GH_TOKEN', 'COPILOT_GITHUB_TOKEN'):
+    # Acceptance assertions require complete traces, not the host's sampling policy.
+    for key in ('COPILOT_CLI_PATH', 'GITHUB_TOKEN', 'GH_TOKEN', 'COPILOT_GITHUB_TOKEN',
+                'OTEL_TRACES_SAMPLER', 'OTEL_TRACES_SAMPLER_ARG'):
         environment.pop(key, None)
     return environment
 

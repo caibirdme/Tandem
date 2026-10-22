@@ -60,6 +60,14 @@ pub enum Error {
         storage: Box<StorageError>,
     },
     #[error(
+        "Saving provider settings failed ({storage}), and the previous API key could not be restored: {secret}"
+    )]
+    ProviderSaveRestore {
+        #[source]
+        storage: Box<StorageError>,
+        secret: Box<SecretError>,
+    },
+    #[error(
         "Saving telemetry settings failed ({storage}), and the previous API key could not be restored: {secret}"
     )]
     TelemetryPreferencesRestore {
@@ -278,6 +286,7 @@ impl Error {
             | Self::Io(_)
             | Self::Json(_)
             | Self::ProviderRestore { .. }
+            | Self::ProviderSaveRestore { .. }
             | Self::TelemetryPreferencesRestore { .. }
             | Self::ModelConnectionCleanup(_)
             | Self::InvalidRemoteEvent(_)
