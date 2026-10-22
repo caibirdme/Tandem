@@ -70,7 +70,8 @@
   max-height: 260px;
   padding: 0 6px 6px;
   overflow-y: auto;
-  overscroll-behavior: contain;
+  /* Nested content must hand vertical scrolling back to its transcript at either edge. */
+  overscroll-behavior-y: auto;
 }
 .fleet-agent-row {
   display: flex;
