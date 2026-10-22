@@ -8,7 +8,7 @@ use url::Url;
 
 use crate::{
     ErrorCode, EventDecodeError,
-    model::{ValidationError, validate_endpoint},
+    model::{ValidationError, validate_endpoint, validate_token_count},
 };
 
 const PAGE_BYTES: usize = 2 * 1024 * 1024;
@@ -32,6 +32,8 @@ pub enum ModelDiscoveryError {
     Decode(#[source] EventDecodeError),
     #[error("The model-list response contains an invalid model ID or display name.")]
     InvalidModel,
+    #[error("The model-list response contains invalid token limits.")]
+    InvalidMetadata(#[source] ValidationError),
     #[error(
         "The model-list response has invalid or repeated pagination. Check the endpoint protocol."
     )]
@@ -54,12 +56,90 @@ impl ModelDiscoveryError {
 pub(crate) struct DiscoveredModel {
     id: String,
     display_name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    context_window: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    max_output_tokens: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    supported_reasoning_efforts: Option<Vec<String>>,
 }
 
 #[derive(Deserialize)]
 struct WireModel {
     id: String,
     display_name: String,
+    max_input_tokens: Option<i64>,
+    max_tokens: Option<i64>,
+    capabilities: Option<WireCapabilities>,
+}
+
+#[derive(Deserialize)]
+struct WireCapabilities {
+    effort: Option<WireEffort>,
+}
+
+#[derive(Deserialize)]
+struct WireSupport {
+    supported: bool,
+}
+
+#[derive(Deserialize)]
+struct WireEffort {
+    supported: bool,
+    low: Option<WireSupport>,
+    medium: Option<WireSupport>,
+    high: Option<WireSupport>,
+    xhigh: Option<WireSupport>,
+    max: Option<WireSupport>,
+}
+
+impl WireEffort {
+    fn supported_levels(self) -> Vec<String> {
+        if !self.supported {
+            return Vec::new();
+        }
+        [
+            ("low", self.low),
+            ("medium", self.medium),
+            ("high", self.high),
+            ("xhigh", self.xhigh),
+            ("max", self.max),
+        ]
+        .into_iter()
+        .filter(|(_, capability)| {
+            capability
+                .as_ref()
+                .is_some_and(|capability| capability.supported)
+        })
+        .map(|(level, _)| level.to_owned())
+        .collect()
+    }
+}
+
+impl WireModel {
+    fn into_discovered(self) -> Result<DiscoveredModel, ModelDiscoveryError> {
+        if self.id.trim() != self.id || !valid_label(&self.id) || !valid_label(&self.display_name) {
+            return Err(ModelDiscoveryError::InvalidModel);
+        }
+        // Catalog fields advertise independent ceilings; a chosen output budget
+        // is validated against the context only when the provider is saved.
+        for count in [self.max_input_tokens, self.max_tokens]
+            .into_iter()
+            .flatten()
+        {
+            validate_token_count(count).map_err(ModelDiscoveryError::InvalidMetadata)?;
+        }
+        Ok(DiscoveredModel {
+            id: self.id,
+            display_name: self.display_name,
+            context_window: self.max_input_tokens,
+            max_output_tokens: self.max_tokens,
+            supported_reasoning_efforts: self
+                .capabilities
+                .and_then(|capabilities| capabilities.effort)
+                .map(WireEffort::supported_levels),
+        })
+    }
 }
 
 #[derive(Deserialize)]
@@ -177,17 +257,9 @@ async fn fetch_pages(
             return Err(ModelDiscoveryError::InvalidPagination);
         }
         for model in page.data {
-            if model.id.trim() != model.id
-                || !valid_label(&model.id)
-                || !valid_label(&model.display_name)
-            {
-                return Err(ModelDiscoveryError::InvalidModel);
-            }
+            let model = model.into_discovered()?;
             if ids.insert(model.id.clone()) {
-                models.push(DiscoveredModel {
-                    id: model.id,
-                    display_name: model.display_name,
-                });
+                models.push(model);
                 if models.len() > MAX_MODELS {
                     return Err(ModelDiscoveryError::TooLarge);
                 }
@@ -379,6 +451,110 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn catalog_metadata_preserves_limits_and_explicit_effort_support() -> Result<()> {
+        let body = json!({
+            "data": [
+                {
+                    "id": "million", "display_name": "Million",
+                    "max_input_tokens": 1_000_000, "max_tokens": 128_000,
+                    "capabilities": {"effort": {
+                        "supported": true,
+                        "low": {"supported": true}, "medium": {"supported": true},
+                        "high": {"supported": true}, "xhigh": {"supported": true},
+                        "max": {"supported": true}
+                    }}
+                },
+                {
+                    "id": "subset", "display_name": "Subset",
+                    "capabilities": {"effort": {
+                        "supported": true, "low": {"supported": false},
+                        "high": {"supported": true}, "xhigh": {"supported": true},
+                        "unknown": {"supported": true}
+                    }}
+                },
+                {
+                    "id": "unsupported", "display_name": "Unsupported",
+                    "capabilities": {"effort": {
+                        "supported": false, "high": {"supported": true}
+                    }}
+                },
+                {
+                    "id": "unspecified", "display_name": "Unspecified",
+                    "max_input_tokens": null, "max_tokens": null, "capabilities": null
+                },
+                {"id": "missing", "display_name": "Missing"}
+            ],
+            "has_more": false
+        });
+        let (base, server) = fixture(vec![response("200 OK", &body.to_string(), "")]).await?;
+        let models = list_models(&base, "/v1/models", None).await?;
+        assert_eq!(
+            serde_json::to_value(models)?,
+            json!([
+                {
+                    "id": "million", "displayName": "Million",
+                    "contextWindow": 1_000_000, "maxOutputTokens": 128_000,
+                    "supportedReasoningEfforts": ["low", "medium", "high", "xhigh", "max"]
+                },
+                {"id": "subset", "displayName": "Subset", "supportedReasoningEfforts": ["high", "xhigh"]},
+                {"id": "unsupported", "displayName": "Unsupported", "supportedReasoningEfforts": []},
+                {"id": "unspecified", "displayName": "Unspecified"},
+                {"id": "missing", "displayName": "Missing"}
+            ])
+        );
+        server.await??;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn independent_catalog_ceilings_do_not_block_other_models() -> Result<()> {
+        let body = json!({
+            "data": [
+                {"id": "opus", "display_name": "Opus", "max_input_tokens": 1_000_000, "max_tokens": 128_000},
+                {"id": "k3", "display_name": "K3", "max_input_tokens": 1_000_000, "max_tokens": 1_000_000},
+                {"id": "independent", "display_name": "Independent", "max_input_tokens": 128_000, "max_tokens": 256_000}
+            ],
+            "has_more": false
+        });
+        let (base, server) = fixture(vec![response("200 OK", &body.to_string(), "")]).await?;
+        assert_eq!(
+            serde_json::to_value(list_models(&base, "/v1/models", None).await?)?,
+            json!([
+                {"id": "opus", "displayName": "Opus", "contextWindow": 1_000_000, "maxOutputTokens": 128_000},
+                {"id": "k3", "displayName": "K3", "contextWindow": 1_000_000, "maxOutputTokens": 1_000_000},
+                {"id": "independent", "displayName": "Independent", "contextWindow": 128_000, "maxOutputTokens": 256_000}
+            ])
+        );
+        server.await??;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn invalid_catalog_limits_fail_without_replacing_them_with_defaults() -> Result<()> {
+        for (context, output) in [
+            (Some(0), None),
+            (Some(-1), None),
+            (Some(10_000_001), None),
+            (None, Some(0)),
+            (None, Some(-1)),
+            (None, Some(10_000_001)),
+        ] {
+            let body = json!({
+                "data": [{"id": "fixture", "display_name": "Fixture",
+                    "max_input_tokens": context, "max_tokens": output}],
+                "has_more": false
+            });
+            let (base, server) = fixture(vec![response("200 OK", &body.to_string(), "")]).await?;
+            assert!(matches!(
+                list_models(&base, "/v1/models", Some("fixture-key")).await,
+                Err(ModelDiscoveryError::InvalidMetadata(_))
+            ));
+            server.await??;
+        }
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn protocol_errors_and_redirects_are_safe() -> Result<()> {
         for (status, body, header, expected) in [
             ("401 Unauthorized", "fixture-key", "", "HTTP 401"),
@@ -389,6 +565,18 @@ mod tests {
                 "HTTP 302",
             ),
             ("200 OK", r#"{"data":"fixture-key"}"#, "", "not valid"),
+            (
+                "200 OK",
+                r#"{"data":[{"id":"one","display_name":"One","max_input_tokens":"fixture-key"}],"has_more":false}"#,
+                "",
+                "not valid",
+            ),
+            (
+                "200 OK",
+                r#"{"data":[{"id":"one","display_name":"One","capabilities":{"effort":{"supported":true,"high":{"supported":"fixture-key"}}}}],"has_more":false}"#,
+                "",
+                "not valid",
+            ),
             (
                 "200 OK",
                 r#"{"data":[],"has_more":true,"last_id":"x"}"#,

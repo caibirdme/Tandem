@@ -98,12 +98,15 @@ impl App {
         }
         let _guard = self.mutation_gate.lock().await;
         let provider = self.store.provider(&provider_id)?;
-        if !provider.models.iter().any(|model| model.id == model_id) {
-            return Err(Error::ModelNotConfigured {
-                provider_id,
-                model_id,
-            });
-        }
+        let model = provider
+            .models
+            .iter()
+            .find(|model| model.id == model_id)
+            .ok_or_else(|| Error::ModelNotConfigured {
+                provider_id: provider_id.clone(),
+                model_id: model_id.clone(),
+            })?;
+        model.validate_reasoning_effort(reasoning_effort.as_deref())?;
         if let Some(id) = &project_id {
             self.store.project(id)?;
         }

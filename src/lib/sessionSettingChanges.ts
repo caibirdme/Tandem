@@ -1,8 +1,8 @@
 import { translate as t } from '../i18n';
-interface Dependencies<Value> {
+interface Dependencies<Value, Input> {
   getRequests: () => Set<string>;
   advance: (sessionId: string) => void;
-  save: (sessionId: string, value: Value) => Promise<Value>;
+  save: (sessionId: string, value: Input) => Promise<Value>;
   read: (sessionId: string) => Promise<Value>;
   started: (sessionId: string) => void;
   confirmed: (sessionId: string, value: Value, notice?: string) => void;
@@ -15,7 +15,9 @@ interface Dependencies<Value> {
 }
 
 /** A setting with a lost save response stays locked until its server value is known. */
-export function createSessionSettingChanges<Value>(dependencies: Dependencies<Value>) {
+export function createSessionSettingChanges<Value, Input = Value>(
+  dependencies: Dependencies<Value, Input>,
+) {
   const { getRequests, advance } = dependencies;
   const states = new Map<string, { status: 'pending' | 'uncertain' | 'deleted'; token: symbol }>();
 
@@ -91,7 +93,7 @@ export function createSessionSettingChanges<Value>(dependencies: Dependencies<Va
       getRequests().delete(sessionId);
       advance(sessionId);
     },
-    async change(sessionId: string, value: Value): Promise<Value | undefined> {
+    async change(sessionId: string, value: Input): Promise<Value | undefined> {
       assertCanSend(sessionId);
       const token = start(sessionId);
       try {

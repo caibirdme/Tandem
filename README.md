@@ -15,7 +15,7 @@ _Keep project conversations and model selection together in one workspace. Scree
 - **Chat with your models.** Connect OpenAI-compatible APIs, Anthropic, or your own model gateway. Chat can read web pages.
 - **Include images and files.** Paste an image or drop files into the composer, review the previews, and send them with your message.
 - **Work where your files are.** Open a local directory or connect to a Linux or macOS host over SSH. The agent can read and edit files and run commands.
-- **Choose how the agent works.** Work uses full access automatically. Switch models and choose Low, Medium, High, or Max reasoning effort for each conversation.
+- **Choose how the agent works.** Work uses full access automatically. Switch models and choose `low`, `medium`, `high`, `xhigh`, or `max` reasoning effort for each conversation, according to the model's supported values.
 - **Delegate independent work.** Select **Expert team mode** in the Work composer to let the main agent coordinate subagents. Open an agent from its collaboration card to inspect live output, thinking, and tool calls in the right-hand detail panel. Select another agent to switch the panel; close it or press Escape to return to the unchanged conversation layout. Drag the divider, or focus it and use the arrow keys, to adjust the width. On narrow windows the panel fills the screen.
 
 ## Install
@@ -39,9 +39,9 @@ xattr -dr com.apple.quarantine /Applications/Tandem.app
 
 Open **Settings > Model providers > Add provider**. Choose OpenAI Chat Completions, OpenAI Responses, or Anthropic Messages, then enter your provider's base URL and API key.
 
-Click **Fetch models** to retrieve the provider's model catalog. Nothing is selected automatically: select the models you want and click **Add selected**. You can still add model IDs manually. The **Model list path** defaults to `/v1/models` appended to the base URL and can be changed for your gateway. Discovery uses the Anthropic Models API format regardless of the conversation protocol.
+Click **Fetch models** to open the model catalog. Each row has a checkbox, the model name, its context window, and a chevron that expands its parameters. Select the models you want and click **Add selected**. Tandem copies the returned context and output limits and leaves default reasoning effort unset. The **Model list path** inside the dialog defaults to `/v1/models`, appended to the base URL, and can be changed for your gateway. Discovery uses the Anthropic Models API format regardless of the conversation protocol.
 
-Enter each model's required context window in **K** (1 K = 1,000 tokens). For example, enter `256` for 256k or `1000` for 1M. Save the provider.
+Use **Add model** to enter a model manually in a separate dialog. Enter its required context window in **K** (1 K = 1,000 tokens), such as `256` for 256k or `1000` for 1M. Added models appear in a compact list; click a row to edit its populated form. Save the provider to keep all changes. See the [provider guide](docs/user-guide.md#configure-a-provider) for catalog import requirements and reasoning choices.
 
 ![Tandem provider settings with a request URL preview, API key field, model ID, and required context window](docs/images/provider-settings.jpg)
 

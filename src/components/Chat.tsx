@@ -29,6 +29,7 @@ import { useI18n } from '../i18n';
 import { errorMessage } from '../lib/api';
 import { createAttachmentDraft, filesFromTransfer, hasFileTransfer } from '../lib/attachments';
 import type { Conversation } from '../lib/conversation';
+import { supportedReasoningEffort } from '../lib/reasoningEffort';
 import {
   editSkillDraft,
   findSkillQuery,
@@ -164,7 +165,6 @@ export function Chat(props: ChatProps) {
   );
   const inspectingAgent = props.selectedAgentId !== null;
   const permissionMode: PermissionMode = props.project ? 'allow-all' : 'ask';
-  const reasoningEffort = props.session ? props.session.reasoningEffort : draftReasoningEffort;
   const optionsDisabled =
     running ||
     props.historyLoading ||
@@ -204,6 +204,9 @@ export function Chat(props: ChatProps) {
   const currentModel = currentProvider?.models.find(
     (model) => model.id === props.selection?.modelId,
   );
+  const reasoningEffort = props.session
+    ? props.session.reasoningEffort
+    : supportedReasoningEffort(draftReasoningEffort, currentModel?.supportedReasoningEfforts);
   const modelDisabled = optionsDisabled;
   const reasoningEffortDisabled =
     !props.connected ||
@@ -939,8 +942,16 @@ export function Chat(props: ChatProps) {
                               className="dropdown-item"
                               disabled={modelDisabled}
                               onSelect={() => {
-                                if (!modelDisabled)
+                                if (!modelDisabled) {
+                                  if (!props.session)
+                                    setDraftReasoningEffort((effort) =>
+                                      supportedReasoningEffort(
+                                        effort,
+                                        model.supportedReasoningEfforts,
+                                      ),
+                                    );
                                   props.onSelection({ providerId: provider.id, modelId: model.id });
+                                }
                               }}
                             >
                               <span>{model.name || model.id}</span>
@@ -957,6 +968,7 @@ export function Chat(props: ChatProps) {
               <ReasoningEffortSelector
                 effort={reasoningEffort}
                 defaultEffort={currentModel?.reasoningEffort ?? null}
+                supportedEfforts={currentModel?.supportedReasoningEfforts}
                 disabled={reasoningEffortDisabled}
                 saving={props.reasoningEffortSaving}
                 uncertain={Boolean(props.reasoningEffortError)}

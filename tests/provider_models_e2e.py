@@ -51,8 +51,16 @@ def handler_for(requests):
             if parsed.path.endswith("/empty"):
                 self.respond(200, page([], False, None))
                 return
+            if parsed.path.endswith("/unsupported"):
+                self.respond(200, page([("unsupported", "Unsupported")], False, "unsupported"))
+                return
+            if parsed.path.endswith("/invalid-limits"):
+                value = page([("second", "Second")], False, "second")
+                value["data"][0]["max_tokens"] = 0
+                self.respond(200, value)
+                return
             if query.get("after_id") == ["second"]:
-                self.respond(200, page([("second", "Second"), ("third", "Third")], False, "third"))
+                self.respond(200, page([("second", "Second"), ("third", "Third"), ("k3", "K3")], False, "k3"))
             else:
                 self.respond(200, page([("first", "First"), ("second", "Second")], True, "second"))
 
@@ -69,12 +77,33 @@ def handler_for(requests):
 
 def page(models, has_more, last_id):
     return {
-        "data": [{"type": "model", "id": model_id, "display_name": name,
-                  "created_at": "2026-10-21T00:00:00Z"} for model_id, name in models],
+        "data": [wire_model(model_id, name) for model_id, name in models],
         "has_more": has_more,
         "first_id": models[0][0] if models else None,
         "last_id": last_id,
     }
+
+
+def wire_model(model_id, name):
+    value = {"type": "model", "id": model_id, "display_name": name,
+             "created_at": "2026-10-21T00:00:00Z"}
+    if model_id == "second":
+        value.update({
+            "max_input_tokens": 1000000, "max_tokens": 128000,
+            "capabilities": {"effort": {"supported": True, **{
+                level: {"supported": True} for level in ("low", "medium", "high", "xhigh", "max")
+            }}},
+        })
+    elif model_id == "third":
+        value["capabilities"] = {"effort": {
+            "supported": True, "low": {"supported": False},
+            "high": {"supported": True}, "xhigh": {"supported": True},
+        }}
+    elif model_id == "k3":
+        value.update({"max_input_tokens": 1000000, "max_tokens": 1000000})
+    elif model_id == "unsupported":
+        value["capabilities"] = {"effort": {"supported": False}}
+    return value
 
 
 def fetch(app, base, path="/v1/models"):
@@ -105,15 +134,21 @@ def check_requests(requests, expected_path):
 
 
 def check_discovery(app, base, requests):
-    expected = [{"id": model_id, "displayName": name}
-                for model_id, name in [("first", "First"), ("second", "Second"), ("third", "Third")]]
+    expected = [
+        {"id": "first", "displayName": "First"},
+        {"id": "second", "displayName": "Second", "contextWindow": 1000000,
+         "maxOutputTokens": 128000,
+         "supportedReasoningEfforts": ["low", "medium", "high", "xhigh", "max"]},
+        {"id": "third", "displayName": "Third", "supportedReasoningEfforts": ["high", "xhigh"]},
+        {"id": "k3", "displayName": "K3", "contextWindow": 1000000, "maxOutputTokens": 1000000},
+    ]
     for prefix, path, expected_path in (
         ("/gateway/", "/v1/models", "/gateway/v1/models"),
         ("/gateway", "catalog/models?catalog=visible", "/gateway/catalog/models"),
     ):
         requests.clear()
         require(fetch(app, base + prefix, path) == expected,
-                "Discovery lost display names, ordering, or duplicate filtering")
+                "Discovery lost token limits, reasoning support, display names, order, or deduplication")
         check_requests(requests, expected_path)
         if "catalog=" in path:
             require(all(parse_qs(urlsplit(item[0]).query).get("catalog") == ["visible"]
@@ -121,7 +156,10 @@ def check_discovery(app, base, requests):
     require(app.command("snapshot")["settings"]["providers"] == [],
             "Fetching models unexpectedly persisted a provider")
     require(fetch(app, base, "/empty") == [], "An empty catalog should succeed")
-    for path in ("/error", "/malformed", "/loop", "/redirect"):
+    require(fetch(app, base, "/unsupported") == [
+        {"id": "unsupported", "displayName": "Unsupported", "supportedReasoningEfforts": []},
+    ], "Explicitly unsupported reasoning was treated as unknown support")
+    for path in ("/error", "/malformed", "/loop", "/redirect", "/invalid-limits"):
         requests.clear()
         require_failure(lambda: fetch(app, base, path))
         require(not any(urlsplit(item[0]).path == "/leak" for item in requests),
@@ -134,14 +172,22 @@ def check_discovery(app, base, requests):
 
 
 def save_selected(app, base):
+    selected = next(model for model in fetch(app, base) if model["id"] == "second")
     provider = app.command("save_provider", provider={
         "id": "", "name": "Discovery fixture", "protocol": "anthropic",
         "baseUrl": base, "listModelsPath": "/catalog/models?catalog=visible",
-        "models": [{"id": "second", "name": "Second", "contextWindow": 128000,
-                    "maxOutputTokens": None, "reasoningEffort": None}],
+        "models": [{"id": selected["id"], "name": selected["displayName"],
+                    "contextWindow": selected["contextWindow"],
+                    "maxOutputTokens": selected["maxOutputTokens"], "reasoningEffort": "xhigh",
+                    "supportedReasoningEfforts": selected["supportedReasoningEfforts"]}],
     }, apiKey=FIXTURE_KEY)
     require([model["id"] for model in provider["models"]] == ["second"],
             "Saving selected models included unselected catalog entries")
+    require(provider["models"][0] == {
+        "id": "second", "name": "Second", "contextWindow": 1000000,
+        "maxOutputTokens": 128000, "reasoningEffort": "xhigh",
+        "supportedReasoningEfforts": ["low", "medium", "high", "xhigh", "max"],
+    }, "Saving a discovered model dropped token limits, reasoning support, or xhigh")
     require_provider_key(app, provider["id"], FIXTURE_KEY)
     return provider
 
@@ -189,7 +235,7 @@ def main():
                 app.close()
             require(not scan_for_key(root, FIXTURE_KEY, allow_local_vault=True),
                     "Fixture key leaked outside the local credential table")
-        print("PASS: paginated discovery, auth, safe paths/errors, explicit model persistence, restart, credential isolation")
+        print("PASS: paginated discovery, token limits, reasoning support, xhigh, auth, safe errors, model persistence, restart, credential isolation")
     finally:
         endpoint.shutdown()
         endpoint.server_close()

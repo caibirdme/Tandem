@@ -552,8 +552,8 @@ describe('conversation reasoning effort controls', () => {
         session={{ ...session, reasoningEffort: 'low' }}
       />,
     );
-    expect(reasoningControl(inherited)).toContain('Reasoning effort: Default (High)');
-    expect(reasoningControl(overridden)).toContain('Reasoning effort: Low');
+    expect(reasoningControl(inherited)).toContain('Reasoning effort: Default (high)');
+    expect(reasoningControl(overridden)).toContain('Reasoning effort: low');
   });
 
   it.each([
@@ -609,24 +609,22 @@ describe('conversation reasoning effort controls', () => {
     expect(stop).not.toContain('disabled');
   });
 
-  it.each(['low', 'medium', 'high', 'max'] as const)(
+  it.each(['low', 'medium', 'high', 'xhigh', 'max'] as const)(
     'renders the saved %s effort independently of the provider default',
     (effort) => {
       const markup = renderToStaticMarkup(
         <Chat {...reasoningProps} session={{ ...session, reasoningEffort: effort }} />,
       );
-      expect(reasoningControl(markup)).toContain(
-        `Reasoning effort: ${effort[0]?.toUpperCase()}${effort.slice(1)}`,
-      );
+      expect(reasoningControl(markup)).toContain(`Reasoning effort: ${effort}`);
     },
   );
 
-  it('translates the session control', () => {
+  it('translates the session control while preserving the API effort value', () => {
     setLocale('zh-CN');
     const markup = renderToStaticMarkup(
       <Chat {...reasoningProps} session={{ ...session, reasoningEffort: 'high' }} />,
     );
-    expect(markup).toContain('思考强度：高');
+    expect(markup).toContain('思考强度：high');
   });
 });
 
@@ -1094,7 +1092,7 @@ describe('grouped activity timeline', () => {
         conversation={changed.conversations[session.id] ?? emptyConversation}
       />,
     );
-    expect(reasoningControl(markup)).toContain('Reasoning effort: High');
+    expect(reasoningControl(markup)).toContain('Reasoning effort: high');
     expect(reasoningControl(markup)).not.toContain('disabled');
     expect(modelControl(markup)).toContain('disabled');
     expect(markup).toContain('class="activity-status running">Running');
