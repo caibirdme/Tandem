@@ -77,6 +77,11 @@ pub enum Request {
         provider: Provider,
         api_key: Option<String>,
     },
+    ListProviderModels {
+        base_url: String,
+        list_models_path: String,
+        api_key: Option<String>,
+    },
     DeleteProvider {
         id: String,
     },
@@ -168,6 +173,18 @@ impl App {
                 response(self.save_provider(provider, api_key).await?)
             }
             Request::DeleteProvider { id } => response(self.delete_provider(&id).await?),
+            Request::ListProviderModels {
+                base_url,
+                list_models_path,
+                api_key,
+            } => response(
+                crate::model_discovery::list_models(
+                    &base_url,
+                    &list_models_path,
+                    api_key.as_deref(),
+                )
+                .await?,
+            ),
             Request::GetProviderApiKey { id } => response(self.get_provider_api_key(&id)?),
             Request::SavePreferences {
                 telemetry,

@@ -18,6 +18,7 @@ const provider: ProviderFormDraft = {
   name: ' My provider ',
   protocol: 'openai-completions',
   baseUrl: ' https://example.com/v1 ',
+  listModelsPath: '/v1/models',
   models: [
     {
       id: ' model-1 ',
@@ -71,6 +72,16 @@ describe('provider editor save ownership', () => {
 
 describe('provider form serialization', () => {
   it.each([
+    { path: '', expected: '/v1/models' },
+    { path: ' /custom/models?region=eu ', expected: '/custom/models?region=eu' },
+  ])('persists the normalized discovery path $path', ({ path, expected }) => {
+    expect(
+      providerPayload({ ...provider, listModelsPath: path }, { kind: 'keep' }).provider
+        .listModelsPath,
+    ).toBe(expected);
+  });
+
+  it.each([
     { name: 'preserve', edit: { kind: 'keep' }, expected: undefined },
     { name: 'replace', edit: { kind: 'replace', value: 'fixture-key' }, expected: 'fixture-key' },
     {
@@ -109,6 +120,7 @@ describe('provider form serialization', () => {
       name: 'My provider',
       protocol: provider.protocol,
       baseUrl: 'https://example.com/v1',
+      listModelsPath: '/v1/models',
       models: [
         {
           id: 'model-1',

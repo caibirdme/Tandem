@@ -41,6 +41,21 @@ export const en = {
   'app.conversationTitle': 'Conversation title',
   'app.removeDescription':
     'Remove the project and its conversations. Files in the project directory are kept.',
+  'settings.listModelsPath': 'Model list path',
+  'settings.listModelsPathHint':
+    'Appended to the Base URL. Defaults to /v1/models; uses the Anthropic model-list protocol.',
+  'settings.fetchModels': 'Fetch models',
+  'settings.fetchingModels': 'Fetching models…',
+  'settings.addSelectedModels': 'Add selected',
+  'settings.discoveryHint':
+    'No models are selected automatically. Select models to add, then enter their context windows below.',
+  'settings.noDiscoveredModels': 'No models were returned.',
+  'settings.modelAlreadyAdded': 'Already added',
+  'settings.discoveryCredentialBlank':
+    'Enter an API key or choose Clear saved key before fetching. A blank edit otherwise keeps the saved key.',
+  'settings.discoveryCredentialPending':
+    'Wait for the saved API key to load, or enter a replacement key.',
+  'settings.discoveryInvalidUrl': 'Enter a valid HTTP or HTTPS Base URL before fetching models.',
   'settings.description': 'Connect the models and tools that work for you.',
   'settings.categories': 'Settings categories',
   'settings.providers': 'Model providers',

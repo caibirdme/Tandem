@@ -36,6 +36,7 @@ import { BrowserLink } from './BrowserLink';
 import { FontSizeSettings } from './FontSizeSettings';
 import { LanguageSettings } from './LanguageSettings';
 import { ProviderKeyInput } from './ProviderKeyInput';
+import { ProviderModelDiscovery } from './ProviderModelDiscovery';
 import { TitlePreferences } from './TitlePreferences';
 import { Modal, Notice, RequiredMark, Spinner, Toggle } from './ui';
 
@@ -257,6 +258,7 @@ export function ProviderEditor({
     name: provider?.name ?? '',
     protocol: provider?.protocol ?? 'openai-completions',
     baseUrl: provider?.baseUrl ?? '',
+    listModelsPath: provider?.listModelsPath ?? '/v1/models',
     models: (
       provider?.models.map(({ contextWindow, ...model }) => ({
         ...model,
@@ -358,6 +360,49 @@ export function ProviderEditor({
         hasSavedKey={provider?.hasApiKey ?? false}
         update={credential.update}
         onRetry={credential.retry}
+      />
+      <label>
+        {t('settings.listModelsPath')}
+        <input
+          value={draft.listModelsPath}
+          placeholder="/v1/models"
+          onChange={(event) => setDraft({ ...draft, listModelsPath: event.target.value })}
+        />
+        <small>{t('settings.listModelsPathHint')}</small>
+      </label>
+      <ProviderModelDiscovery
+        baseUrl={draft.baseUrl}
+        listModelsPath={draft.listModelsPath}
+        protocol={draft.protocol}
+        credential={credential.state}
+        hasSavedKey={provider?.hasApiKey ?? false}
+        disabled={busy}
+        existingIds={draft.models.map((model) => model.id.trim())}
+        onAdd={(models) =>
+          setDraft((current) => ({
+            ...current,
+            models: [
+              ...current.models.filter(
+                (model) =>
+                  model.id ||
+                  model.name ||
+                  model.contextWindowK ||
+                  model.reasoningEffort ||
+                  model.maxOutputTokens !== null,
+              ),
+              ...models
+                .filter(
+                  (model) => !current.models.some((existing) => existing.id.trim() === model.id),
+                )
+                .map((model) => ({
+                  ...blankModel(),
+                  id: model.id,
+                  name: model.displayName,
+                  key: crypto.randomUUID(),
+                })),
+            ],
+          }))
+        }
       />
       <div className="models-heading">
         <div>

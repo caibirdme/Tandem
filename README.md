@@ -39,7 +39,9 @@ xattr -dr com.apple.quarantine /Applications/Tandem.app
 
 Open **Settings > Model providers > Add provider**. Choose OpenAI Chat Completions, OpenAI Responses, or Anthropic Messages, then enter your provider's base URL and API key.
 
-Add a model ID supported by that provider and its required context window in **K** (1 K = 1,000 tokens). For example, enter `256` for 256k or `1000` for 1M. Save the provider.
+Click **Fetch models** to retrieve the provider's model catalog. Nothing is selected automatically: select the models you want and click **Add selected**. You can still add model IDs manually. The **Model list path** defaults to `/v1/models` appended to the base URL and can be changed for your gateway. Discovery uses the Anthropic Models API format regardless of the conversation protocol.
+
+Enter each model's required context window in **K** (1 K = 1,000 tokens). For example, enter `256` for 256k or `1000` for 1M. Save the provider.
 
 ![Tandem provider settings with a request URL preview, API key field, model ID, and required context window](docs/images/provider-settings.jpg)
 

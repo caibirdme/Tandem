@@ -63,6 +63,11 @@ integration:
     cargo build -p tandem-dev-server
     {{python}} tests/runtime_e2e.py
 
+# Verify provider model discovery with local HTTP fixtures and synthetic credentials.
+integration-models:
+    cargo build -p tandem-dev-server
+    {{python}} tests/provider_models_e2e.py
+
 # Requires local ssh/sshd; all keys and host records stay in a temporary directory.
 integration-ssh: build-server
     {{python}} tests/remote_e2e.py

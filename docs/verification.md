@@ -1,5 +1,21 @@
 # Verification record
 
+## Provider model discovery (2026-10-22)
+
+Developed from `main` (`fc2aa52`) in `.worktrees/provider-model-discovery` on `codex/provider-model-discovery`. The provider editor now offers explicit model discovery, initially unchecked results, selected-only addition, and a persisted configurable catalog path. Manual entry and required context-window input remain available. Version remains `0.0.4`; no release or tag was prepared.
+
+The implementation follows the official Anthropic List Models reference: `GET`, `x-api-key`, the documented example `anthropic-version: 2023-06-01`, and `last_id`/`after_id` pagination. The exact supplied version-query documentation URL was inaccessible through the browser tool; the current official unversioned reference was read instead. Context7 was unavailable. Reqwest's official current documentation was checked; the core uses the already locked reqwest/native-TLS dependency, without adding packages or updating dependency versions.
+
+Passed: frozen pnpm installation; all 478 frontend tests; frontend lint, strict TypeScript, formatting, and production build; 37 Python unit tests; workspace dependency boundaries. Selection/reducer and server-render tests cover default-none selection, selected-only addition, duplicate filtering, empty/error/retry states, stale completions, and credential-loading/ambiguous-blank guards. Independent source review found no remaining blocking issue after whitespace-padded catalog IDs were rejected and credential hints were aligned with the actual controls.
+
+`tests/provider_models_e2e.py` passed against the real development host with local HTTP fixtures and synthetic credentials only. It verifies authentication/version headers, pagination, display names/IDs, duplicates, gateway prefixes, custom query paths, empty catalogs, malformed/error/loop responses, redirect blocking, fetch-without-persistence, selected-only saving, restart persistence, stored provider JSON missing the new field, and credential isolation. CI runs this fixture before SDK integration; `just integration-models` runs it independently. No real provider credentials or paid API requests were used.
+
+The non-desktop Rust suite passed 224 tests, including all 90 core tests and six new discovery tests, and failed only three existing Unix-socket tests with `Operation not permitted` (handshake, cleanup replacement safety, and stale/live socket handling). The SDK runtime integration used test inference services and stopped at the existing automatically authorized `web_fetch` assertion; it is not a passing integration suite. Dedicated discovery end-to-end verification passed independently.
+
+Strict non-desktop workspace Clippy passed with all targets; workspace doc-tests passed. `just build` passed for the frontend and both service binaries. `just check` passed formatting and frontend lint/types, then stopped in desktop workspace Clippy because `glib-2.0 >= 2.70` is missing. Desktop bundling was not run because the required GTK/WebKit development libraries are unavailable. This is not a full aggregate pass.
+
+Browser interaction and screenshots could not run: Chromium aborted at Unix-socket creation with `Operation not permitted`, including with an explicitly writable temporary profile. No sandbox restriction was bypassed. Reducer and server-render tests are not a substitute for browser lifecycle/visual acceptance.
+
 ## Dynamic detail panel and 0.0.4 preparation (2026-10-22)
 
 Developed from `main` (`284dfdb`) in `.worktrees/dynamic-detail-panel` on `codex/dynamic-detail-panel`, using the assistant's cloud environment. The supplied layout reference was materialized and visually inspected before layout changes. The default sidebar/chat layout is unchanged until a worker is selected; worker details now use an extensible right-side shell with live output, status, tools, thinking, independent scrolling, narrow-window modal behavior, keyboard/pointer resizing, and focus restoration. Selection is scoped to the session and navigation view. Code-change tracking and code review remain out of scope.

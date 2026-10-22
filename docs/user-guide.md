@@ -10,6 +10,14 @@ For each model, enter its required context window in **K** (1 K = 1,000 tokens):
 
 Required fields are marked with a red **\***. If you leave one empty and click **Save provider**, the form scrolls to and focuses the first missing field and displays a prompt. Type the context limit directly into the compact input; it has no stepper arrows.
 
+### Fetch available models
+
+After entering the provider details, click **Fetch models**. Each result shows a display name and model ID. All results start unchecked; select the models you want and click **Add selected**. Existing model IDs are not added twice, and your manual entries remain unchanged. Enter the context window for each newly added model before saving. Fetching does not save the provider or add models by itself.
+
+**Model list path** defaults to `/v1/models`. It is appended to the base URL's path: `https://example.com/gateway/` becomes `https://example.com/gateway/v1/models`. Configure a different relative path when your gateway requires it; absolute URLs and paths that switch hosts are not accepted. Discovery always uses the [Anthropic List Models protocol](https://platform.claude.com/docs/en/api/models/list?version=2026-10-21), including API-key authentication and pagination, independently of the conversation protocol. A provider without a compatible catalog can still be configured manually.
+
+The request runs only when you click **Fetch models** and uses the current API key. Editing connection details clears the previous results; fetch again to see the new catalog. A failed fetch leaves configured models intact and can be retried. Keys and upstream response bodies are not included in error messages.
+
 ### Check the request URL
 
 Enter the API base URL without the request endpoint. The provider editor previews the actual request URL as you type or change protocols. Tandem trims trailing slashes and appends the endpoint for the selected protocol:

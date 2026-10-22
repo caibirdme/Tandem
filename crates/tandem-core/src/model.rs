@@ -33,6 +33,10 @@ pub enum ValidationError {
     InvalidName { field: NameField },
     #[error("Add at least one model.")]
     MissingModels,
+    #[error(
+        "Enter a relative model-list path without an origin, fragment, backslash, or dot segments."
+    )]
+    InvalidModelListPath,
     #[error("Model IDs must be unique: {id}")]
     DuplicateModelId { id: String },
     #[error("Reasoning effort must be low, medium, high, or max.")]
@@ -106,9 +110,15 @@ pub struct Provider {
     pub name: String,
     pub protocol: Protocol,
     pub base_url: String,
+    #[serde(default = "default_list_models_path")]
+    pub list_models_path: String,
     #[serde(default)]
     pub has_api_key: bool,
     pub models: Vec<Model>,
+}
+
+pub(crate) fn default_list_models_path() -> String {
+    "/v1/models".into()
 }
 
 impl Provider {
@@ -119,6 +129,7 @@ impl Provider {
     pub fn validate(&self) -> Result<()> {
         validate_name(&self.name, NameField::ProviderName)?;
         validate_endpoint(&self.base_url)?;
+        crate::model_discovery::validate_path(&self.list_models_path)?;
         if self.models.is_empty() {
             return Err(ValidationError::MissingModels);
         }

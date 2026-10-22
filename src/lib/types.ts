@@ -17,6 +17,7 @@ export interface Provider {
   name: string;
   protocol: ProviderProtocol;
   baseUrl: string;
+  listModelsPath: string;
   hasApiKey: boolean;
   models: Model[];
 }
@@ -169,6 +170,10 @@ export interface DirectoryListing {
 export type ProviderDraft = Omit<Provider, 'hasApiKey'>;
 export interface Commands {
   snapshot: { payload: Record<string, never>; result: Snapshot };
+  list_provider_models: {
+    payload: { baseUrl: string; listModelsPath: string; apiKey?: string };
+    result: DiscoveredModel[];
+  };
   save_provider: { payload: { provider: ProviderDraft; apiKey?: string }; result: Provider };
   get_provider_api_key: { payload: { id: string }; result: string | null };
   delete_provider: { payload: { id: string }; result: null };
@@ -234,4 +239,9 @@ export interface Commands {
     result: DirectoryListing;
   };
   install_runtime: { payload: Record<string, never>; result: RuntimeStatus };
+}
+
+export interface DiscoveredModel {
+  id: string;
+  displayName: string;
 }

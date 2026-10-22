@@ -117,6 +117,7 @@ export function providerPayload(
       name: draft.name.trim(),
       protocol: draft.protocol,
       baseUrl: draft.baseUrl.trim(),
+      listModelsPath: draft.listModelsPath.trim() || '/v1/models',
       models,
     },
     ...(credential.kind === 'keep' ? {} : { apiKey }),

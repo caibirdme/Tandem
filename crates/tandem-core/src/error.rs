@@ -8,6 +8,8 @@ use crate::{SecretError, StorageError, model::ValidationError};
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error(transparent)]
+    ModelDiscovery(#[from] crate::ModelDiscoveryError),
+    #[error(transparent)]
     Validation(#[from] ValidationError),
     #[error(transparent)]
     Storage(#[from] StorageError),
@@ -195,6 +197,7 @@ impl Error {
             Self::DirectoryUnavailable(source) if source.kind() == std::io::ErrorKind::NotFound => {
                 ErrorCode::NotFound
             }
+            Self::ModelDiscovery(error) => error.code(),
             Self::Remote(error) => error.code().into(),
             Self::Runtime(error) => runtime_error_code(error),
             Self::Attachment(_)
