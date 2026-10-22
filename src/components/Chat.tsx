@@ -96,6 +96,9 @@ interface ChatProps {
   onAbort: () => void;
   onPermission: (requestId: string, approved: boolean) => Promise<void>;
   connected: boolean;
+  detailPanelId: string;
+  selectedAgentId: string | null;
+  onSelectAgent: (id: string, trigger: HTMLButtonElement) => void;
 }
 
 export function Chat(props: ChatProps) {
@@ -136,7 +139,6 @@ export function Chat(props: ChatProps) {
   const skillsSelectable = !skillCatalog.loading && props.connected && matchingSkills.length > 0;
   const [draftReasoningEffort, setDraftReasoningEffort] = useState<ReasoningEffort>(null);
   const [fleet, setFleet] = useState(false);
-  const [selectedAgents, setSelectedAgents] = useState<Record<string, string | null>>({});
   const [jumpVisible, setJumpVisible] = useState(false);
   const [waitingThinking, setWaitingThinking] = useState({ after: '', expanded: false });
   const [pendingPermission, setPendingPermission] = useState<string | null>(null);
@@ -164,7 +166,7 @@ export function Chat(props: ChatProps) {
   const displayMessages = groupThinkingMessages(
     mainMessages.filter((message) => message.role !== 'agent' || fleetGroups.has(message.id)),
   );
-  const inspectingAgent = Object.values(selectedAgents).some(Boolean);
+  const inspectingAgent = props.selectedAgentId !== null;
   const permissionMode: PermissionMode = props.project ? 'allow-all' : 'ask';
   const reasoningEffort = props.session ? props.session.reasoningEffort : draftReasoningEffort;
   const optionsDisabled =
@@ -529,12 +531,9 @@ export function Chat(props: ChatProps) {
                   <FleetCard
                     key={message.id}
                     agents={fleetGroups.get(message.id) ?? []}
-                    messages={props.conversation.messages}
-                    streams={props.conversation.agentStreams}
-                    selectedAgentId={selectedAgents[message.id] ?? null}
-                    onSelect={(id) =>
-                      setSelectedAgents((current) => ({ ...current, [message.id]: id }))
-                    }
+                    panelId={props.detailPanelId}
+                    selectedAgentId={props.selectedAgentId}
+                    onSelect={props.onSelectAgent}
                   />
                 )
               ) : message.role === 'activity' ? (

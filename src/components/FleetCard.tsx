@@ -1,5 +1,5 @@
-import { ArrowLeft, Check, ChevronRight, CircleAlert, CircleSlash, Network } from 'lucide-react';
-import { lazy, Suspense, useId, useLayoutEffect, useRef } from 'react';
+import { Check, ChevronRight, CircleAlert, CircleSlash, Network } from 'lucide-react';
+import { lazy, Suspense, useLayoutEffect, useRef } from 'react';
 
 import { useI18n } from '../i18n';
 import { groupThinkingMessages } from '../lib/thinkingMessages';
@@ -12,7 +12,7 @@ import './FleetCard.css';
 
 const Markdown = lazy(() => import('./Markdown'));
 
-function AgentStatus({ status }: { status: ActivityStatus }) {
+export function AgentStatus({ status }: { status: ActivityStatus }) {
   const { t } = useI18n();
   const label = {
     running: 'chat.toolRunning',
@@ -70,6 +70,7 @@ export function AgentOutput({
       ref={viewport}
       className="fleet-agent-output"
       role="log"
+      tabIndex={0}
       aria-label={t('fleet.outputLabel', { name: agent.displayName || agent.name })}
       onScroll={(event) => {
         const element = event.currentTarget;
@@ -121,20 +122,16 @@ export function AgentOutput({
 
 export function FleetCard({
   agents,
-  messages,
-  streams,
+  panelId,
   selectedAgentId,
   onSelect,
 }: {
   agents: Subagent[];
-  messages: Message[];
-  streams: Record<string, string>;
+  panelId: string;
   selectedAgentId: string | null;
-  onSelect: (id: string | null) => void;
+  onSelect: (id: string, trigger: HTMLButtonElement) => void;
 }) {
   const { t } = useI18n();
-  const inspectorId = useId();
-  const selectedButton = useRef<HTMLButtonElement>(null);
   const selected = agents.find((agent) => agent.id === selectedAgentId);
   const running = agents.filter((agent) => agent.status === 'running').length;
   if (!agents.length) return null;
@@ -156,11 +153,10 @@ export function FleetCard({
             type="button"
             className={`fleet-agent-row ${selected?.id === agent.id ? 'selected' : ''}`}
             key={agent.id}
-            ref={selected?.id === agent.id ? selectedButton : undefined}
             aria-pressed={selected?.id === agent.id}
-            aria-controls={selected?.id === agent.id ? inspectorId : undefined}
+            aria-controls={selected?.id === agent.id ? panelId : undefined}
             aria-label={t('fleet.viewAgent', { name: agent.displayName || agent.name })}
-            onClick={() => onSelect(selected?.id === agent.id ? null : agent.id)}
+            onClick={(event) => onSelect(agent.id, event.currentTarget)}
           >
             <span className="fleet-agent-avatar">
               <Network size={14} />
@@ -176,30 +172,6 @@ export function FleetCard({
           </button>
         ))}
       </div>
-      {selected && (
-        <section className="fleet-inspector" id={inspectorId} aria-label={t('fleet.agentDetails')}>
-          <div className="fleet-inspector-heading">
-            <button
-              type="button"
-              className="fleet-back-button"
-              onClick={() => {
-                selectedButton.current?.focus();
-                onSelect(null);
-              }}
-            >
-              <ArrowLeft size={14} />
-              {t('fleet.backToConversation')}
-            </button>
-            {selected.model && <span className="fleet-agent-model">{selected.model}</span>}
-          </div>
-          <AgentOutput
-            key={selected.id}
-            agent={selected}
-            messages={messages}
-            stream={streams[selected.id] ?? ''}
-          />
-        </section>
-      )}
     </section>
   );
 }

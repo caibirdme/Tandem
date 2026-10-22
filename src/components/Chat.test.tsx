@@ -46,6 +46,9 @@ const provider: Provider = {
   ],
 };
 const props: ComponentProps<typeof Chat> = {
+  detailPanelId: 'details',
+  selectedAgentId: null,
+  onSelectAgent: () => undefined,
   session: undefined,
   project,
   providers: [],

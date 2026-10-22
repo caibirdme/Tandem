@@ -13,14 +13,17 @@ import {
   Trash2,
   X,
 } from 'lucide-react';
-import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useId, useRef, useState } from 'react';
 
 import { Chat } from './components/Chat';
 import { Sidebar } from './components/Sidebar';
+import { SubagentDetailPanel } from './components/SubagentDetailPanel';
 import { Modal, Notice, Spinner } from './components/ui';
 import { useTandem } from './hooks/useTandem';
 import { useI18n } from './i18n';
 import { dispatch, errorMessage } from './lib/api';
+import { resolveDetailPanel } from './lib/detailPanel';
+import type { DetailPanelSelection } from './lib/detailPanel';
 import { newSessionPayload } from './lib/sessionOptions';
 import { displaySessionTitle } from './lib/sessionTitles';
 import type {
@@ -41,6 +44,9 @@ const ProjectDialog = lazy(async () => ({
 export function App() {
   const { t } = useI18n();
   const tandem = useTandem();
+  const detailPanelId = useId();
+  const detailPanelTrigger = useRef<HTMLElement | null>(null);
+  const [detailPanel, setDetailPanel] = useState<DetailPanelSelection | null>(null);
   const [projectId, setProjectId] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [projectOpen, setProjectOpen] = useState(false);
@@ -65,6 +71,8 @@ export function App() {
   }, [fontSize]);
   const session = snapshot?.sessions.find((item) => item.id === tandem.activeSessionId);
   const project = snapshot?.projects.find((item) => item.id === (session?.projectId ?? projectId));
+  const selectedDetail = resolveDetailPanel(detailPanel, viewKey, session?.id, tandem.conversation);
+  const closeDetailPanel = useCallback(() => setDetailPanel(null), []);
   const sendScope = session?.id ?? viewKey;
   const sending = sendingScopes.has(sendScope);
   const providers = snapshot?.settings.providers ?? [];
@@ -208,7 +216,9 @@ export function App() {
   }
 
   return (
-    <div className={`app-shell ${sidebarOpen ? '' : 'sidebar-hidden'}`}>
+    <div
+      className={`app-shell ${sidebarOpen ? '' : 'sidebar-hidden'} ${selectedDetail ? 'detail-panel-open' : ''}`}
+    >
       {sidebarOpen && (
         <>
           <button
@@ -392,6 +402,13 @@ export function App() {
         ) : (
           <Chat
             key={viewKey}
+            detailPanelId={detailPanelId}
+            selectedAgentId={selectedDetail?.agent.id ?? null}
+            onSelectAgent={(agentId, trigger) => {
+              detailPanelTrigger.current = trigger;
+              if (session)
+                setDetailPanel({ kind: 'subagent', sessionId: session.id, viewKey, agentId });
+            }}
             session={session}
             project={project}
             providers={providers}
@@ -453,6 +470,16 @@ export function App() {
           />
         )}
       </main>
+      {selectedDetail && (
+        <SubagentDetailPanel
+          id={detailPanelId}
+          agent={selectedDetail.agent}
+          messages={tandem.conversation.messages}
+          stream={tandem.conversation.agentStreams[selectedDetail.agent.id] ?? ''}
+          onClose={closeDetailPanel}
+          returnFocusRef={detailPanelTrigger}
+        />
+      )}
       <Suspense fallback={null}>
         {settingsOpen && snapshot && (
           <Settings

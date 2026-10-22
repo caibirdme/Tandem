@@ -146,30 +146,6 @@
 .fleet-agent-row.selected .fleet-agent-chevron {
   transform: rotate(90deg);
 }
-.fleet-inspector {
-  border-top: 1px solid var(--line);
-  background: var(--surface-soft);
-}
-.fleet-inspector-heading {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 10px 14px;
-  border-bottom: 1px solid var(--line);
-}
-.fleet-back-button {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 3px 0;
-  color: var(--secondary);
-  font-size: 0.625rem;
-}
-.fleet-back-button:hover {
-  color: var(--accent);
-}
 .fleet-agent-model {
   color: var(--muted);
   font-size: 0.625rem;

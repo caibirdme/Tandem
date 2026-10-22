@@ -16,7 +16,7 @@ _Keep project conversations and model selection together in one workspace. Scree
 - **Include images and files.** Paste an image or drop files into the composer, review the previews, and send them with your message.
 - **Work where your files are.** Open a local directory or connect to a Linux or macOS host over SSH. The agent can read and edit files and run commands.
 - **Choose how the agent works.** Work uses full access automatically. Switch models and choose Low, Medium, High, or Max reasoning effort for each conversation.
-- **Delegate independent work.** Select **Expert team mode** in the Work composer to let the main agent coordinate subagents. Open an agent from its collaboration card to inspect its output and tool calls.
+- **Delegate independent work.** Select **Expert team mode** in the Work composer to let the main agent coordinate subagents. Open an agent from its collaboration card to inspect live output, thinking, and tool calls in the right-hand detail panel. Select another agent to switch the panel; close it or press Escape to return to the unchanged conversation layout. Drag the divider, or focus it and use the arrow keys, to adjust the width. On narrow windows the panel fills the screen.
 
 ## Install
 

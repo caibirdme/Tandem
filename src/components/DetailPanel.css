@@ -1,0 +1,121 @@
+.detail-panel {
+  position: relative;
+  display: flex;
+  flex: 0 0 var(--detail-panel-width, 42%);
+  flex-direction: column;
+  min-width: 300px;
+  max-width: calc(100% - 600px);
+  min-height: 0;
+  border-left: 1px solid var(--line);
+  background: var(--surface);
+  outline: none;
+}
+.sidebar-hidden .detail-panel {
+  max-width: calc(100% - 360px);
+}
+.detail-panel-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  justify-content: space-between;
+  flex-shrink: 0;
+  min-height: 58px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--line);
+}
+.detail-panel-title {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+.detail-panel-header .icon-button {
+  flex-shrink: 0;
+}
+.detail-panel-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+.detail-panel .fleet-agent-output {
+  flex: 1;
+  min-height: 0;
+  max-height: none;
+  padding: 0 20px;
+}
+.subagent-panel-summary {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--line);
+}
+.subagent-panel-summary > p {
+  flex-basis: 100%;
+  margin: 0;
+  max-height: 100px;
+  overflow: auto;
+  overflow-wrap: anywhere;
+  color: var(--secondary);
+  font-size: 0.75rem;
+  line-height: 1.6;
+}
+.detail-panel-resize {
+  appearance: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  height: 100%;
+  position: absolute;
+  z-index: 1;
+  top: 0;
+  bottom: 0;
+  left: -4px;
+  width: 8px;
+  cursor: col-resize;
+  touch-action: none;
+}
+.detail-panel-resize:hover,
+.detail-panel-resize:focus-visible {
+  background: var(--hover);
+  outline: 2px solid var(--accent);
+  outline-offset: -3px;
+}
+@media (max-width: 1100px) {
+  .detail-panel,
+  .sidebar-hidden .detail-panel {
+    position: fixed;
+    z-index: 45;
+    inset: 0;
+    width: 100%;
+    max-width: none;
+    min-width: 0;
+    height: 100dvh;
+    border-left: 0;
+  }
+}
+
+.detail-panel-resize::-webkit-slider-thumb {
+  appearance: none;
+  width: 8px;
+  height: 32px;
+  background: var(--line);
+  border-radius: 4px;
+}
+.detail-panel-resize::-moz-range-thumb {
+  width: 6px;
+  height: 32px;
+  border: 0;
+  background: var(--line);
+  border-radius: 4px;
+}
