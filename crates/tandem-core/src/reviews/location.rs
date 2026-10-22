@@ -294,60 +294,131 @@ pub(super) async fn cache(path: &Path, value: &impl Serialize) -> Result<()> {
 
 #[cfg(all(test, unix))]
 mod tests {
+    use std::{future::Future, os::unix::fs::PermissionsExt};
+
+    use tandem_remote::{ArtifactLocator, RemoteClient, SshConnection};
+
     use super::*;
 
-    #[tokio::test]
-    async fn shutdown_closes_review_only_transports_without_an_agent_session() -> anyhow::Result<()>
-    {
+    fn run_with_ssh_fixture(
+        name: &str,
+        script: &str,
+        check: impl Future<Output = anyhow::Result<()>>,
+    ) -> anyhow::Result<()> {
+        const CHILD: &str = "TANDEM_TEST_REVIEW_TRANSPORT";
+        if std::env::var_os(CHILD).is_some() {
+            return tokio::runtime::Runtime::new()?.block_on(async {
+                tokio::time::timeout(std::time::Duration::from_secs(10), check).await?
+            });
+        }
         let directory = tempfile::TempDir::new()?;
-        let app = App::open(crate::AppOptions::local(directory.path().to_path_buf()))?;
-        let mut command = tokio::process::Command::new("sh");
-        command.args(["-c", "while read request; do :; done"]);
-        let transport = Arc::new(RemoteTransport::spawn(command)?);
-        app.reviews.locations.lock().await.insert(
-            "project".into(),
-            WorkspaceHandle::Remote {
-                transport: transport.clone(),
-                workspace_id: "project".into(),
-            },
+        let ssh = directory.path().join("ssh");
+        let mut fixture = String::from(
+            r#"#!/bin/sh
+set -eu
+read -r request
+printf '{"id":1,"value":{"serverVersion":"%s","protocolVersion":%s,"processId":1,"runtimeReady":false}}\n' "$TANDEM_TEST_VERSION" "$TANDEM_TEST_PROTOCOL"
+"#,
         );
-        app.shutdown().await?;
-        assert!(transport.is_closed());
-        assert!(app.reviews.locations.lock().await.is_empty());
+        fixture.push_str(script);
+        std::fs::write(&ssh, fixture)?;
+        std::fs::set_permissions(&ssh, std::fs::Permissions::from_mode(0o700))?;
+        let mut paths = vec![directory.path().to_path_buf()];
+        paths.extend(std::env::split_paths(
+            &std::env::var_os("PATH").unwrap_or_default(),
+        ));
+        let output = std::process::Command::new(std::env::current_exe()?)
+            .args([
+                "--exact",
+                &format!("reviews::location::tests::{name}"),
+                "--nocapture",
+            ])
+            .env(CHILD, "1")
+            .env("PATH", std::env::join_paths(paths)?)
+            .env("TANDEM_TEST_VERSION", env!("CARGO_PKG_VERSION"))
+            .env(
+                "TANDEM_TEST_PROTOCOL",
+                tandem_remote::PROTOCOL_VERSION.to_string(),
+            )
+            .output()?;
+        assert!(
+            output.status.success(),
+            "{}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
         Ok(())
     }
 
-    #[tokio::test]
-    async fn canceled_review_waiter_does_not_close_shared_agent_transport() -> anyhow::Result<()> {
-        let mut command = tokio::process::Command::new("sh");
-        command.args([
-            "-c",
-            r#"
-read request
-printf '%s\n' '{"event":{"kind":"review_started"}}'
-read request
-printf '%s\n' '{"id":1,"value":null}'
-printf '%s\n' '{"id":2,"value":"ready"}'
-while read request; do :; done
-"#,
-        ]);
-        let transport = Arc::new(RemoteTransport::spawn(command)?);
-        let mut events = transport.subscribe();
-        let review_transport = transport.clone();
-        let waiter = tokio::spawn(async move {
-            remote_request(&review_transport, "capture_review_snapshot", Value::Null).await
-        });
-        tokio::time::timeout(std::time::Duration::from_secs(5), events.recv()).await??;
-        waiter.abort();
-        assert!(waiter.await.is_err());
-        let result = tokio::time::timeout(
-            std::time::Duration::from_secs(5),
-            transport.request("ping", Value::Null),
+    async fn connect_fixture() -> anyhow::Result<Arc<RemoteTransport>> {
+        let client = RemoteClient::new(
+            SshConnection {
+                host: "fixture".into(),
+                port: None,
+                user: None,
+                identity_file: None,
+            },
+            ArtifactLocator::default(),
+        )?;
+        Ok(Arc::new(client.connect_review().await?))
+    }
+
+    #[test]
+    fn shutdown_closes_review_only_transports_without_an_agent_session() -> anyhow::Result<()> {
+        run_with_ssh_fixture(
+            "shutdown_closes_review_only_transports_without_an_agent_session",
+            "while read -r request; do :; done\n",
+            async {
+                let directory = tempfile::TempDir::new()?;
+                let app = App::open(crate::AppOptions::local(directory.path().to_path_buf()))?;
+                let transport = connect_fixture().await?;
+                app.reviews.locations.lock().await.insert(
+                    "project".into(),
+                    WorkspaceHandle::Remote {
+                        transport: transport.clone(),
+                        workspace_id: "project".into(),
+                    },
+                );
+                app.shutdown().await?;
+                assert!(transport.is_closed());
+                assert!(app.reviews.locations.lock().await.is_empty());
+                Ok(())
+            },
         )
-        .await??;
-        assert_eq!(result, json!("ready"));
-        assert!(!transport.is_closed());
-        transport.shutdown().await;
-        Ok(())
+    }
+
+    #[test]
+    fn canceled_review_waiter_does_not_close_shared_agent_transport() -> anyhow::Result<()> {
+        run_with_ssh_fixture(
+            "canceled_review_waiter_does_not_close_shared_agent_transport",
+            r#"
+read -r request
+printf '%s\n' '{"event":{"kind":"review_started"}}'
+read -r request
+printf '%s\n' '{"id":2,"value":null}'
+printf '%s\n' '{"id":3,"value":"ready"}'
+while read -r request; do :; done
+"#,
+            async {
+                let transport = connect_fixture().await?;
+                let mut events = transport.subscribe();
+                let review_transport = transport.clone();
+                let waiter = tokio::spawn(async move {
+                    remote_request(&review_transport, "capture_review_snapshot", Value::Null).await
+                });
+                tokio::time::timeout(std::time::Duration::from_secs(5), events.recv()).await??;
+                waiter.abort();
+                assert!(waiter.await.is_err());
+                let result = tokio::time::timeout(
+                    std::time::Duration::from_secs(5),
+                    transport.request("ping", Value::Null),
+                )
+                .await??;
+                assert_eq!(result, json!("ready"));
+                assert!(!transport.is_closed());
+                transport.shutdown().await;
+                Ok(())
+            },
+        )
     }
 }
