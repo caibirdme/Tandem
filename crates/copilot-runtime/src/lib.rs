@@ -13,6 +13,7 @@ mod message_tests;
 mod permissions;
 mod skills;
 mod summary;
+mod telemetry;
 
 use std::{
     path::{Path, PathBuf},
@@ -28,8 +29,8 @@ pub use attachments::{
     MessageAttachment, validate_attachment_protocol, validate_attachments,
 };
 pub use config::{
-    ModelSettings, PermissionMode, ProviderProtocol, ProviderSettings, RuntimeOptions, SessionMode,
-    SessionOptions, TelemetryProtocol, TelemetrySettings,
+    AgentLensSettings, ModelSettings, PermissionMode, ProviderProtocol, ProviderSettings,
+    RuntimeOptions, SessionMode, SessionOptions, TelemetryProtocol, TelemetrySettings,
 };
 pub use error::{ConfigurationError, Error, SkillError, SummaryError};
 pub use events::{ContextUsage, EventKind, RuntimeEvent};
@@ -45,14 +46,15 @@ pub use permissions::ApprovalDecision;
 use permissions::Permissions;
 use serde_json::json;
 pub use skills::{ProjectSkill, SkillSelection};
+pub use telemetry::TelemetryError;
 use tokio::{
     sync::{Mutex, OwnedMutexGuard, broadcast},
     task::JoinHandle,
 };
 
 /// SDK release resolved in Cargo.lock; its bundled native runtime has a separate version.
-pub const SDK_VERSION: &str = "1.0.24";
-pub const CLI_VERSION: &str = "1.0.101";
+pub const SDK_VERSION: &str = "1.0.25";
+pub const CLI_VERSION: &str = "1.0.102";
 
 const EVENT_CAPACITY: usize = 4096;
 const CHAT_TOOLS: &[&str] = &["builtin:web_fetch"];
@@ -92,6 +94,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 pub struct Runtime {
     client: Client,
     chat_directory: PathBuf,
+    agentlens: Option<telemetry::AgentLensExport>,
 }
 
 impl Runtime {
@@ -111,11 +114,23 @@ impl Runtime {
             )
             .await?;
         }
-        let telemetry = options
+        let mut telemetry = options
             .telemetry
             .as_ref()
             .map(TelemetrySettings::to_sdk)
             .transpose()?;
+        let agentlens = if let Some(settings) = options
+            .telemetry
+            .as_ref()
+            .filter(|settings| settings.agentlens.is_some())
+        {
+            let exporter =
+                telemetry::AgentLensExport::start(settings, &options.state_directory).await?;
+            telemetry = Some(exporter.configuration());
+            Some(exporter)
+        } else {
+            None
+        };
         let mut client_options = ClientOptions::default();
         client_options.program = options
             .cli_path
@@ -125,6 +140,26 @@ impl Runtime {
         client_options.mode = ClientMode::Empty;
         client_options.use_logged_in_user = Some(false);
         client_options.telemetry = telemetry;
+        if let Some(settings) = options
+            .telemetry
+            .as_ref()
+            .and_then(|settings| settings.agentlens.as_ref())
+        {
+            // AgentLens authentication exists only in the outbound adapter's
+            // resource. Ambient OTLP configuration must not enter SDK files.
+            for key in [
+                "OTEL_RESOURCE_ATTRIBUTES",
+                "OTEL_EXPORTER_OTLP_HEADERS",
+                "OTEL_EXPORTER_OTLP_TRACES_HEADERS",
+                "OTEL_EXPORTER_OTLP_METRICS_HEADERS",
+            ] {
+                client_options.env.push((key.into(), "".into()));
+            }
+            client_options.env.push((
+                "OTEL_SERVICE_NAME".into(),
+                settings.service_name.clone().into(),
+            ));
+        }
         client_options.client_info = Some(
             ClientInfo::new()
                 .with_application_name("Tandem")
@@ -133,9 +168,13 @@ impl Runtime {
         let client = tokio::time::timeout(Duration::from_secs(30), Client::start(client_options))
             .await
             .map_err(|_| Error::StartupTimeout)??;
+        if let Some(exporter) = &agentlens {
+            exporter.attach_client(client.clone());
+        }
         Ok(Self {
             client,
             chat_directory,
+            agentlens,
         })
     }
 
@@ -149,6 +188,9 @@ impl Runtime {
         let permissions = Permissions::new(&options.mode, options.permission_mode, events.clone());
         let config = create_config(&options, directory.clone(), permissions.clone())?;
         let session = self.client.create_session(config).await?;
+        if let Some(exporter) = &self.agentlens {
+            exporter.register(session.id().as_str());
+        }
         let skill_directory = match &options.mode {
             SessionMode::Chat => None,
             SessionMode::Work { .. } => Some(directory),
@@ -186,6 +228,9 @@ impl Runtime {
                 let _ = session.disconnect().await;
                 return Err(error.into());
             }
+        }
+        if let Some(exporter) = &self.agentlens {
+            exporter.register(session.id().as_str());
         }
         let skill_directory = match &options.mode {
             SessionMode::Chat => None,
@@ -258,13 +303,26 @@ impl Runtime {
     /// # Errors
     /// Returns an error if the runtime cannot shut down cleanly.
     pub async fn stop(&self) -> Result<()> {
-        self.client.stop().await.map_err(Error::Shutdown)
+        let stopped = self.client.stop().await;
+        if stopped.is_err() {
+            self.client.force_stop();
+        }
+        let exported = if let Some(exporter) = &self.agentlens {
+            exporter.finish().await
+        } else {
+            Ok(())
+        };
+        exported?;
+        stopped.map_err(Error::Shutdown)
     }
 
     /// Terminates the CLI and releases its sessions when graceful shutdown fails
     /// or is cancelled. This synchronous recovery cannot itself be cancelled.
     pub fn force_stop(&self) {
         self.client.force_stop();
+        if let Some(exporter) = &self.agentlens {
+            exporter.signal_stop();
+        }
     }
 
     async fn directory_for(&self, mode: &SessionMode) -> Result<PathBuf> {
@@ -277,6 +335,15 @@ impl Runtime {
             return Err(ConfigurationError::WorkspaceNotDirectory.into());
         }
         Ok(canonical)
+    }
+}
+
+impl Drop for Runtime {
+    fn drop(&mut self) {
+        if let Some(exporter) = &self.agentlens {
+            self.client.force_stop();
+            exporter.signal_stop();
+        }
     }
 }
 

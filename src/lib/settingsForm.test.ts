@@ -282,6 +282,72 @@ describe('preferences form ownership', () => {
     });
   });
 
+  it('keeps AgentLens credentials out of ordinary settings and preserves a saved key by omission', () => {
+    const telemetry = {
+      ...settings.telemetry,
+      endpoint: ' https://collector.example.com:4318 ',
+      agentlens: { serviceName: ' tandem ' },
+    };
+    const payload = preferencesPayload(settings, {
+      kind: 'telemetry',
+      value: telemetry,
+      credential: { kind: 'keep' },
+    });
+    expect(payload).toEqual({
+      telemetry: {
+        ...telemetry,
+        endpoint: 'https://collector.example.com:4318',
+        agentlens: { serviceName: 'tandem' },
+      },
+      cliPath: settings.cliPath,
+    });
+    expect(payload).not.toHaveProperty('telemetryApiKey');
+  });
+
+  it.each([
+    {
+      credential: { kind: 'replace', value: ' fixture-agentlens-key ' },
+      expected: 'fixture-agentlens-key',
+    },
+    { credential: { kind: 'remove' }, expected: '' },
+  ] as const)(
+    'submits explicit AgentLens key $credential.kind separately',
+    ({ credential, expected }) => {
+      const telemetry = {
+        ...settings.telemetry,
+        protocol: 'http/protobuf' as const,
+        agentlens: { serviceName: 'tandem' },
+      };
+      const payload = preferencesPayload(settings, {
+        kind: 'telemetry',
+        value: telemetry,
+        credential,
+      });
+      expect(payload.telemetry.protocol).toBe('http/json');
+      expect(payload.telemetryApiKey).toBe(expected);
+      expect(payload.telemetry).not.toHaveProperty('apiKey');
+      expect(payload.telemetry.agentlens).toEqual({ serviceName: 'tandem' });
+    },
+  );
+
+  it('does not submit a hidden AgentLens key after switching to the generic collector', () => {
+    const payload = preferencesPayload(settings, {
+      kind: 'telemetry',
+      value: { ...settings.telemetry, agentlens: null },
+      credential: { kind: 'replace', value: 'fixture-agentlens-key' },
+    });
+    expect(payload).not.toHaveProperty('telemetryApiKey');
+  });
+
+  it('requires a service name for enabled AgentLens export', () => {
+    expect(() =>
+      preferencesPayload(settings, {
+        kind: 'telemetry',
+        value: { ...settings.telemetry, agentlens: { serviceName: ' ' } },
+      }),
+    ).toThrow('Enter a service name for AgentLens');
+  });
+
   it.each([
     { input: ' /new/copilot ', expected: '/new/copilot' },
     { input: '  ', expected: null },

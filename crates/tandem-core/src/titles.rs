@@ -685,7 +685,8 @@ mod tests {
             model_id: "title".into(),
         };
         app.save_title_model(Some(selection.clone())).await?;
-        app.save_preferences(Telemetry::default(), None).await?;
+        app.save_preferences(Telemetry::default(), None, None)
+            .await?;
         assert_eq!(app.store.preferences()?.title_model, Some(selection));
         let (_, settings) = app.model_settings(&session.provider_id, "title")?;
         assert_eq!(settings.context_window, 1_000_000);

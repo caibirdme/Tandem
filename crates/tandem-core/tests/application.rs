@@ -384,6 +384,14 @@ async fn missing_and_keyless_providers_do_not_read_credential_storage() -> Resul
         fn set(&self, _: &str, _: Option<&str>) -> std::result::Result<(), SecretError> {
             Ok(())
         }
+
+        fn get_telemetry_api_key(&self) -> std::result::Result<Option<String>, SecretError> {
+            Err(SecretError::LockPoisoned)
+        }
+
+        fn set_telemetry_api_key(&self, _: Option<&str>) -> std::result::Result<(), SecretError> {
+            Err(SecretError::LockPoisoned)
+        }
     }
     let directory = TempDir::new()?;
     let application = app(&directory, Arc::new(UnreadableVault))?;
@@ -412,6 +420,17 @@ async fn missing_and_keyless_providers_do_not_read_credential_storage() -> Resul
     );
     let updated = call(&application, "save_provider", json!({"provider":saved})).await?;
     assert_eq!(updated["hasApiKey"], false);
+    call(&application, "save_preferences", json!({
+        "telemetry":{"enabled":true,"endpoint":"http://127.0.0.1:4318","protocol":"http/json","captureContent":false},
+        "cliPath":null
+    })).await?;
+    assert!(
+        call(&application, "get_telemetry_api_key", json!({}))
+            .await
+            .is_err()
+    );
+    let snapshot = call(&application, "snapshot", json!({})).await?;
+    assert_eq!(snapshot["settings"]["telemetry"]["enabled"], true);
     Ok(())
 }
 
@@ -582,6 +601,14 @@ async fn failed_credential_deletion_keeps_provider_available_for_retry() -> Resu
                 return Err(SecretError::LockPoisoned);
             }
             Ok(())
+        }
+
+        fn get_telemetry_api_key(&self) -> std::result::Result<Option<String>, SecretError> {
+            Ok(None)
+        }
+
+        fn set_telemetry_api_key(&self, _: Option<&str>) -> std::result::Result<(), SecretError> {
+            Err(SecretError::LockPoisoned)
         }
     }
 

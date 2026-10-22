@@ -152,9 +152,17 @@ Open **Settings > Observability**, enable OpenTelemetry, enter an OTLP receiver 
 
 Changes restart the runtime once active conversations stop; existing sessions can continue afterward. Remote work exports telemetry from the remote machine, so the receiver must be reachable from that host. `localhost` refers to the machine running the agent.
 
+To use AgentLens, select **AgentLens** as the destination, enter the collector's base URL, choose a service name such as `tandem`, and save the workspace's access key. Use the key from the destination workspace's access configuration; the key determines the workspace, so no separate workspace identifier is required. AgentLens uses HTTP/JSON and appends `/v1/traces` to the base URL. An `https://` address remains HTTPS.
+
+Enable **Capture content** to upload complete conversation messages, system instructions, tool arguments and results, and any code or file contents included in them. With content capture disabled, only metadata is exported. AgentLens exports Chat and Work conversations, including their subagents; title generation, configuration discovery, and standalone SDK metrics are excluded. Generic OTLP export retains the SDK's native signals.
+
+The AgentLens adapter supplies the resource attributes `service.name` and `tps.tenant.id`, translates the SDK's agent/model/tool attributes, and uses AgentLens's entry and child span kinds. The access key is stored as plaintext in a separate local SQLite configuration table. Ordinary snapshots contain no access key; the editor reads it on demand, masks it initially, and supports reveal, replacement, and clearing. Remote processes receive the key through the SSH transport and keep it in memory.
+
+The pinned CLI omits the first model request's input for nested subagents. AgentLens still receives the actual task instruction in the parent task and subagent entry, with the latter marked as sourced from the parent task. Subsequent model requests and all supplied outputs retain their captured content. The adapter leaves the missing model input absent rather than reconstructing an unobserved request.
+
 ## Bundled runtime
 
-Tandem bundles the matching Copilot CLI, so you do not need to install Copilot separately. The current build uses SDK `1.0.24` with CLI `1.0.101`.
+Tandem bundles the matching Copilot CLI, so you do not need to install Copilot separately. The current build uses SDK `1.0.25` with CLI `1.0.102`.
 
 For source builds, the first Rust build downloads that CLI and verifies its checksum. At runtime, Tandem extracts it from bundled resources. The **Copilot CLI path** field in **Settings > General** is an optional debugging override; leave it empty for normal use.
 

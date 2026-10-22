@@ -19,6 +19,18 @@ function markup(state: CredentialEditorState) {
 }
 
 describe('provider credential input', () => {
+  it('keeps the provider placeholder for an empty key without an override', () => {
+    const rendered = renderToStaticMarkup(
+      <ProviderKeyInput
+        state={initialCredentialEditor(false)}
+        hasSavedKey={false}
+        update={() => undefined}
+        onRetry={() => undefined}
+      />,
+    );
+    expect(rendered).toContain('placeholder="Enter an API key; optional for local services"');
+  });
+
   it.each([false, true])(
     'renders an accessible non-submit visibility control when visible=%s',
     (visible) => {

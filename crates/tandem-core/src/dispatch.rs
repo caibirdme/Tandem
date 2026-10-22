@@ -88,9 +88,11 @@ pub enum Request {
     GetProviderApiKey {
         id: String,
     },
+    GetTelemetryApiKey {},
     SavePreferences {
         telemetry: Telemetry,
         cli_path: Option<String>,
+        telemetry_api_key: Option<String>,
     },
     SaveFontSize {
         font_size: FontSize,
@@ -177,19 +179,17 @@ impl App {
                 base_url,
                 list_models_path,
                 api_key,
-            } => response(
-                crate::model_discovery::list_models(
-                    &base_url,
-                    &list_models_path,
-                    api_key.as_deref(),
-                )
-                .await?,
-            ),
+            } => provider_models_response(&base_url, &list_models_path, api_key.as_deref()).await,
             Request::GetProviderApiKey { id } => response(self.get_provider_api_key(&id)?),
+            Request::GetTelemetryApiKey {} => response(self.get_telemetry_api_key()?),
             Request::SavePreferences {
                 telemetry,
                 cli_path,
-            } => response(self.save_preferences(telemetry, cli_path).await?),
+                telemetry_api_key,
+            } => response(
+                self.save_preferences(telemetry, cli_path, telemetry_api_key)
+                    .await?,
+            ),
             Request::SaveFontSize { font_size } => response(self.save_font_size(font_size).await?),
             Request::SaveTitleModel { title_model } => {
                 response(self.save_title_model(title_model).await?)
@@ -262,6 +262,14 @@ impl App {
             Request::InstallRuntime {} => response(self.install_runtime().await?),
         }
     }
+}
+
+async fn provider_models_response(
+    base_url: &str,
+    list_models_path: &str,
+    api_key: Option<&str>,
+) -> Result<Value> {
+    response(crate::model_discovery::list_models(base_url, list_models_path, api_key).await?)
 }
 
 fn response(value: impl Serialize) -> Result<Value> {

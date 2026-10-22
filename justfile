@@ -63,6 +63,10 @@ integration:
     cargo build -p tandem-dev-server
     {{python}} tests/runtime_e2e.py
 
+# Verify AgentLens field mapping, content capture, credentials, retries, and remote export.
+integration-agentlens: build-server
+    {{python}} tests/agentlens_e2e.py
+
 # Verify provider model discovery with local HTTP fixtures and synthetic credentials.
 integration-models:
     cargo build -p tandem-dev-server

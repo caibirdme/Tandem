@@ -15,6 +15,7 @@ import { useState } from 'react';
 
 import { version } from '../../package.json';
 import { useProviderCredential } from '../hooks/useProviderCredential';
+import { useTelemetryCredential } from '../hooks/useTelemetryCredential';
 import { useI18n } from '../i18n';
 import { dispatch, errorMessage } from '../lib/api';
 import {
@@ -528,7 +529,7 @@ export function ProviderEditor({
   );
 }
 
-function Preferences({
+export function Preferences({
   settings,
   onSaved,
   mode,
@@ -539,6 +540,7 @@ function Preferences({
 }) {
   const { t } = useI18n();
   const [telemetry, setTelemetry] = useState(settings.telemetry);
+  const credential = useTelemetryCredential(mode === 'telemetry' && !!telemetry.agentlens);
   const [cliPath, setCliPath] = useState(settings.cliPath ?? '');
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<{ text: string; error: boolean } | null>(null);
@@ -547,19 +549,31 @@ function Preferences({
     setNotice(null);
   }
   async function save() {
+    if (busy) return;
+    const submittedCredential = credential.state;
     setBusy(true);
     setNotice(null);
     try {
+      if (
+        mode === 'telemetry' &&
+        telemetry.enabled &&
+        telemetry.agentlens &&
+        (credential.edit.kind === 'remove' ||
+          (!credential.hasSavedKey && credential.edit.kind === 'keep'))
+      ) {
+        throw new Error(t('error.telemetryApiKey'));
+      }
       await dispatch(
         'save_preferences',
         preferencesPayload(
           settings,
           mode === 'telemetry'
-            ? { kind: 'telemetry', value: telemetry }
+            ? { kind: 'telemetry', value: telemetry, credential: credential.edit }
             : { kind: 'cliPath', value: cliPath },
         ),
       );
       await onSaved();
+      if (mode === 'telemetry' && telemetry.agentlens) credential.saved(submittedCredential);
       setNotice({ text: t('settings.saved'), error: false });
     } catch (reason) {
       setNotice({ text: errorMessage(reason), error: true });
@@ -588,8 +602,52 @@ function Preferences({
             checked={telemetry.enabled}
             onCheckedChange={(enabled) => update({ enabled })}
             label={t('settings.enableTelemetry')}
-            description={t('settings.telemetryHint')}
+            description={
+              telemetry.agentlens
+                ? t('settings.agentlensTelemetryHint')
+                : t('settings.telemetryHint')
+            }
           />
+          <label>
+            {t('settings.telemetryDestination')}
+            <select
+              value={telemetry.agentlens ? 'agentlens' : 'otlp'}
+              onChange={(event) =>
+                update({
+                  agentlens: event.target.value === 'agentlens' ? { serviceName: 'tandem' } : null,
+                  ...(event.target.value === 'agentlens' ? { protocol: 'http/json' } : {}),
+                })
+              }
+            >
+              <option value="otlp">{t('settings.otlpCollector')}</option>
+              <option value="agentlens">AgentLens</option>
+            </select>
+          </label>
+          {telemetry.agentlens && (
+            <>
+              <label>
+                <span>
+                  {t('settings.telemetryServiceName')}
+                  {telemetry.enabled && <RequiredMark />}
+                </span>
+                <input
+                  required={telemetry.enabled}
+                  value={telemetry.agentlens.serviceName}
+                  onChange={(event) => update({ agentlens: { serviceName: event.target.value } })}
+                  placeholder="tandem"
+                />
+                <small>{t('settings.agentlensHint')}</small>
+              </label>
+              <ProviderKeyInput
+                label={t('settings.agentlensKey')}
+                emptyPlaceholder={t('settings.agentlensKeyPlaceholder')}
+                state={credential.state}
+                hasSavedKey={credential.hasSavedKey}
+                update={credential.update}
+                onRetry={credential.retry}
+              />
+            </>
+          )}
           <label>
             <span>
               {t('settings.endpoint')}
@@ -604,18 +662,20 @@ function Preferences({
             />
             <small>{t('settings.endpointHint')}</small>
           </label>
-          <label>
-            {t('settings.transportProtocol')}
-            <select
-              value={telemetry.protocol}
-              onChange={(event) =>
-                update({ protocol: event.target.value as Telemetry['protocol'] })
-              }
-            >
-              <option value="http/protobuf">HTTP / Protobuf</option>
-              <option value="http/json">HTTP / JSON</option>
-            </select>
-          </label>
+          {!telemetry.agentlens && (
+            <label>
+              {t('settings.transportProtocol')}
+              <select
+                value={telemetry.protocol}
+                onChange={(event) =>
+                  update({ protocol: event.target.value as Telemetry['protocol'] })
+                }
+              >
+                <option value="http/protobuf">HTTP / Protobuf</option>
+                <option value="http/json">HTTP / JSON</option>
+              </select>
+            </label>
+          )}
           <Toggle
             checked={telemetry.captureContent}
             onCheckedChange={(captureContent) => update({ captureContent })}
@@ -624,7 +684,10 @@ function Preferences({
           />
           <div className="info-box">
             <Radio size={16} />
-            <p>{t('settings.telemetryLocation')}</p>
+            <div>
+              <p>{t('settings.telemetryLocation')}</p>
+              {telemetry.agentlens && <p>{t('settings.agentlensScope')}</p>}
+            </div>
           </div>
         </>
       ) : (

@@ -102,12 +102,21 @@ export const en = {
   'settings.telemetryDescription': 'Export agent traces with OpenTelemetry.',
   'settings.enableTelemetry': 'Enable telemetry',
   'settings.telemetryHint': 'Send traces and metrics to your OTLP Collector.',
+  'settings.telemetryDestination': 'Destination',
+  'settings.otlpCollector': 'OTLP Collector',
+  'settings.telemetryServiceName': 'Service name',
+  'settings.agentlensHint': 'The service name identifies Tandem in your AgentLens workspace.',
+  'settings.agentlensTelemetryHint': 'Send Chat and Work traces to your AgentLens workspace.',
+  'settings.agentlensKey': 'AgentLens access key',
+  'settings.agentlensKeyPlaceholder': 'Enter your AgentLens workspace access key',
+  'settings.agentlensScope':
+    'AgentLens receives Chat and Work traces. Conversation title generation and other background requests are excluded.',
   'settings.endpoint': 'Export endpoint',
-  'settings.endpointHint': 'Use the Collector HTTP base URL. The SDK adds the signal paths.',
+  'settings.endpointHint': 'Use the Collector HTTP base URL. Signal paths are added automatically.',
   'settings.transportProtocol': 'Transport protocol',
   'settings.captureContent': 'Include conversation content',
   'settings.captureContentHint':
-    'Export prompts, model responses, and tool arguments. Content may include sensitive project information.',
+    'Export full conversations, system instructions, and tool inputs and outputs, including any code and file content they contain.',
   'settings.telemetryLocation':
     'Local sessions export from this computer; remote work exports from the remote server. Make sure that environment can reach this endpoint.',
   'settings.generalDescription': 'Adjust your agent runtime and interface.',
@@ -201,6 +210,9 @@ export const en = {
   'key.remove': 'Clear saved key',
   'error.titleModelUnavailable': 'The selected title model is unavailable. Choose another model.',
   'error.blankReplacement': 'The replacement key cannot be empty.',
+  'error.telemetryServiceName': 'Enter a service name for AgentLens.',
+  'error.telemetryApiKey':
+    'Enter an AgentLens access key, or disable telemetry before clearing the saved key.',
   'error.noModels': 'Add at least one model.',
   'error.blankModelId': 'Enter an ID for every model.',
   'error.invalidContextWindow':

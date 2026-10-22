@@ -146,6 +146,17 @@ mod tests {
             self.pause_once();
             self.keys.set(id, secret)
         }
+
+        fn get_telemetry_api_key(&self) -> std::result::Result<Option<String>, SecretError> {
+            self.keys.get_telemetry_api_key()
+        }
+
+        fn set_telemetry_api_key(
+            &self,
+            secret: Option<&str>,
+        ) -> std::result::Result<(), SecretError> {
+            self.keys.set_telemetry_api_key(secret)
+        }
     }
 
     fn provider() -> Result<Provider> {

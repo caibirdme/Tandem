@@ -34,6 +34,7 @@ jobs:
       # tests/daemon_acceptance.py and tests/remote_protocol.py are included by the
       # remote integration step; macOS also exercises the real Unix daemon/proxies.
       # tests/fleet_acceptance.py is included by local and remote integration checks.
+      # tests/agentlens_e2e.py verifies Chat/Work-only export with the real SDK below.
       - uses: dorny/paths-filter@v4
         id: filter
         with:
@@ -153,6 +154,7 @@ jobs:
       - run: cargo build -p tandem-dev-server -p tandem-server --locked
       - run: python tests/provider_models_e2e.py
       - run: python tests/runtime_e2e.py
+      - run: python tests/agentlens_e2e.py
       # POSIX runs shared-daemon acceptance even when an SSH daemon is unavailable.
       - run: python tests/remote_e2e.py --skip-ssh
 

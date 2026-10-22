@@ -33,6 +33,12 @@ pub enum ConfigurationError {
     PreparedForDifferentSession,
     #[error("Multi-agent mode is only available in Work sessions")]
     FleetUnavailableInChat,
+    #[error("AgentLens service name cannot be empty")]
+    EmptyTelemetryServiceName,
+    #[error("AgentLens API key cannot be empty")]
+    EmptyTelemetryKey,
+    #[error("AgentLens requires the http/json telemetry protocol")]
+    AgentLensRequiresJson,
 }
 
 /// Safe title-inference failures. Upstream failures may contain private input,
@@ -114,6 +120,8 @@ pub enum Error {
     Skills(#[from] SkillError),
     #[error("message attachments: {0}")]
     Attachments(#[from] crate::AttachmentError),
+    #[error("AgentLens telemetry: {0}")]
+    Telemetry(#[from] crate::TelemetryError),
 }
 
 #[cfg(test)]

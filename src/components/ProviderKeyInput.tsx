@@ -10,17 +10,21 @@ export function ProviderKeyInput({
   hasSavedKey,
   update,
   onRetry,
+  label,
+  emptyPlaceholder,
 }: {
   state: CredentialEditorState;
   hasSavedKey: boolean;
   update: (action: CredentialEditorAction) => void;
   onRetry: () => void;
+  label?: string;
+  emptyPlaceholder?: string;
 }) {
   const { t } = useI18n();
   const id = useId();
   return (
     <div className="credential-field">
-      <label htmlFor={id}>{t('key.label')}</label>
+      <label htmlFor={id}>{label ?? t('key.label')}</label>
       <div className="credential-input">
         <input
           id={id}
@@ -30,7 +34,9 @@ export function ProviderKeyInput({
           spellCheck={false}
           value={state.removing ? '' : state.value}
           onChange={(event) => update({ type: 'edited', value: event.target.value })}
-          placeholder={hasSavedKey ? t('key.keepPlaceholder') : t('key.emptyPlaceholder')}
+          placeholder={
+            hasSavedKey ? t('key.keepPlaceholder') : (emptyPlaceholder ?? t('key.emptyPlaceholder'))
+          }
           aria-describedby={`${id}-hint`}
         />
         <button

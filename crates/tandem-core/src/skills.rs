@@ -28,7 +28,10 @@ impl App {
                     return Ok(Vec::new());
                 };
                 let response = transport
-                    .request("list_project_skills", json!({"directory": project.path,"telemetry":self.store.preferences()?.telemetry}))
+                    .request(
+                        "list_project_skills",
+                        json!({"directory": project.path,"telemetry":self.remote_telemetry()?}),
+                    )
                     .await;
                 let response = response?;
                 serde_json::from_value(response)

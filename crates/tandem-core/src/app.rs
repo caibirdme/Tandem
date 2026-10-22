@@ -4,7 +4,7 @@ use std::{
     sync::{Arc, Weak},
 };
 
-use copilot_runtime::{Runtime, RuntimeOptions, TelemetryProtocol, TelemetrySettings};
+use copilot_runtime::{Runtime, RuntimeOptions, TelemetrySettings};
 use tandem_remote::ArtifactLocator;
 use tokio::sync::{Mutex, broadcast};
 
@@ -13,6 +13,7 @@ use crate::{
     agent::LiveSession,
     model::{
         Event, FontSize, Preferences, RuntimeStatus, SessionStatus, Settings, Snapshot, Telemetry,
+        ValidationError,
     },
     store::Store,
     submissions::Submissions,
@@ -158,11 +159,17 @@ impl App {
         {
             return Ok(runtime.clone());
         }
-        if let Some(previous) = runtime.take() {
-            let _ = previous.stop().await;
+        if let Some(previous) = runtime.take()
+            && let Err(error @ copilot_runtime::Error::Telemetry(_)) = previous.stop().await
+        {
+            return Err(error.into());
         }
         let preferences = self.store.preferences()?;
-        let options = runtime_options(&preferences, self.options.data_directory.join("runtime"));
+        let options = runtime_options(
+            &preferences,
+            self.options.data_directory.join("runtime"),
+            self.telemetry_settings(&preferences.telemetry)?,
+        );
         let running = Arc::new(
             Runtime::start(options)
                 .await
@@ -183,6 +190,7 @@ impl App {
         &self,
         telemetry: Telemetry,
         cli_path: Option<String>,
+        telemetry_api_key: Option<String>,
     ) -> Result<()> {
         telemetry.validate()?;
         if let Some(path) = &cli_path
@@ -193,12 +201,43 @@ impl App {
         }
         let _guard = self.mutation_gate.lock().await;
         self.require_idle()?;
+        let telemetry_api_key = telemetry_api_key.map(|key| key.trim().to_owned());
+        if telemetry.enabled && telemetry.agentlens.is_some() {
+            let key = match &telemetry_api_key {
+                Some(key) => Some(key.clone()),
+                None => self.get_telemetry_api_key()?,
+            };
+            if key.as_deref().is_none_or(|key| key.trim().is_empty()) {
+                return Err(ValidationError::MissingAgentLensApiKey.into());
+            }
+        }
         let _title_pause = self.titles.pause()?;
         self.update_title_configuration(|| {
             let mut preferences = self.store.preferences()?;
             preferences.telemetry = telemetry;
             preferences.cli_path = cli_path;
-            Ok(self.store.save_preferences(&preferences)?)
+            let previous_key = telemetry_api_key
+                .as_ref()
+                .map(|_| self.get_telemetry_api_key())
+                .transpose()?;
+            if let Some(key) = telemetry_api_key {
+                self.options.secrets.set_telemetry_api_key(Some(&key))?;
+            }
+            if let Err(storage) = self.store.save_preferences(&preferences) {
+                if let Some(previous_key) = previous_key
+                    && let Err(secret) = self
+                        .options
+                        .secrets
+                        .set_telemetry_api_key(previous_key.as_deref())
+                {
+                    return Err(Error::TelemetryPreferencesRestore {
+                        storage: Box::new(storage),
+                        secret: Box::new(secret),
+                    });
+                }
+                return Err(storage.into());
+            }
+            Ok(())
         })?;
         self.shutdown_sessions().await;
         if let Some(runtime) = self.runtime.lock().await.take() {
@@ -236,16 +275,8 @@ impl App {
 pub(crate) fn runtime_options(
     preferences: &Preferences,
     state_directory: PathBuf,
+    telemetry: Option<TelemetrySettings>,
 ) -> RuntimeOptions {
-    let telemetry = preferences.telemetry.enabled.then(|| TelemetrySettings {
-        endpoint: preferences.telemetry.endpoint.clone(),
-        protocol: if preferences.telemetry.protocol == "http/json" {
-            TelemetryProtocol::HttpJson
-        } else {
-            TelemetryProtocol::HttpProtobuf
-        },
-        capture_content: preferences.telemetry.capture_content,
-    });
     RuntimeOptions {
         state_directory,
         cli_path: preferences
@@ -286,7 +317,8 @@ mod tests {
                 "command": "save_font_size", "payload": {"fontSize": value}
             }))?;
             app.dispatch(request).await?;
-            app.save_preferences(Telemetry::default(), None).await?;
+            app.save_preferences(Telemetry::default(), None, None)
+                .await?;
             assert_eq!(app.snapshot().await?.settings.font_size, expected);
         }
 

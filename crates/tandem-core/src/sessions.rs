@@ -521,7 +521,7 @@ impl App {
         transport
             .request(
                 "start_agent",
-                json!({"options":options,"resume":resume,"telemetry":self.store.preferences()?.telemetry}),
+                json!({"options":options,"resume":resume,"telemetry":self.remote_telemetry()?}),
             )
             .await?;
         Ok(())

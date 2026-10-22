@@ -116,4 +116,43 @@ describe('saved provider key editing', () => {
     expect(missing.value).toBe('');
     expect(credentialEdit(missing)).toEqual({ kind: 'keep' });
   });
+
+  it.each(['replace', 'remove'] as const)(
+    'masks a successfully saved %s and returns to preserving the stored credential',
+    (kind) => {
+      const edited = reduceCredentialEditor(saved, { type: 'edited', value: ' fixture-new-key ' });
+      const submitted =
+        kind === 'remove'
+          ? reduceCredentialEditor(edited, { type: 'removalToggled' })
+          : { ...edited, visible: true };
+      const completed = reduceCredentialEditor(submitted, { type: 'saved', submitted });
+      expect(completed.value).toBe(kind === 'remove' ? '' : 'fixture-new-key');
+      expect(completed.visible).toBe(false);
+      expect(completed.removing).toBe(false);
+      expect(credentialEdit(completed)).toEqual({ kind: 'keep' });
+    },
+  );
+
+  it('preserves a key draft entered while an earlier save was in flight', () => {
+    const submitted = reduceCredentialEditor(saved, {
+      type: 'edited',
+      value: 'fixture-submitted-key',
+    });
+    const newer = reduceCredentialEditor(submitted, { type: 'edited', value: 'fixture-next-key' });
+    const completed = reduceCredentialEditor(newer, { type: 'saved', submitted });
+    expect(completed).toBe(newer);
+    expect(credentialEdit(completed)).toEqual({ kind: 'replace', value: 'fixture-next-key' });
+  });
+
+  it('keeps an in-flight credential read valid when saving preserves that credential', () => {
+    const submitted = initialCredentialEditor(true);
+    const completed = reduceCredentialEditor(submitted, { type: 'saved', submitted });
+    const loaded = reduceCredentialEditor(completed, {
+      type: 'loaded',
+      request: 0,
+      value: 'fixture-saved-key',
+    });
+    expect(loaded.value).toBe('fixture-saved-key');
+    expect(credentialEdit(loaded)).toEqual({ kind: 'keep' });
+  });
 });

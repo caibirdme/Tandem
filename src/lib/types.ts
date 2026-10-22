@@ -26,6 +26,7 @@ export interface Telemetry {
   endpoint: string;
   protocol: 'http/protobuf' | 'http/json';
   captureContent: boolean;
+  agentlens?: { serviceName: string } | null;
 }
 export interface Settings {
   providers: Provider[];
@@ -177,7 +178,11 @@ export interface Commands {
   save_provider: { payload: { provider: ProviderDraft; apiKey?: string }; result: Provider };
   get_provider_api_key: { payload: { id: string }; result: string | null };
   delete_provider: { payload: { id: string }; result: null };
-  save_preferences: { payload: { telemetry: Telemetry; cliPath: string | null }; result: null };
+  save_preferences: {
+    payload: { telemetry: Telemetry; cliPath: string | null; telemetryApiKey?: string };
+    result: null;
+  };
+  get_telemetry_api_key: { payload: Record<string, never>; result: string | null };
   save_font_size: { payload: { fontSize: FontSize }; result: null };
   save_title_model: { payload: { titleModel: ModelSelection | null }; result: null };
   regenerate_title: { payload: { sessionId: string }; result: null };
