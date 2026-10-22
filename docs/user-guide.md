@@ -4,21 +4,29 @@ Start with the [README](../README.md#get-started) to connect a provider and open
 
 ## Configure a provider
 
-Open **Settings > Model providers > Add provider**, choose OpenAI Chat Completions, OpenAI Responses, or Anthropic Messages, and enter the provider's base URL and API key. Add at least one model ID supported by that provider.
+Open **Settings > Model providers > Add provider**, choose OpenAI Chat Completions, OpenAI Responses, or Anthropic Messages, and enter the provider's base URL and API key in the compact labeled fields. Add at least one supported model through **Fetch models** or **Add model**, then click **Save provider**.
 
-For each model, enter its required context window in **K** (1 K = 1,000 tokens): enter `256` for 256k or `1000` for 1M. Display names are customizable. Default reasoning effort and output limits are optional advanced settings; set them only if the model supports them. The reasoning setting supplies the default for conversations using that model; each conversation can override it.
-
-Required fields are marked with a red **\***. If you leave one empty and click **Save provider**, the form scrolls to and focuses the first missing field and displays a prompt. Type the context limit directly into the compact input; it has no stepper arrows.
+Added models appear as rows rather than expanded forms. Click a row to open its populated model form, change its values, and click **Save**. **Cancel** closes the form without changing that model. Adding, importing, editing, and removing models changes the provider draft; **Save provider** persists the complete provider configuration.
 
 ### Fetch available models
 
-After entering the provider details, click **Fetch models**. Each result shows a display name and model ID. All results start unchecked; select the models you want and click **Add selected**. Tandem fills the context window from `max_input_tokens` and maximum output from `max_tokens` when the catalog reports them. For example, 1,000,000 context tokens appear as `1000` K, and 128,000 output tokens appear as `128000`. Enter any missing context window before saving. Existing model IDs are not added twice, and your manual entries remain unchanged. Fetching does not save the provider or add models by itself.
+After entering the provider details, click **Fetch models** to open and load the catalog dialog. Each row shows a checkbox, display name, and context window. Expand the row's chevron to inspect its model ID, returned context and output limits, and supported reasoning efforts. All results start unchecked; select the models you want and click **Add selected** to add them to the provider's model list and close the dialog.
+
+Tandem fills the context window from `max_input_tokens` and maximum output from `max_tokens`. For example, 1,000,000 context tokens become `1000` K in the model form, and 128,000 output tokens remain `128000`. Imported models leave default reasoning effort unset so the model chooses its own effort. Existing model IDs cannot be imported twice, and configured models remain unchanged when a fetch fails or the catalog dialog is canceled.
+
+A catalog model needs a valid context window before it can be imported directly. Catalog entries with missing context or an output ceiling greater than or equal to the context window show why direct import is unavailable. Their returned parameters remain visible. Use **Add model** to configure such a model manually with a valid context window and an output budget smaller than that window; Tandem does not invent or silently reduce catalog limits.
+
+**Model list path** inside the dialog defaults to `/v1/models`. It is appended to the base URL's path: `https://example.com/gateway/` becomes `https://example.com/gateway/v1/models`. Configure a different relative path when your gateway requires it, then fetch again; absolute URLs and paths that switch hosts are not accepted. Discovery always uses the [Anthropic List Models protocol](https://platform.claude.com/docs/en/api/models/list?version=2026-10-21), including API-key authentication and pagination, independently of the conversation protocol. A provider without a compatible catalog can still be configured manually.
+
+Opening the catalog uses the current API key. Changing connection details clears earlier results, and a failed fetch can be retried in the dialog. Keys and upstream response bodies are not included in error messages. Fetching and importing alone do not save the provider.
+
+### Add or edit a model
+
+Click **Add model** to open an empty form, or click an added model's row to edit the same form with its saved draft values. Enter the model ID and required context window in **K** (1 K = 1,000 tokens): `256` means 256k and `1000` means 1M. The field retains single-token precision, so `131.072` means 131,072 tokens. Display names are customizable. Maximum output is optional; when specified, it must be smaller than the context window to leave room for input.
+
+Required fields are marked with a red **\***. Save validates the model before adding or updating its row, including duplicate model IDs and token limits. Default reasoning effort is optional and starts unset for new models. The reasoning setting supplies the default for conversations using that model; each conversation can override it.
 
 Reasoning effort values remain in English in every interface language: `low`, `medium`, `high`, `xhigh`, and `max`. When the catalog reports supported efforts, the model's default and conversation selectors offer only those values. Models reported as not supporting effort offer only the model default. Manual models and catalogs without effort information offer all five presets. The supported set is saved with the model. Changing a model ID clears that model's catalog effort restriction. Switching a conversation to a model that does not support its explicit effort resets the conversation to the new model's default.
-
-**Model list path** defaults to `/v1/models`. It is appended to the base URL's path: `https://example.com/gateway/` becomes `https://example.com/gateway/v1/models`. Configure a different relative path when your gateway requires it; absolute URLs and paths that switch hosts are not accepted. Discovery always uses the [Anthropic List Models protocol](https://platform.claude.com/docs/en/api/models/list?version=2026-10-21), including API-key authentication and pagination, independently of the conversation protocol. A provider without a compatible catalog can still be configured manually.
-
-The request runs only when you click **Fetch models** and uses the current API key. Editing connection details clears the previous results; fetch again to see the new catalog. A failed fetch leaves configured models intact and can be retried. Keys and upstream response bodies are not included in error messages.
 
 ### Check the request URL
 
