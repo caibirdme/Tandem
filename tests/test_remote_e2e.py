@@ -1,5 +1,6 @@
 """Guard the remote acceptance harness's distinct executable roles."""
 
+import os
 import tempfile
 import queue
 import unittest
@@ -13,6 +14,32 @@ from remote_e2e import (
     bootstrap_diagnostics, require_preparation_before_delivery,
     stage_binaries, wait_bootstrap_results,
 )
+from remote_protocol import private_environment
+
+
+class PrivateEnvironmentTests(unittest.TestCase):
+    def test_sampling_and_credentials_are_isolated_without_changing_parent_environment(self):
+        inherited = {
+            "OTEL_TRACES_SAMPLER": "parentbased_traceidratio",
+            "OTEL_TRACES_SAMPLER_ARG": "0.01",
+            "COPILOT_CLI_PATH": "fixture-cli",
+            "GITHUB_TOKEN": "fixture-github-token",
+            "GH_TOKEN": "fixture-gh-token",
+            "COPILOT_GITHUB_TOKEN": "fixture-copilot-token",
+        }
+        with patch.dict(os.environ, {**inherited, "TANDEM_TEST_KEEP": "unchanged"}):
+            before = dict(os.environ)
+            home = Path("fixture-home")
+            environment = private_environment(home)
+            for key in inherited:
+                self.assertNotIn(key, environment)
+            self.assertEqual(environment["TANDEM_TEST_KEEP"], "unchanged")
+            self.assertEqual(environment["HOME"], str(home))
+            self.assertEqual(environment["USERPROFILE"], str(home))
+            self.assertEqual(environment["XDG_CACHE_HOME"], str(home / ".cache"))
+            self.assertEqual(environment["XDG_CONFIG_HOME"], str(home / ".config"))
+            self.assertEqual(environment["XDG_STATE_HOME"], str(home / ".state"))
+            self.assertEqual(dict(os.environ), before)
 
 
 class BinaryRolesTests(unittest.TestCase):

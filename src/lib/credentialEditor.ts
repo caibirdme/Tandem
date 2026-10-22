@@ -38,7 +38,11 @@ export function reduceCredentialEditor(
       return { ...state, loadingRequest: action.request, error: null, visible: false };
     case 'loaded':
       if (state.loadingRequest !== action.request) return state;
-      return { ...initialCredentialEditor(false), value: action.value ?? '' };
+      return {
+        ...initialCredentialEditor(false),
+        value: action.value ?? '',
+        removing: state.removing,
+      };
     case 'loadFailed':
       if (state.loadingRequest !== action.request) return state;
       return { ...state, loadingRequest: null, error: action.error };
@@ -59,12 +63,12 @@ export function reduceCredentialEditor(
         ...state,
         removing: !state.removing,
         visible: false,
-        loadingRequest: null,
-        error: null,
       };
     case 'saved': {
-      // Completing an earlier save must never reset a newer credential draft.
-      if (state !== action.submitted) return state;
+      // A read can finish during removal without changing its save intent.
+      // Never reset a newer replacement or a canceled removal.
+      if (state !== action.submitted && !(state.removing && action.submitted.removing))
+        return state;
       const edit = credentialEdit(state);
       return {
         ...state,
@@ -73,6 +77,7 @@ export function reduceCredentialEditor(
         modified: false,
         removing: false,
         visible: false,
+        ...(edit.kind === 'remove' ? { loadingRequest: null, error: null } : {}),
       };
     }
   }

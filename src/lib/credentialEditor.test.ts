@@ -69,14 +69,83 @@ describe('saved provider key editing', () => {
     expect(cancelled.value).toBe('fixture-edited-key');
   });
 
-  it('does not let a delayed read undo an explicit removal', () => {
-    const removed = reduceCredentialEditor(initialCredentialEditor(true), {
+  it.each([true, false])(
+    'restores a pending saved-key read when removal is canceled (resolve first: %s)',
+    (resolveFirst) => {
+      const removed = reduceCredentialEditor(initialCredentialEditor(true), {
+        type: 'removalToggled',
+      });
+      expect(credentialEdit(removed)).toEqual({ kind: 'remove' });
+      const loaded = { type: 'loaded', request: 0, value: 'fixture-old-key' } as const;
+      const cancel = { type: 'removalToggled' } as const;
+      const intermediate = reduceCredentialEditor(removed, resolveFirst ? loaded : cancel);
+      if (resolveFirst) expect(credentialEdit(intermediate)).toEqual({ kind: 'remove' });
+      else expect(intermediate.loadingRequest).toBe(0);
+      const restored = reduceCredentialEditor(intermediate, resolveFirst ? cancel : loaded);
+      expect(restored.value).toBe('fixture-old-key');
+      expect(restored.removing).toBe(false);
+      expect(credentialEdit(restored)).toEqual({ kind: 'keep' });
+    },
+  );
+
+  it.each([true, false])(
+    'keeps failed reads retryable after canceling removal (failure first: %s)',
+    (failureFirst) => {
+      const initial = initialCredentialEditor(true);
+      const failure = { type: 'loadFailed', request: 0, error: 'Fixture unavailable' } as const;
+      const toggle = { type: 'removalToggled' } as const;
+      const first = reduceCredentialEditor(initial, failureFirst ? failure : toggle);
+      const removed = reduceCredentialEditor(first, failureFirst ? toggle : failure);
+      expect(credentialEdit(removed)).toEqual({ kind: 'remove' });
+      const restored = reduceCredentialEditor(removed, toggle);
+      expect(restored.error).toBe('Fixture unavailable');
+      expect(restored.loadingRequest).toBeNull();
+      expect(credentialEdit(restored)).toEqual({ kind: 'keep' });
+    },
+  );
+
+  it('invalidates a pending read after removal is saved', () => {
+    const submitted = reduceCredentialEditor(initialCredentialEditor(true), {
       type: 'removalToggled',
     });
+    const completed = reduceCredentialEditor(submitted, { type: 'saved', submitted });
+    expect(completed.value).toBe('');
+    expect(completed.loadingRequest).toBeNull();
     expect(
-      reduceCredentialEditor(removed, { type: 'loaded', request: 0, value: 'fixture-old-key' }),
-    ).toBe(removed);
-    expect(credentialEdit(removed)).toEqual({ kind: 'remove' });
+      reduceCredentialEditor(completed, { type: 'loaded', request: 0, value: 'fixture-old-key' }),
+    ).toBe(completed);
+  });
+
+  it.each(['loaded', 'loadFailed'] as const)(
+    'completes a saved removal when the pending read %s during save',
+    (type) => {
+      const submitted = reduceCredentialEditor(initialCredentialEditor(true), {
+        type: 'removalToggled',
+      });
+      const settled = reduceCredentialEditor(
+        submitted,
+        type === 'loaded'
+          ? { type, request: 0, value: 'fixture-old-key' }
+          : { type, request: 0, error: 'Fixture unavailable' },
+      );
+      const completed = reduceCredentialEditor(settled, { type: 'saved', submitted });
+      expect(completed.value).toBe('');
+      expect(completed.removing).toBe(false);
+      expect(completed.error).toBeNull();
+      expect(credentialEdit(completed)).toEqual({ kind: 'keep' });
+    },
+  );
+
+  it('does not let a completed removal overwrite a newer replacement or cancellation', () => {
+    const submitted = reduceCredentialEditor(initialCredentialEditor(true), {
+      type: 'removalToggled',
+    });
+    for (const newer of [
+      reduceCredentialEditor(submitted, { type: 'edited', value: 'fixture-new-key' }),
+      reduceCredentialEditor(submitted, { type: 'removalToggled' }),
+    ]) {
+      expect(reduceCredentialEditor(newer, { type: 'saved', submitted })).toBe(newer);
+    }
   });
 
   it('keeps an unread credential unchanged and retries without accepting an older result', () => {

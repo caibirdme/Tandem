@@ -115,4 +115,4 @@ Tandem uses React, Tauri 2, and Rust services built on GitHub Copilot SDK 1.x fr
 - [User guide](docs/user-guide.md): provider setup, model switching, permissions, context usage, SSH, and telemetry.
 - [Development](docs/development.md): checks, browser development, packaging, and releases.
 - [Architecture](docs/architecture.md): execution modes, service boundaries, and data flow.
-- [Verification](docs/verification.md): completed checks and their limits.
+- [Verification](docs/verification.md): current checks, manual acceptance, and PR evidence requirements.
