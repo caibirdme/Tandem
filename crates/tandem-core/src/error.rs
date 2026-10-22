@@ -240,15 +240,7 @@ impl Error {
             Self::ModelDiscovery(error) => error.code(),
             Self::Remote(error) => error.code().into(),
             Self::Runtime(error) => runtime_error_code(error),
-            Self::Review(error) => match error.code() {
-                copilot_runtime::workspace::ReviewErrorCode::InvalidInput => {
-                    ErrorCode::InvalidInput
-                }
-                copilot_runtime::workspace::ReviewErrorCode::NotFound => ErrorCode::NotFound,
-                copilot_runtime::workspace::ReviewErrorCode::Expired => ErrorCode::Conflict,
-                copilot_runtime::workspace::ReviewErrorCode::Internal => ErrorCode::Internal,
-                _ => ErrorCode::Unavailable,
-            },
+            Self::Review(error) => review_error_code(error.code()),
             Self::Attachment(_)
             | Self::ConversationAttachmentProtocol { .. }
             | Self::Validation(_)
@@ -334,6 +326,18 @@ impl Error {
             | Self::SessionStatePoisoned
             | Self::TitleStatePoisoned => ErrorCode::Internal,
         }
+    }
+}
+
+fn review_error_code(code: copilot_runtime::workspace::ReviewErrorCode) -> ErrorCode {
+    use copilot_runtime::workspace::ReviewErrorCode;
+
+    match code {
+        ReviewErrorCode::InvalidInput => ErrorCode::InvalidInput,
+        ReviewErrorCode::NotFound => ErrorCode::NotFound,
+        ReviewErrorCode::Expired => ErrorCode::Conflict,
+        ReviewErrorCode::Internal => ErrorCode::Internal,
+        _ => ErrorCode::Unavailable,
     }
 }
 
