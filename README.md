@@ -4,7 +4,7 @@ An agent desktop for chat, local projects, and SSH work. Bring your own model pr
 
 No GitHub Copilot subscription is required. Available for Windows and Apple Silicon Mac.
 
-[Download](https://github.com/caibirdme/Tandem/releases) · [Get started](#get-started) · [User guide](docs/user-guide.md) · [Development](docs/development.md)
+[Download](https://github.com/caibirdme/Tandem/releases) · [Get started](#get-started) · [User guide](docs/user-guide.md) · [Troubleshooting](#troubleshooting) · [Development](docs/development.md)
 
 ![A Tandem work session showing a project conversation and model selection](docs/images/work-session.jpg)
 
@@ -67,6 +67,34 @@ Log in once with your system terminal to confirm the host fingerprint and set up
 _Choose a remote directory in the project dialog, then start work with the same conversation controls._
 
 **Test connection** only verifies SSH access; it does not upload the server or prepare its runtime. Send the first message in a remote Work conversation to prepare the environment. The message stays pending while Tandem shows preparation progress; first use may take about 10 seconds, or longer depending on the host and connection. Tandem prepares the remote agent over SSH without opening an additional remote network port. Multiple Work conversations on the same host share a background runtime while keeping independent connections and permissions. See the [SSH guide](docs/user-guide.md#ssh-projects) for supported hosts and setup details.
+
+## Troubleshooting
+
+### What should I do if Tandem reports invalid or incompatible configuration?
+
+First check whether the error identifies a specific provider, model, API key, URL, or CLI setting. Correct that setting instead of deleting your data.
+
+If Tandem cannot read its saved local data because it is corrupt or incompatible, you can reset that data and reopen the app. **This is a recovery option for saved-data problems, not a fix for every configuration or compatibility error.**
+
+1. Stop any active work and quit Tandem completely. Do not clear data while Tandem or its local agent runtime is still running.
+2. Open the data directory for your operating system:
+
+   | System                | Local data directory                                                                                      |
+   | --------------------- | --------------------------------------------------------------------------------------------------------- |
+   | Windows               | `%LOCALAPPDATA%\app.tandem.desktop`                                                                       |
+   | macOS                 | `~/Library/Application Support/app.tandem.desktop`                                                        |
+   | Linux (source builds) | `$XDG_DATA_HOME/app.tandem.desktop`, or `~/.local/share/app.tandem.desktop` when `XDG_DATA_HOME` is unset |
+
+   On Windows, paste the path into File Explorer's address bar. On macOS, use Finder's **Go > Go to Folder**.
+
+3. Back up the entire directory somewhere private, then clear its contents. Alternatively, rename the directory to `app.tandem.desktop.backup` to keep the old data while starting fresh.
+4. Reopen Tandem. It creates fresh local data automatically. Add your providers, API keys, models, and projects again.
+
+**This resets saved provider settings and API keys, project entries, conversation history, stored attachments, and local agent runtime state.** The directory contains `tandem.sqlite3` (including API keys stored in plaintext) and `runtime/`; protect your backup and do not upload it to a public issue. Project files outside this directory and data on SSH hosts are not deleted by this reset.
+
+Resetting this directory does not repair incorrect credentials or provider settings you enter again, network or SSH failures, filesystem permissions, missing application resources, or an incompatible external CLI. Environment overrides such as `COPILOT_CLI_PATH`, the SDK’s separate runtime cache, and remote-host state are outside this reset. A remote-server compatibility error calls for reconnecting the project to deploy the matching server, not clearing local data.
+
+If the error persists with fresh data, report the error text, Tandem version, and operating system in [Issues](https://github.com/caibirdme/Tandem/issues), without sharing API keys or the data directory.
 
 ## Run from source
 
