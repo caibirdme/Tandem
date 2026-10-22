@@ -7,6 +7,7 @@ import { emptyConversation } from '../lib/conversation';
 import type { ConversationMessage } from '../lib/conversation';
 import { createModelChanges } from '../lib/modelChanges';
 import { createPermissionModeChanges } from '../lib/permissionModeChanges';
+import { projectSkills } from '../lib/projectSkills';
 import { createReasoningEffortChanges } from '../lib/reasoningEffortChanges';
 import { protectedSessionIds } from '../lib/reconcile';
 import { initialTandemState, reduceTandem } from '../lib/tandemState';
@@ -170,7 +171,18 @@ export function useTandem() {
       if (!titleProtectedIds.has(id) && !next.titleGenerations.includes(id))
         titleRequests.current.delete(id);
     }
-    update({ type: 'snapshotReceived', snapshot: next, protectedIds, titleProtectedIds });
+    update({
+      type: 'snapshotReceived',
+      snapshot: next,
+      protectedIds,
+      titleProtectedIds,
+      preparationProtectedIds: protectedSessionIds(
+        requested,
+        revisions.current,
+        new Set(),
+        new Set(),
+      ),
+    });
     return next;
   }, []);
   const reload = useCallback(async () => {
@@ -203,6 +215,14 @@ export function useTandem() {
         titleRequests.current.delete(event.sessionId);
       } else if (event.sessionId) {
         advance(event.sessionId);
+      }
+      if (
+        (event.kind === 'preparation' && !event.data.preparing) ||
+        (event.kind === 'status' && event.data.status !== 'running') ||
+        event.kind === 'error'
+      ) {
+        const projectId = sessionProjects.current.get(event.sessionId);
+        if (projectId) projectSkills.invalidate(projectId);
       }
       update({ type: 'eventReceived', event });
       if (

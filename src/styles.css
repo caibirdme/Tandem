@@ -2480,3 +2480,18 @@ select {
   margin-top: 4px;
   overflow-wrap: anywhere;
 }
+
+.pending-message {
+  display: block;
+  margin-top: 8px;
+  opacity: 0.7;
+  font-size: 11px;
+}
+
+.remote-preparation {
+  margin-block: 16px;
+}
+
+.remote-preparation .spinner {
+  flex-shrink: 0;
+}

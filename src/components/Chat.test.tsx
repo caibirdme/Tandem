@@ -1103,3 +1103,79 @@ describe('grouped activity timeline', () => {
     expect(markup).toContain('Allow once');
   });
 });
+
+describe('remote environment preparation', () => {
+  const pending: Message = {
+    id: 'pending:first-message',
+    sessionId: session.id,
+    role: 'user',
+    content: 'Inspect this project',
+    createdAt: session.createdAt,
+    attachments: [],
+  };
+  const preparingProps = {
+    ...props,
+    session: { ...session, status: 'running' as const },
+    project: {
+      ...project,
+      connection: {
+        kind: 'ssh' as const,
+        host: 'host',
+        port: null,
+        user: null,
+        identityFile: null,
+      },
+    },
+    providers: [provider],
+    selection: { providerId: provider.id, modelId: session.modelId },
+    conversation: {
+      ...emptyConversation,
+      preparing: true,
+      status: 'running' as const,
+      messages: [pending],
+    },
+  };
+
+  it('shows preparation instead of thinking and keeps the message pending with cancellation available', () => {
+    const markup = renderToStaticMarkup(<Chat {...preparingProps} />);
+    expect(markup).toContain(
+      'Preparing the remote environment. First-time setup may take around 10 seconds',
+    );
+    expect(markup).toContain('Not sent yet');
+    expect(markup).toContain('aria-label="Cancel environment preparation"');
+    expect(markup).not.toContain('thinking-message');
+    expect(modelControl(markup)).toContain('disabled');
+  });
+
+  it('renders preparation after reconnect even when no local pending message exists', () => {
+    const markup = renderToStaticMarkup(
+      <Chat {...preparingProps} conversation={{ ...preparingProps.conversation, messages: [] }} />,
+    );
+    expect(markup).toContain('Preparing the remote environment');
+    expect(markup).not.toContain('Not sent yet');
+  });
+
+  it('localizes preparation and does not promise an exact setup duration', () => {
+    setLocale('zh-CN');
+    const markup = renderToStaticMarkup(<Chat {...preparingProps} />);
+    expect(markup).toContain('正在准备远端环境，首次使用可能需要10秒左右');
+    expect(markup).toContain('尚未发送');
+    setLocale('en');
+  });
+
+  it('removes the stage and pending label only after message confirmation', () => {
+    const markup = renderToStaticMarkup(
+      <Chat
+        {...preparingProps}
+        conversation={{
+          ...preparingProps.conversation,
+          preparing: false,
+          messages: [{ ...pending, id: 'first-message' }],
+        }}
+      />,
+    );
+    expect(markup).not.toContain('Preparing the remote environment');
+    expect(markup).not.toContain('Not sent yet');
+    expect(markup).toContain('aria-label="Stop generating"');
+  });
+});

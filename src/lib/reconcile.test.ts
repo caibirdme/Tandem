@@ -49,7 +49,7 @@ describe('reconnecting to a running or completed session', () => {
       };
       const restored = reconcileConversations(
         current,
-        { sessions: [{ ...session, status }], activeTurns: {} },
+        { sessions: [{ ...session, status }], preparingSessions: [], activeTurns: {} },
         new Set(),
       );
       expect(restored[session.id]).toMatchObject({
@@ -73,6 +73,7 @@ describe('reconnecting to a running or completed session', () => {
       {},
       {
         sessions: [{ ...session, status: 'running' }],
+        preparingSessions: [],
         activeTurns: {
           [session.id]: {
             stream: 'Current output',
@@ -130,7 +131,7 @@ describe('reconnecting to a running or completed session', () => {
     };
     const restored = reconcileConversations(
       { [session.id]: running },
-      { sessions: [session], activeTurns: {} },
+      { sessions: [session], preparingSessions: [], activeTurns: {} },
       protectedIds,
     );
     expect(restored[session.id]).toBe(running);

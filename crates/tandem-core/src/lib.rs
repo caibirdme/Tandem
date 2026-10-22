@@ -16,6 +16,7 @@ mod sessions;
 mod skills;
 mod store;
 mod subagents;
+mod submissions;
 mod titles;
 mod turns;
 mod vault;

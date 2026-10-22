@@ -15,6 +15,7 @@ use crate::{
         Event, FontSize, Preferences, RuntimeStatus, SessionStatus, Settings, Snapshot, Telemetry,
     },
     store::Store,
+    submissions::Submissions,
     titles::TitleJobs,
     turns::ActiveTurns,
     vault::{LocalVault, SecretStore},
@@ -59,7 +60,9 @@ pub struct App {
     pub(crate) runtime: Mutex<Option<Arc<Runtime>>>,
     pub(crate) sessions: Mutex<HashMap<String, LiveSession>>,
     pub(crate) session_gates: Mutex<HashMap<String, Weak<Mutex<()>>>>,
+    pub(crate) remote_environments: Mutex<HashMap<String, Arc<Mutex<bool>>>>,
     pub(crate) turns: ActiveTurns,
+    pub(crate) submissions: Submissions,
     pub(crate) titles: TitleJobs,
     pub(crate) mutation_gate: Mutex<()>,
 }
@@ -88,7 +91,9 @@ impl App {
             runtime: Mutex::new(None),
             sessions: Mutex::new(HashMap::new()),
             session_gates: Mutex::new(HashMap::new()),
+            remote_environments: Mutex::new(HashMap::new()),
             turns: ActiveTurns::default(),
+            submissions: Submissions::default(),
             titles: TitleJobs::default(),
             mutation_gate: Mutex::new(()),
         }))
@@ -103,6 +108,7 @@ impl App {
         let preferences = self.store.preferences()?;
         Ok(Snapshot {
             title_generations: self.titles.pending()?,
+            preparing_sessions: self.submissions.preparing()?,
             settings: Settings {
                 title_model: preferences.title_model,
                 providers: self.store.providers()?,

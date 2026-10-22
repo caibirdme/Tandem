@@ -20,6 +20,7 @@ const session: Session = {
   permissionMode: 'ask',
 };
 const snapshot: Snapshot = {
+  preparingSessions: [],
   titleGenerations: [],
   activeTurns: {},
   sessions: [session, { ...session, id: 'session-2' }],

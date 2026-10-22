@@ -427,6 +427,7 @@ pub struct RuntimeStatus {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Snapshot {
+    pub preparing_sessions: Vec<String>,
     pub title_generations: Vec<String>,
     pub settings: Settings,
     pub projects: Vec<Project>,

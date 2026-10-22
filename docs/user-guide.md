@@ -50,7 +50,7 @@ Thinking text is available only when the model and provider share it. Before tex
 
 ### Use project skills
 
-In Work, type `$` to list the selected project's skills or `$prefix` to filter them by name. Select with the mouse or use the arrow keys and Enter or Tab; Escape closes the list. Work can also choose relevant skills automatically. SSH projects discover and load skills on the remote host. Chat does not load project skills.
+In Work, type `$` to list the selected project's skills or `$prefix` to filter them by name. Select with the mouse or use the arrow keys and Enter or Tab; Escape closes the list. Work can also choose relevant skills automatically. SSH projects discover and load skills on the remote host. Before a remote project has an idle, prepared conversation, its picker is empty and does not initialize the environment. Send the first task to prepare it, then reopen the picker. Chat does not load project skills.
 
 After sending, selected skills appear as inline chips with a skill icon inside your message. The selections are saved with the message, so the chips remain after delivery is confirmed and when you reopen the conversation. Ordinary text such as `$budget` stays plain text unless you selected a matching skill from the picker.
 
@@ -106,15 +106,17 @@ Generation runs in the background without blocking tasks; manually edited titles
 
 Saved hosts use their SSH alias directly, so OpenSSH applies the current username, port, identity files, ssh-agent, and `ProxyJump` or `ProxyCommand` configuration each time you connect. The picker lists explicit host names, not wildcard or negated patterns. Discovery follows static `Include` paths and globs; paths that require a destination such as `%h`, or another user's `~user` home, are left to OpenSSH at connection time. Missing configuration produces an empty list; manual entry remains available. Host discovery only reads files and does not execute configuration commands.
 
-Connection test results appear immediately below **Test connection**. Choosing another host or editing connection details clears the previous result. Enter a manual port directly; its input has no stepper arrows. Required fields use the same red **\*** markers, and **Create project** focuses any missing field before submitting.
+**Test connection** verifies only SSH access: it does not upload `tandem-server`, inspect its version, or initialize the runtime. Results appear immediately below **Test connection**. Choosing another host or editing connection details clears the previous result. Enter a manual port directly; its input has no stepper arrows. Required fields use the same red **\*** markers, and **Create project** focuses any missing field before submitting.
 
 Directory browsing progress and errors stay beside the directory controls in the project dialog. On Windows, SSH runs in the background without opening a console window.
 
-The desktop supports macOS and Windows; remote hosts support Linux and macOS. Release installers include remote agents for Linux x64 and Apple Silicon macOS. Other recognized platforms require a matching artifact; the connection test reports the target platform if one is missing.
+The desktop supports macOS and Windows; remote hosts support Linux and macOS. Release installers include remote agents for Linux x64 and Apple Silicon macOS. Other recognized platforms require a matching artifact; first-message preparation reports the target platform if one is missing.
 
 ### Remote runtime and deployment
 
-Tandem detects the remote platform and uploads the matching `tandem-server` to `~/.local/share/tandem/bin/`. You can open several Work conversations on the same host. Each has an independent SSH connection while sharing one background runtime for that remote user and server build. Models, project directories, and permission decisions remain independent. No additional remote network port is opened. Remote SDK history is stored in `~/.local/share/tandem/runtime`.
+Send a first message in a remote Work conversation to prepare an environment that is not ready. Tandem shows **Preparing the remote environment…** while keeping the message pending. First use may take about 10 seconds; deployment, network speed, and host startup can make it longer. The task is sent only after preparation succeeds. **Stop** cancels pending preparation without sending the task. If preparation fails, correct the reported problem and retry the retained message. Ready conversations and new conversations on the same prepared SSH connection reuse the environment. If a readiness check fails, Tandem prepares it again before sending.
+
+During preparation, Tandem detects the remote platform and uploads the matching `tandem-server` to `~/.local/share/tandem/bin/`. You can open several Work conversations on the same host. Each has an independent SSH connection while sharing one background runtime for that remote user and server build. Models, project directories, and permission decisions remain independent. No additional remote network port is opened. Remote SDK history is stored in `~/.local/share/tandem/runtime`.
 
 If one SSH connection breaks, its work is interrupted and unanswered permissions are denied; other conversations continue. Send another message to reconnect and resume its history. Tandem does not automatically repeat a submitted task. The shared runtime stays ready for five minutes after the last connection closes, then shuts down.
 

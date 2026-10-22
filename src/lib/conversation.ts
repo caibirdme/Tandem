@@ -5,6 +5,7 @@ export interface ConversationMessage extends Message {
 }
 
 export interface Conversation {
+  preparing: boolean;
   messages: ConversationMessage[];
   stream: string;
   agentStreams: Record<string, string>;
@@ -14,6 +15,7 @@ export interface Conversation {
   failedSend: ConversationMessage | null;
 }
 export const emptyConversation: Conversation = {
+  preparing: false,
   messages: [],
   stream: '',
   agentStreams: {},
@@ -91,6 +93,7 @@ function applyStatus(state: Conversation, status: SessionStatus): Conversation {
   return {
     ...state,
     status,
+    preparing: status === 'running' && state.preparing,
     agentStreams: status === 'running' ? state.agentStreams : {},
     messages:
       status === 'running'
@@ -151,6 +154,8 @@ export function reduceEvent(state: Conversation, event: RuntimeEvent): Conversat
           event.data,
         ],
       };
+    case 'preparation':
+      return { ...state, preparing: event.data.preparing };
     case 'status':
       return applyStatus(state, event.data.status);
     case 'error':

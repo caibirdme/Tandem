@@ -21,20 +21,15 @@ impl App {
                 .list_project_skills(Path::new(&project.path))
                 .await?),
             Connection::Ssh { .. } => {
-                let (transport, session_guard) =
-                    match self.project_skill_transport(project_id).await? {
-                        Some((transport, guard)) => (transport, Some(guard)),
-                        None => (
-                            Arc::new(self.remote_client(&project.connection)?.connect().await?),
-                            None,
-                        ),
-                    };
+                // Opening a project or its skill picker must never install remote software.
+                let Some((transport, _session_guard)) =
+                    self.project_skill_transport(project_id).await?
+                else {
+                    return Ok(Vec::new());
+                };
                 let response = transport
                     .request("list_project_skills", json!({"directory": project.path,"telemetry":self.store.preferences()?.telemetry}))
                     .await;
-                if session_guard.is_none() {
-                    transport.shutdown().await;
-                }
                 let response = response?;
                 serde_json::from_value(response)
                     .map_err(|source| Error::InvalidSkillCatalog(source.into()))

@@ -21,6 +21,7 @@ const session: Session = {
   updatedAt: '2026-10-19T00:00:00Z',
 };
 const snapshot: Snapshot = {
+  preparingSessions: [],
   titleGenerations: [],
   activeTurns: {},
   sessions: [session, { ...session, id: 'session-2' }],

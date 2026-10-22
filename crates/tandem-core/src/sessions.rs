@@ -6,7 +6,10 @@ use copilot_runtime::{
 };
 use serde_json::json;
 use tandem_remote::RemoteTransport;
-use tokio::{sync::Mutex, task::JoinHandle};
+use tokio::{
+    sync::{Mutex, watch},
+    task::JoinHandle,
+};
 use uuid::Uuid;
 
 use crate::{
@@ -38,6 +41,7 @@ struct UserMessage<'a> {
 
 impl Drop for Submission<'_> {
     fn drop(&mut self) {
+        self.app.finish_submission(self.session_id);
         if !self.settled {
             if let Some(completion) = &self.completion {
                 completion.fail();
@@ -49,6 +53,21 @@ impl Drop for Submission<'_> {
 }
 
 impl App {
+    fn finish_submission(&self, id: &str) -> bool {
+        match self.submissions.finish(id) {
+            Ok((preparing, canceled)) => {
+                if preparing {
+                    self.emit(id, "preparation", json!({"preparing":false}));
+                }
+                canceled
+            }
+            Err(error) => {
+                tracing::error!(%error, "could not clear pending submission");
+                true
+            }
+        }
+    }
+
     pub(crate) async fn session_gate(&self, id: &str) -> Arc<Mutex<()>> {
         let mut gates = self.session_gates.lock().await;
         gates.retain(|_, gate| gate.strong_count() > 0);
@@ -173,7 +192,14 @@ impl App {
             return Err(Error::ChatSkillSelection);
         }
         let gate = self.session_gate(session_id).await;
-        let _session_guard = gate.lock().await;
+        let _session_guard = gate.try_lock().map_err(|_| Error::ConversationRunning)?;
+        // A retried transport request must never submit the same persisted message twice.
+        if self
+            .store
+            .has_message(session_id, &message_id.to_string())?
+        {
+            return Err(Error::MessageAlreadyRecorded);
+        }
         // Do not queue a second prompt behind an active turn. Once idle is visible,
         // wait for its forwarding task to finish before marking the next turn running.
         if self.store.session(session_id)?.status == SessionStatus::Running {
@@ -188,7 +214,7 @@ impl App {
         if let Some(completion) = previous {
             completion.wait().await?;
         }
-        let (session, first_turn) = {
+        let (session, first_turn, cancellation) = {
             let _mutation_guard = self.mutation_gate.lock().await;
             let session = self.store.session(session_id)?;
             if session.status == SessionStatus::Running {
@@ -204,11 +230,17 @@ impl App {
             }
             self.titles.mark_interrupted(session_id, false)?;
             let first_turn = !self.store.has_messages(session_id)?;
-            let session = self.store.update_session(session_id, |session| {
-                session.status = SessionStatus::Running;
-                session.updated_at = now();
-            })?;
-            (session, first_turn)
+            let cancellation = self.submissions.begin(session_id)?;
+            let session = self
+                .store
+                .update_session(session_id, |session| {
+                    session.status = SessionStatus::Running;
+                    session.updated_at = now();
+                })
+                .inspect_err(|_| {
+                    self.finish_submission(session_id);
+                })?;
+            (session, first_turn, cancellation)
         };
         self.emit(session_id, "status", json!({"status":"running"}));
         let mut submission = Submission {
@@ -230,6 +262,7 @@ impl App {
                     fleet,
                 },
                 &mut submission,
+                cancellation,
             )
             .await;
         if let Err(error) = result {
@@ -251,26 +284,37 @@ impl App {
         first_turn: bool,
         request: UserMessage<'_>,
         submission: &mut Submission<'_>,
+        mut cancellation: watch::Receiver<bool>,
     ) -> Result<()> {
-        let handle = self.ensure_session(session, !first_turn).await?;
-        let prepared = handle
-            .prepare(
-                &request.content,
-                request.selected_skills,
-                request.attachments,
-                request.fleet,
-            )
-            .await?;
-        let completion = self
-            .sessions
-            .lock()
-            .await
-            .get(&session.id)
-            .ok_or(Error::SessionDisconnected)?
-            .completion
-            .clone();
-        completion.begin().await?;
-        submission.completion = Some(completion);
+        let initialization = async {
+            let handle = self
+                .ensure_session(session, !first_turn, submission)
+                .await?;
+            let prepared = handle
+                .prepare(
+                    &request.content,
+                    request.selected_skills,
+                    request.attachments,
+                    request.fleet,
+                )
+                .await?;
+            let completion = submission
+                .completion
+                .as_ref()
+                .ok_or(Error::SessionDisconnected)?;
+            completion.begin().await?;
+            Ok::<_, Error>((handle, prepared))
+        };
+        let (handle, prepared) = tokio::select! {
+            biased;
+            _ = cancellation.wait_for(|canceled| *canceled) => return Err(Error::SubmissionCanceled),
+            result = initialization => result?,
+        };
+        // Remove the cancellation slot atomically before committing the message. Stop
+        // either cancels preparation or aborts the resulting agent turn, never a later retry.
+        if self.finish_submission(&session.id) {
+            return Err(Error::SubmissionCanceled);
+        }
         let message = Message {
             id: request.message_id.to_string(),
             session_id: session.id.clone(),
@@ -313,7 +357,7 @@ impl App {
         &self,
         id: &str,
         reasoning_effort: Option<&str>,
-    ) -> Option<AgentHandle> {
+    ) -> Option<(AgentHandle, TurnCompletion)> {
         let stale = {
             let mut sessions = self.sessions.lock().await;
             let live = sessions.get(id)?;
@@ -322,7 +366,7 @@ impl App {
                 && !live.completion.has_failed()
                 && live.reasoning_effort.as_deref() == reasoning_effort
             {
-                return Some(live.handle.clone());
+                return Some((live.handle.clone(), live.completion.clone()));
             }
             sessions.remove(id)
         };
@@ -339,6 +383,7 @@ impl App {
         self: &Arc<Self>,
         session: &Session,
         resume: bool,
+        submission: &mut Submission<'_>,
     ) -> Result<AgentHandle> {
         let project = session
             .project_id
@@ -352,13 +397,19 @@ impl App {
         let cached = self
             .cached_session(&session.id, options.model.reasoning_effort.as_deref())
             .await;
-        if let Some(AgentHandle::Local(agent)) = &cached {
+        if let Some((_, completion)) = &cached {
+            submission.completion = Some(completion.clone());
+        }
+        if let Some((AgentHandle::Local(agent), _)) = &cached {
             return Ok(AgentHandle::Local(agent.clone()));
         }
-        if let Some(AgentHandle::Remote {
-            session_id,
-            transport,
-        }) = cached
+        if let Some((
+            AgentHandle::Remote {
+                session_id,
+                transport,
+            },
+            _,
+        )) = cached
         {
             self.start_remote_agent(&transport, &options, true).await?;
             return Ok(AgentHandle::Remote {
@@ -369,7 +420,10 @@ impl App {
         let handle = if let Some(project) = project
             && matches!(project.connection, Connection::Ssh { .. })
         {
-            let transport = Arc::new(self.remote_client(&project.connection)?.connect().await?);
+            let transport = Arc::new(
+                self.remote_session_transport(&session.id, &project.connection)
+                    .await?,
+            );
             AgentHandle::Remote {
                 session_id: session.id.clone(),
                 transport,
@@ -389,17 +443,56 @@ impl App {
             self.start_remote_agent(transport, &options, resume).await?;
         }
         let completion = TurnCompletion::new();
+        submission.completion = Some(completion.clone());
         let event_task = self.forward_events(session.id.clone(), incoming, completion.clone());
-        self.sessions.lock().await.insert(
-            session.id.clone(),
-            LiveSession {
-                handle: handle.clone(),
-                event_task,
-                completion,
-                reasoning_effort: options.model.reasoning_effort,
-            },
-        );
+        let live = LiveSession {
+            handle: handle.clone(),
+            event_task,
+            completion,
+            reasoning_effort: options.model.reasoning_effort,
+        };
+        self.sessions.lock().await.insert(session.id.clone(), live);
         Ok(handle)
+    }
+
+    async fn remote_session_transport(
+        &self,
+        session_id: &str,
+        connection: &Connection,
+    ) -> Result<RemoteTransport> {
+        let key = serde_json::to_string(connection)?;
+        let gate = self
+            .remote_environments
+            .lock()
+            .await
+            .entry(key)
+            .or_default()
+            .clone();
+        let mut ready = if let Ok(ready) = gate.try_lock() {
+            ready
+        } else {
+            // Another conversation may already be preparing this host.
+            self.mark_preparing(session_id)?;
+            gate.lock().await
+        };
+        let client = self.remote_client(connection)?;
+        if *ready {
+            match client.connect_ready().await {
+                Ok(transport) => return Ok(transport),
+                Err(error) => tracing::debug!(%error, "remote environment must be prepared again"),
+            }
+            *ready = false;
+        }
+        self.mark_preparing(session_id)?;
+        let transport = client.connect().await?;
+        *ready = true;
+        Ok(transport)
+    }
+
+    fn mark_preparing(&self, session_id: &str) -> Result<()> {
+        self.submissions.prepare(session_id)?;
+        self.emit(session_id, "preparation", json!({"preparing":true}));
+        Ok(())
     }
 
     fn forward_events(
@@ -464,6 +557,7 @@ impl App {
     }
 
     pub(crate) async fn abort_session(&self, id: &str) -> Result<()> {
+        self.submissions.cancel(id)?;
         let gate = self.session_gate(id).await;
         let _session_guard = gate.lock().await;
         self.store.session(id)?;
@@ -503,6 +597,9 @@ impl App {
     }
 
     pub(crate) async fn disconnect_session(&self, id: &str) {
+        if let Err(error) = self.submissions.cancel(id) {
+            tracing::error!(%error, "could not cancel pending submission");
+        }
         let live = self.sessions.lock().await.remove(id);
         if let Some(mut live) = live {
             live.stop_forwarding().await;
@@ -542,6 +639,18 @@ impl App {
     }
 
     pub(crate) async fn shutdown_sessions(&self) {
+        match self.submissions.pending() {
+            Ok(ids) => {
+                for id in ids {
+                    if let Err(error) = self.submissions.cancel(&id) {
+                        tracing::error!(%error, "could not cancel pending submission during shutdown");
+                    }
+                }
+            }
+            Err(error) => {
+                tracing::error!(%error, "could not list pending submissions during shutdown");
+            }
+        }
         let ids: Vec<String> = self.sessions.lock().await.keys().cloned().collect();
         for id in ids {
             self.disconnect_session(&id).await;
@@ -609,6 +718,300 @@ mod tests {
                 None,
             )
             .await?)
+    }
+
+    #[tokio::test]
+    async fn waiting_for_another_host_preparation_can_be_stopped_and_retried() -> Result<()> {
+        let (_directory, app) = application()?;
+        let work = work_session(&app).await?;
+        let mut project = app
+            .store
+            .project(work.project_id.as_deref().context("missing project")?)?;
+        project.connection = Connection::Ssh {
+            host: "fixture.invalid".into(),
+            port: None,
+            user: None,
+            identity_file: None,
+        };
+        app.store.save_project(&project)?;
+        let gate = app
+            .remote_environments
+            .lock()
+            .await
+            .entry(serde_json::to_string(&project.connection)?)
+            .or_default()
+            .clone();
+        let ready = gate.lock().await;
+        for interruption in ["status", "preparation", "disconnect", "drop"] {
+            interrupt_preparation(&app, &work, interruption).await?;
+        }
+        assert!(!*ready);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn recorded_message_id_is_rejected_without_submitting_again() -> Result<()> {
+        let (_directory, app) = application()?;
+        let session = session(&app).await?;
+        let id = Uuid::new_v4();
+        app.store.append_message(&Message {
+            id: id.to_string(),
+            session_id: session.id.clone(),
+            role: MessageRole::User,
+            content: "Recorded but delivery may be uncertain".into(),
+            selected_skills: vec![],
+            attachments: vec![],
+            created_at: now(),
+            sequence: None,
+            activity: None,
+            reasoning: None,
+            agent_id: None,
+            agent: None,
+            fleet: false,
+            interrupted: false,
+        })?;
+        assert!(matches!(
+            app.send_message(&session.id, "Retry".into(), id, &[], &[], false)
+                .await,
+            Err(Error::MessageAlreadyRecorded)
+        ));
+        assert_eq!(app.store.messages(&session.id)?.len(), 1);
+        assert_eq!(app.submissions.pending()?, Vec::<String>::new());
+        assert!(!app.runtime_status().await.available);
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    async fn check_ready_environment_reuse(app: &App, connection: &Connection) -> Result<()> {
+        let ssh = std::env::var_os("TANDEM_TEST_SSH_PROGRAM").context("missing SSH fixture")?;
+        let calls = std::env::var_os("TANDEM_TEST_SSH_CALLS").context("missing calls path")?;
+        std::fs::write(&calls, "")?;
+        std::fs::write(
+            ssh,
+            r#"#!/bin/sh
+for argument do command=$argument; done
+case "$command" in
+  *uname*)
+    printf 'probe\n' >> "$TANDEM_TEST_SSH_CALLS"
+    printf 'Linux\000x86_64\000tandem-server %s (protocol 1)\n' "$TANDEM_TEST_VERSION"
+    ;;
+  *--install-runtime*) printf 'runtime\n' >> "$TANDEM_TEST_SSH_CALLS" ;;
+  *--proxy*)
+    printf 'proxy\n' >> "$TANDEM_TEST_SSH_CALLS"
+    read -r request
+    version="$TANDEM_TEST_VERSION"
+    if [ -f "$TANDEM_TEST_SSH_FAIL" ]; then
+      rm "$TANDEM_TEST_SSH_FAIL"
+      version=stale
+    fi
+    printf '{"id":1,"value":{"protocolVersion":1,"serverVersion":"%s","processId":123}}\n' "$version"
+    cat >/dev/null
+    ;;
+  *) exit 71 ;;
+esac
+"#,
+        )?;
+        // Clear the earlier failure marker before validating cold and warm connections.
+        std::fs::remove_file(
+            std::env::var_os("TANDEM_TEST_SSH_FAIL").context("missing failure path")?,
+        )?;
+        for (id, expected_preparing) in [("first", true), ("reuse", false), ("stale", true)] {
+            if id == "stale" {
+                std::fs::write(
+                    std::env::var_os("TANDEM_TEST_SSH_FAIL").context("missing failure path")?,
+                    "stale",
+                )?;
+            }
+            let _cancel = app.submissions.begin(id)?;
+            let transport = app.remote_session_transport(id, connection).await?;
+            assert_eq!(
+                app.submissions.preparing()?.contains(&id.to_owned()),
+                expected_preparing
+            );
+            app.finish_submission(id);
+            transport.shutdown().await;
+        }
+        assert_eq!(
+            std::fs::read_to_string(calls)?,
+            "probe\nruntime\nproxy\nproxy\nproxy\nprobe\nruntime\nproxy\n"
+        );
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    async fn check_remote_preparation() -> Result<()> {
+        let (_directory, app) = application()?;
+        let chat = session(&app).await?;
+        let project = Project {
+            id: Uuid::new_v4().to_string(),
+            name: "Deferred SSH".into(),
+            path: "/project".into(),
+            connection: Connection::Ssh {
+                host: "fixture.invalid".into(),
+                port: None,
+                user: None,
+                identity_file: None,
+            },
+            created_at: now(),
+        };
+        app.store.save_project(&project)?;
+        let work = app
+            .create_session(
+                Some(project.id.clone()),
+                chat.provider_id,
+                chat.model_id,
+                None,
+                None,
+            )
+            .await?;
+        assert_eq!(app.list_project_skills(&project.id).await?, vec![]);
+        let calls = std::path::PathBuf::from(
+            std::env::var_os("TANDEM_TEST_SSH_CALLS").context("missing calls path")?,
+        );
+        assert!(
+            !calls.exists(),
+            "session creation and skill discovery must not invoke SSH"
+        );
+        for interruption in ["status", "preparation", "disconnect", "drop"] {
+            interrupt_preparation(&app, &work, interruption).await?;
+        }
+        // A failed SSH attempt must release preparation and preserve the unsent message.
+        std::fs::write(
+            std::env::var_os("TANDEM_TEST_SSH_FAIL").context("missing failure path")?,
+            "fail",
+        )?;
+        assert!(matches!(
+            app.send_message(&work.id, "Retry me".into(), Uuid::new_v4(), &[], &[], false)
+                .await,
+            Err(Error::Remote(_))
+        ));
+        assert_eq!(
+            app.snapshot().await?.preparing_sessions,
+            Vec::<String>::new()
+        );
+        assert!(app.store.messages(&work.id)?.is_empty());
+        check_ready_environment_reuse(&app, &project.connection).await?;
+        Ok(())
+    }
+
+    async fn interrupt_preparation(
+        app: &Arc<App>,
+        work: &Session,
+        interruption: &str,
+    ) -> Result<()> {
+        let mut events = app.subscribe();
+        let sending = tokio::spawn({
+            let app = Arc::clone(app);
+            let id = work.id.clone();
+            async move {
+                app.send_message(
+                    &id,
+                    "Keep this draft".into(),
+                    Uuid::new_v4(),
+                    &[],
+                    &[],
+                    false,
+                )
+                .await
+            }
+        });
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            loop {
+                let event = events.recv().await?;
+                if (interruption == "status" && event.kind == "status")
+                    || (interruption != "status"
+                        && event.kind == "preparation"
+                        && event.data["preparing"] == true)
+                {
+                    break;
+                }
+            }
+            Ok::<_, anyhow::Error>(())
+        })
+        .await??;
+        if interruption != "status" {
+            assert_eq!(
+                app.snapshot().await?.preparing_sessions,
+                std::slice::from_ref(&work.id)
+            );
+        }
+        assert!(app.store.messages(&work.id)?.is_empty());
+        assert!(matches!(
+            app.send_message(
+                &work.id,
+                "Duplicate click".into(),
+                Uuid::new_v4(),
+                &[],
+                &[],
+                false
+            )
+            .await,
+            Err(Error::ConversationRunning)
+        ));
+        match interruption {
+            "drop" => {
+                sending.abort();
+                assert!(sending.await.is_err());
+            }
+            "disconnect" => {
+                app.disconnect_session(&work.id).await;
+                assert!(matches!(sending.await?, Err(Error::SubmissionCanceled)));
+            }
+            _ => {
+                tokio::time::timeout(
+                    std::time::Duration::from_secs(5),
+                    app.abort_session(&work.id),
+                )
+                .await??;
+                assert!(matches!(sending.await?, Err(Error::SubmissionCanceled)));
+                assert_eq!(app.store.session(&work.id)?.status, SessionStatus::Idle);
+            }
+        }
+        assert_eq!(
+            app.snapshot().await?.preparing_sessions,
+            Vec::<String>::new()
+        );
+        assert!(app.store.messages(&work.id)?.is_empty());
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn remote_preparation_is_lazy_cancellable_and_retryable() -> Result<()> {
+        use std::os::unix::fs::PermissionsExt;
+        const CHILD: &str = "TANDEM_TEST_PREPARATION";
+        if std::env::var_os(CHILD).is_some() {
+            return tokio::runtime::Runtime::new()?
+                .block_on(async { check_remote_preparation().await });
+        }
+        let directory = TempDir::new()?;
+        let ssh = directory.path().join("ssh");
+        std::fs::write(
+            &ssh,
+            "#!/bin/sh\nprintf '%s\\n' called >> \"$TANDEM_TEST_SSH_CALLS\"\nif [ -f \"$TANDEM_TEST_SSH_FAIL\" ]; then exit 1; fi\nexec sleep 60\n",
+        )?;
+        std::fs::set_permissions(&ssh, std::fs::Permissions::from_mode(0o700))?;
+        let path = format!("{}:{}", directory.path().display(), std::env::var("PATH")?);
+        let output = std::process::Command::new(std::env::current_exe()?)
+            .args([
+                "--exact",
+                "sessions::tests::remote_preparation_is_lazy_cancellable_and_retryable",
+                "--nocapture",
+            ])
+            .env(CHILD, "1")
+            .env("PATH", path)
+            .env("TANDEM_TEST_SSH_PROGRAM", &ssh)
+            .env("TANDEM_TEST_VERSION", env!("CARGO_PKG_VERSION"))
+            .env("TANDEM_TEST_SSH_CALLS", directory.path().join("calls"))
+            .env("TANDEM_TEST_SSH_FAIL", directory.path().join("fail"))
+            .output()?;
+        assert!(
+            output.status.success(),
+            "{}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        Ok(())
     }
 
     #[tokio::test]

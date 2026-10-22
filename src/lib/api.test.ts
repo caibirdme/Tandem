@@ -5,6 +5,14 @@ import { CommandError, commandError, dispatch, errorMessage, subscribe } from '.
 describe('browser event transport', () => {
   it.each([
     {
+      name: 'remote preparation lifecycle',
+      events: [true, false].map((preparing) => ({
+        sessionId: 'work-1',
+        kind: 'preparation',
+        data: { preparing },
+      })),
+    },
+    {
       name: 'live context readings and reset events',
       events: [
         { currentTokens: 153_000, tokenLimit: 1_000_000 },

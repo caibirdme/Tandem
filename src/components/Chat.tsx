@@ -123,7 +123,12 @@ export function Chat(props: ChatProps) {
     props.project && inputFocused && !composing && !pickerDismissed
       ? findSkillQuery(draft, caret.start, caret.end)
       : null;
-  const skillCatalog = useProjectSkills(props.project?.id, skillQuery !== null, props.connected);
+  const skillCatalog = useProjectSkills(
+    props.project?.id,
+    skillQuery !== null,
+    props.connected,
+    props.conversation.status,
+  );
   const matchingSkills = skillCatalog.skills.filter((skill) =>
     skill.name.toLocaleLowerCase().startsWith(skillQuery?.prefix.toLocaleLowerCase() ?? ''),
   );
@@ -176,7 +181,8 @@ export function Chat(props: ChatProps) {
   const hasMessages = Boolean(
     props.conversation.messages.length ||
     props.conversation.stream ||
-    props.conversation.failedSend,
+    props.conversation.failedSend ||
+    props.conversation.preparing,
   );
   const hasActiveActivity = mainMessages.some((message) => message.activity?.status === 'running');
   const hasActiveReasoning = mainMessages.some(
@@ -184,6 +190,7 @@ export function Chat(props: ChatProps) {
   );
   const waitingForThinking =
     running &&
+    !props.conversation.preparing &&
     !props.conversation.stream &&
     !hasActiveReasoning &&
     (!hasActiveActivity || props.conversation.permissions.length > 0);
@@ -512,6 +519,9 @@ export function Chat(props: ChatProps) {
                         selectedSkills={message.selectedSkills ?? []}
                       />
                     )}
+                    {message.id.startsWith('pending:') && (
+                      <output className="pending-message">{t('chat.messagePending')}</output>
+                    )}
                   </div>
                 </div>
               ) : message.role === 'agent' ? (
@@ -578,6 +588,14 @@ export function Chat(props: ChatProps) {
                 </div>
                 <Markdown content={props.conversation.stream} />
               </article>
+            )}
+            {props.conversation.preparing && (
+              <output className="setup-banner remote-preparation" aria-live="polite">
+                <span>
+                  <Spinner size={16} />
+                  {t('chat.preparingRemoteEnvironment')}
+                </span>
+              </output>
             )}
             {waitingForThinking &&
               !continueThinking &&
@@ -808,6 +826,12 @@ export function Chat(props: ChatProps) {
               loading={skillCatalog.loading}
               connected={props.connected}
               filtered={Boolean(skillQuery.prefix)}
+              remotePreparationPending={
+                props.project?.connection.kind === 'ssh' &&
+                !props.conversation.messages.some(
+                  (message) => message.role === 'user' && !message.id.startsWith('pending:'),
+                )
+              }
               onIndex={setSkillIndex}
               onSelect={chooseSkill}
               onBlur={composerBlur}
@@ -997,7 +1021,10 @@ export function Chat(props: ChatProps) {
               <button
                 className="send-button stop-button"
                 type="button"
-                aria-label={t('chat.stopResponse')}
+                aria-label={t(
+                  props.conversation.preparing ? 'chat.cancelPreparation' : 'chat.stopResponse',
+                )}
+                disabled={!props.connected}
                 onClick={props.onAbort}
               >
                 <Square size={14} fill="currentColor" />

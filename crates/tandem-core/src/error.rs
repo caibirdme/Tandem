@@ -90,6 +90,10 @@ pub enum Error {
     ConversationRunning,
     #[error("The session connection is no longer valid. Try again.")]
     SessionDisconnected,
+    #[error("Sending was canceled before the message was sent. Try again.")]
+    SubmissionCanceled,
+    #[error("This message is already recorded. Review the conversation before sending again.")]
+    MessageAlreadyRecorded,
     #[error("The session was disconnected, and this permission request is no longer valid.")]
     PermissionSessionDisconnected,
     #[error("The runtime event stream was interrupted: {0}")]
@@ -230,12 +234,14 @@ impl Error {
             | Self::ModelChangeBusy
             | Self::ModelChangeRunning
             | Self::ConversationRunning
+            | Self::MessageAlreadyRecorded
             | Self::TitleConfigurationUpdating
             | Self::TitleQueueFull => ErrorCode::Conflict,
             Self::DataDirectoryUnavailable
             | Self::HomeDirectoryUnavailable
             | Self::DirectoryUnavailable(_)
             | Self::RuntimeStartup(_)
+            | Self::SubmissionCanceled
             | Self::SessionDisconnected
             | Self::PermissionSessionDisconnected
             | Self::RuntimeEventStream(_)
