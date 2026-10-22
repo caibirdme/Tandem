@@ -1,5 +1,13 @@
 # Verification record
 
+## Compact model discovery controls (2026-10-22)
+
+Developed from `main` (`a792d21`) in `.worktrees/model-fetch-control` on `codex/model-fetch-control`. The supplied reference screenshot was inspected before editing. The model-list path is now capped at 24rem, with the existing filled primary button immediately beside it and help below. The row can wrap in narrow layouts. Fetching shows the shared spinner; labels, hints, disabled guards, errors, results, and request invalidation remain intact. No API, backend, dependency, or version changes were made.
+
+Passed: all 482 frontend tests, frontend lint, strict TypeScript and production build, formatting, and `git diff --check`. New server-render checks cover the actual provider-form hierarchy, adjacent controls, primary button class, label/help associations, and busy disabling; CSS checks cover bounded input width and narrow-layout wrapping. Existing state tests cover retry, stale completions, errors, and selection. These are structural/state checks, not browser geometry or interaction tests.
+
+Visual browser verification remains unavailable: the browser connector could not reach this executor's running Vite server at `http://127.0.0.1:1421` (`net::ERR_CONNECTION_REFUSED`). The previously blocked local Chromium launch was not retried or bypassed. No after-change screenshot or live hover/focus interaction is claimed. Full Rust/desktop builds and aggregate `just check` were intentionally not run for this UI-only correction; the frontend gates above passed. No push, PR, merge, tag, or release was performed.
+
 ## Provider model discovery (2026-10-22)
 
 Developed from `main` (`fc2aa52`) in `.worktrees/provider-model-discovery` on `codex/provider-model-discovery`. The provider editor now offers explicit model discovery, initially unchecked results, selected-only addition, and a persisted configurable catalog path. Manual entry and required context-window input remain available. Version remains `0.0.4`; no release or tag was prepared.

@@ -361,18 +361,10 @@ export function ProviderEditor({
         update={credential.update}
         onRetry={credential.retry}
       />
-      <label>
-        {t('settings.listModelsPath')}
-        <input
-          value={draft.listModelsPath}
-          placeholder="/v1/models"
-          onChange={(event) => setDraft({ ...draft, listModelsPath: event.target.value })}
-        />
-        <small>{t('settings.listModelsPathHint')}</small>
-      </label>
       <ProviderModelDiscovery
         baseUrl={draft.baseUrl}
         listModelsPath={draft.listModelsPath}
+        onListModelsPathChange={(listModelsPath) => setDraft({ ...draft, listModelsPath })}
         protocol={draft.protocol}
         credential={credential.state}
         hasSavedKey={provider?.hasApiKey ?? false}
