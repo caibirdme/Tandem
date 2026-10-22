@@ -170,7 +170,7 @@ mod tests {
                     project_id: None,
                     provider_id: "missing".into(),
                     model_id: "model".into(),
-                    permission_mode: tandem_core::model::PermissionMode::AllowAll,
+                    permission_mode: Some(tandem_core::model::PermissionMode::AllowAll),
                     reasoning_effort: None,
                 }),
                 StatusCode::BAD_REQUEST,

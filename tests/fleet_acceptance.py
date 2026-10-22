@@ -64,6 +64,7 @@ def check_fleet(app, fixture, project, provider, model, workspace):
             "Fleet tools remained enabled after the option was cleared")
     require(app.command("messages", sessionId=session["id"])[:len(history)] == history,
             "A later ordinary turn rewrote Fleet agent history")
+    app.command("set_permission_mode", sessionId=session["id"], permissionMode="ask")
     denied = app.turn(session, "fixture:fleet-permission Deny the worker's write.", approved=False, fleet=True)
     require(any(event["kind"] == "permission" for event in denied),
             "A worker write did not use the parent permission handler")

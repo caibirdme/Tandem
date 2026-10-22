@@ -49,9 +49,8 @@ def check_permission_modes(app, project, provider, model, workspace):
         projectId=project["id"],
         providerId=provider["id"],
         modelId=model,
-        permissionMode="allow-all",
     )
-    require(session["permissionMode"] == "allow-all", "Work permission mode was lost")
+    require(session["permissionMode"] == "allow-all", "New Work session did not default to full access")
     for action in ("create", "read", "edit", "shell"):
         auto_turn(app, session, f"fixture:work-mode-{action} Exercise the real tool.")
     require(

@@ -53,8 +53,6 @@ const props: ComponentProps<typeof Chat> = {
   onSelection: () => undefined,
   conversation: emptyConversation,
   historyLoading: false,
-  historyLoaded: true,
-  onReloadHistory: () => undefined,
   sending: false,
   permissionModeSaving: false,
   permissionModeError: null,
@@ -65,7 +63,6 @@ const props: ComponentProps<typeof Chat> = {
   onReasoningEffort: () => undefined,
   onConfirmReasoningEffort: () => undefined,
   onConfirmModel: () => undefined,
-  onPermissionMode: () => undefined,
   onConfirmPermissionMode: () => undefined,
   runtime: undefined,
   installing: false,
@@ -91,23 +88,29 @@ afterEach(() => {
 });
 
 describe('Multi-agent composer and transcript', () => {
-  it('offers an unchecked Multi-agent option in Work and no Multi-agent option in Chat', () => {
+  it('offers an unpressed Expert team mode button in Work and no mode button in Chat', () => {
     const work = renderToStaticMarkup(<Chat {...props} />);
     const chat = renderToStaticMarkup(<Chat {...props} project={undefined} />);
-    const checkbox = work.match(/<input[^>]*type="checkbox"[^>]*>/)?.[0];
-    expect(checkbox).toBeDefined();
-    expect(checkbox).not.toContain('checked');
+    const button = work.match(/<button[^>]*class="fleet-toggle"[^>]*>/)?.[0];
+    expect(button).toBeDefined();
+    expect(button).toContain('type="button"');
+    expect(button).toContain('aria-pressed="false"');
+    expect(button).not.toContain('disabled');
+    expect(work).not.toContain('type="checkbox"');
     expect(work).toContain(
       'Let the AI split your task and run independent parts with multiple agents.',
     );
+    expect(work).toContain('Expert team mode');
     expect(chat).not.toContain('fleet-toggle');
   });
 
-  it('disables Multi-agent changes while a turn is running', () => {
+  it('disables Expert team mode changes while a turn is running', () => {
     const markup = renderToStaticMarkup(
       <Chat {...props} conversation={{ ...emptyConversation, status: 'running' }} />,
     );
-    expect(markup.match(/<input[^>]*type="checkbox"[^>]*>/)?.[0]).toContain('disabled');
+    const button = markup.match(/<button[^>]*class="fleet-toggle"[^>]*>/)?.[0];
+    expect(button).toContain('disabled');
+    expect(button).toContain('aria-pressed="false"');
   });
 
   it('groups workers by user turn and keeps their traces out of the main conversation', () => {
@@ -605,6 +608,18 @@ describe('conversation reasoning effort controls', () => {
     expect(stop).not.toContain('disabled');
   });
 
+  it.each(['low', 'medium', 'high', 'max'] as const)(
+    'renders the saved %s effort independently of the provider default',
+    (effort) => {
+      const markup = renderToStaticMarkup(
+        <Chat {...reasoningProps} session={{ ...session, reasoningEffort: effort }} />,
+      );
+      expect(reasoningControl(markup)).toContain(
+        `Reasoning effort: ${effort[0]?.toUpperCase()}${effort.slice(1)}`,
+      );
+    },
+  );
+
   it('translates the session control', () => {
     setLocale('zh-CN');
     const markup = renderToStaticMarkup(
@@ -669,7 +684,7 @@ describe('conversation model controls', () => {
     expect(modelControl(uncertain)).toContain('Model: Unconfirmed');
     expect(modelControl(uncertain)).toContain('aria-busy="false"');
     expect(uncertain).toContain('Confirm model again');
-    expect(modeControl(uncertain)).toContain('disabled=""');
+    expect(modeControl(uncertain)).toBeUndefined();
   });
 });
 
@@ -725,89 +740,41 @@ describe('runtime preparation notices', () => {
 });
 
 describe('work permission controls', () => {
+  it.each([undefined, session])(
+    'uses full access without a permission selector or first-message prompt',
+    (currentSession) => {
+      const markup = renderToStaticMarkup(<Chat {...props} session={currentSession} />);
+      expect(modeControl(markup)).toBeUndefined();
+      expect(markup).not.toContain('Confirm work permissions');
+      expect(markup).not.toContain('Ask each time');
+      expect(markup).toContain(
+        'Full access: automatically approves file access, commands, and all other tool requests.',
+      );
+    },
+  );
+
   it.each([
-    {
-      name: 'unread existing ask work',
-      currentSession: { ...session, permissionMode: 'ask' as const },
-      historyLoaded: false,
-      expected: true,
-    },
-    {
-      name: 'confirmed empty ask work',
-      currentSession: { ...session, permissionMode: 'ask' as const },
-      historyLoaded: true,
-      expected: false,
-    },
-    { name: 'new work draft', currentSession: undefined, historyLoaded: false, expected: false },
-    {
-      name: 'explicit full authorization',
-      currentSession: session,
-      historyLoaded: false,
-      expected: false,
-    },
-  ])('offers history retry for $name', ({ currentSession, historyLoaded, expected }) => {
+    { status: 'idle' as const, text: 'Full access will apply to your next message.' },
+    { status: 'running' as const, text: 'Approvals remain enabled for this task.' },
+  ])('accurately describes an explicit ask session while $status', ({ status, text }) => {
     const markup = renderToStaticMarkup(
-      <Chat {...props} session={currentSession} historyLoaded={historyLoaded} />,
+      <Chat {...props} session={{ ...session, permissionMode: 'ask', status }} />,
     );
-    expect(markup.includes('Reload conversation')).toBe(expected);
+    expect(modeControl(markup)).toBeUndefined();
+    expect(markup).toContain(text);
+    expect(markup).not.toContain('Full access: automatically approves');
   });
 
-  it('defaults each new work view to ask and shows no permission selector in chat', () => {
-    expect(modeControl(renderToStaticMarkup(<Chat {...props} />))).toContain(
-      'Tool permissions: Ask each time',
-    );
-    expect(
-      modeControl(renderToStaticMarkup(<Chat {...props} project={undefined} />)),
-    ).toBeUndefined();
-    expect(modeControl(renderToStaticMarkup(<Chat {...props} session={session} />))).toContain(
-      'Tool permissions: Full access',
-    );
-    expect(modeControl(renderToStaticMarkup(<Chat {...props} />))).toContain(
-      'Tool permissions: Ask each time',
-    );
-  });
-
-  it.each([
-    { name: 'initializing', override: { sending: true } },
-    { name: 'running', override: { session: { ...session, status: 'running' as const } } },
-    {
-      name: 'awaiting approval',
-      override: {
-        conversation: {
-          ...emptyConversation,
-          status: 'running' as const,
-          permissions: [{ requestId: 'permission-1', kind: 'shell', description: 'Run command' }],
-        },
-      },
-    },
-    { name: 'saving a new mode', override: { permissionModeSaving: true } },
-  ])('disables the mode selector while $name', ({ override }) => {
-    const markup = renderToStaticMarkup(<Chat {...props} session={session} {...override} />);
-    expect(modeControl(markup)).toContain('disabled=""');
-  });
-
-  it('keeps the approved mode visible with its scope explanation', () => {
-    const markup = renderToStaticMarkup(<Chat {...props} session={session} permissionModeSaving />);
-    expect(modeControl(markup)).toContain('Tool permissions: Full access');
-    expect(modeControl(markup)).toContain('aria-busy="true"');
+  it('keeps Chat within its directory-free scope', () => {
+    const markup = renderToStaticMarkup(<Chat {...props} project={undefined} />);
+    expect(modeControl(markup)).toBeUndefined();
+    expect(markup).not.toContain('Full access:');
     expect(markup).toContain(
-      'automatically approves file access, commands, and all other tool requests.',
+      'Chat can read shared attachments, with no directory or terminal access.',
     );
   });
 
-  it('allows revoking authorization after an error when no task or approval remains active', () => {
-    const markup = renderToStaticMarkup(
-      <Chat
-        {...props}
-        session={{ ...session, status: 'error' }}
-        conversation={{ ...emptyConversation, status: 'error' }}
-      />,
-    );
-    expect(modeControl(markup)).not.toContain('disabled=""');
-    expect(modeControl(markup)).toContain('Tool permissions: Full access');
-  });
-
-  it('shows an actionable uncertain state without an endless spinner', () => {
+  it('keeps failed permission updates recoverable', () => {
     const markup = renderToStaticMarkup(
       <Chat
         {...props}
@@ -815,16 +782,14 @@ describe('work permission controls', () => {
         permissionModeError="Could not confirm current tool permissions"
       />,
     );
-    expect(modeControl(markup)).toContain('Tool permissions: Unconfirmed');
-    expect(modeControl(markup)).toContain('disabled=""');
-    expect(modeControl(markup)).toContain('aria-busy="false"');
+    expect(modeControl(markup)).toBeUndefined();
     expect(markup).toContain('Confirm permissions again');
     expect(markup).toContain('Confirm permissions before sending a task.');
   });
 });
 
 describe('conversation language', () => {
-  it('renders Chinese conversation and permission controls after changing locale', () => {
+  it('renders Chinese conversation and Expert team mode after changing locale', () => {
     setLocale('zh-CN');
     const markup = renderToStaticMarkup(
       <Chat
@@ -833,12 +798,13 @@ describe('conversation language', () => {
         selection={{ providerId: provider.id, modelId: session.modelId }}
       />,
     );
-    expect(markup).toContain('今天，一起构建什么？');
-    expect(markup).toContain('Agent 已准备好在 Project 中和你一起工作。');
-    expect(markup).toContain('aria-label="工具权限：逐次询问"');
+    expect(markup).toContain('开始处理项目任务');
+    expect(markup).toContain('在 Project 中查看文件、解决问题或修改代码。');
+    expect(markup).toContain('专家团模式');
+    expect(markup).not.toContain('aria-label="工具权限：');
     expect(markup).toContain('aria-label="模型：Model"');
     expect(markup).toContain('描述你想完成的任务…');
-    expect(markup).not.toContain('What will we build today?');
+    expect(markup).not.toContain('Let’s work on your project');
   });
 });
 

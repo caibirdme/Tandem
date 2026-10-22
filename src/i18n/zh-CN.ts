@@ -70,6 +70,7 @@ export const zhCN = {
   'settings.low': '低',
   'settings.medium': '中',
   'settings.high': '高',
+  'settings.max': '极高',
   'settings.contextWindow': '上下文窗口',
   'settings.contextWindowHint': '以 K Token 为单位填写上下文上限，1 K = 1,000 Token。',
   'settings.default': '默认',

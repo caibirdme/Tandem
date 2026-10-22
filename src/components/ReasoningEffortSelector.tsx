@@ -48,7 +48,9 @@ export function ReasoningEffortSelector({
         }
       >
         {saving ? <Spinner size={13} /> : <Lightbulb size={13} />}
-        {label}
+        <span className="model-selector-label">
+          {effort === null && !uncertain ? t('chat.reasoningDefault') : label}
+        </span>
         <ChevronDown size={12} />
       </Dropdown.Trigger>
       <Dropdown.Portal>
@@ -64,12 +66,16 @@ export function ReasoningEffortSelector({
             onValueChange={(value) => {
               if (
                 !locked &&
-                (value === 'default' || value === 'low' || value === 'medium' || value === 'high')
+                (value === 'default' ||
+                  value === 'low' ||
+                  value === 'medium' ||
+                  value === 'high' ||
+                  value === 'max')
               )
                 onChange(value === 'default' ? null : value);
             }}
           >
-            {(['default', 'low', 'medium', 'high'] as const).map((value) => (
+            {(['default', 'low', 'medium', 'high', 'max'] as const).map((value) => (
               <Dropdown.RadioItem
                 key={value}
                 value={value}

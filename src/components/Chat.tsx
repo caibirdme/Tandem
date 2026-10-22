@@ -12,7 +12,6 @@ import {
   Folder,
   Lightbulb,
   LockKeyhole,
-  MessageSquare,
   Paperclip,
   Plus,
   Server,
@@ -20,6 +19,7 @@ import {
   Sparkles,
   Square,
   Terminal,
+  UsersRound,
   Wrench,
 } from 'lucide-react';
 import { lazy, Suspense, useEffect, useId, useRef, useState, useSyncExternalStore } from 'react';
@@ -29,7 +29,6 @@ import { useI18n } from '../i18n';
 import { errorMessage } from '../lib/api';
 import { createAttachmentDraft, filesFromTransfer, hasFileTransfer } from '../lib/attachments';
 import type { Conversation } from '../lib/conversation';
-import { needsWorkPermissionConfirmation } from '../lib/sessionOptions';
 import {
   editSkillDraft,
   findSkillQuery,
@@ -58,11 +57,10 @@ import { DraftAttachments, MessageAttachments } from './Attachments';
 import { ContextUsageIndicator } from './ContextUsageIndicator';
 import { FleetCard } from './FleetCard';
 import { SentMessageContent } from './MessageContent';
-import { PermissionModeSelector } from './PermissionModeSelector';
 import { ReasoningEffortSelector } from './ReasoningEffortSelector';
 import { SkillPicker } from './SkillPicker';
 import { ThinkingMessage } from './ThinkingMessage';
-import { Modal, Notice, Spinner } from './ui';
+import { Notice, Spinner } from './ui';
 
 interface ChatProps {
   session: Session | undefined;
@@ -72,8 +70,6 @@ interface ChatProps {
   onSelection: (selection: ModelSelection) => void;
   conversation: Conversation;
   historyLoading: boolean;
-  historyLoaded: boolean;
-  onReloadHistory: () => void;
   sending: boolean;
   permissionModeSaving: boolean;
   permissionModeError: string | null;
@@ -84,7 +80,6 @@ interface ChatProps {
   reasoningEffortError: string | null;
   onReasoningEffort: (reasoningEffort: ReasoningEffort) => void;
   onConfirmReasoningEffort: () => void;
-  onPermissionMode: (mode: PermissionMode) => void;
   onConfirmPermissionMode: () => void;
   runtime: RuntimeStatus | undefined;
   installing: boolean;
@@ -134,7 +129,6 @@ export function Chat(props: ChatProps) {
   );
   const activeSkillIndex = Math.min(skillIndex, Math.max(matchingSkills.length - 1, 0));
   const skillsSelectable = !skillCatalog.loading && props.connected && matchingSkills.length > 0;
-  const [draftPermissionMode, setDraftPermissionMode] = useState<PermissionMode>('ask');
   const [draftReasoningEffort, setDraftReasoningEffort] = useState<ReasoningEffort>(null);
   const [fleet, setFleet] = useState(false);
   const [selectedAgents, setSelectedAgents] = useState<Record<string, string | null>>({});
@@ -142,12 +136,9 @@ export function Chat(props: ChatProps) {
   const [waitingThinking, setWaitingThinking] = useState({ after: '', expanded: false });
   const [pendingPermission, setPendingPermission] = useState<string | null>(null);
   const [localError, setLocalError] = useState<string | null>(null);
-  const [workPermissionPromptOpen, setWorkPermissionPromptOpen] = useState(false);
   const transcript = useRef<HTMLDivElement>(null);
   const textarea = useRef<HTMLTextAreaElement>(null);
   const pendingInputEdit = useRef<SkillInputEdit | undefined>(undefined);
-  const cancelWorkPermission = useRef<HTMLButtonElement>(null);
-  const pendingWorkContent = useRef<SkillDraft | null>(null);
   const submitting = useRef(false);
   const stickToBottom = useRef(true);
   const running =
@@ -169,18 +160,9 @@ export function Chat(props: ChatProps) {
     mainMessages.filter((message) => message.role !== 'agent' || fleetGroups.has(message.id)),
   );
   const inspectingAgent = Object.values(selectedAgents).some(Boolean);
-  const permissionMode = props.project
-    ? (props.session?.permissionMode ?? draftPermissionMode)
-    : 'ask';
+  const permissionMode: PermissionMode = props.project ? 'allow-all' : 'ask';
   const reasoningEffort = props.session ? props.session.reasoningEffort : draftReasoningEffort;
-  const workHistoryUncertain = Boolean(
-    props.project &&
-    props.session &&
-    permissionMode === 'ask' &&
-    !props.historyLoaded &&
-    !props.conversation.messages.some((message) => message.role === 'user'),
-  );
-  const permissionModeDisabled =
+  const optionsDisabled =
     running ||
     props.historyLoading ||
     props.permissionModeSaving ||
@@ -217,7 +199,7 @@ export function Chat(props: ChatProps) {
   const currentModel = currentProvider?.models.find(
     (model) => model.id === props.selection?.modelId,
   );
-  const modelDisabled = permissionModeDisabled;
+  const modelDisabled = optionsDisabled;
   const reasoningEffortDisabled =
     !props.connected ||
     !currentModel ||
@@ -246,7 +228,6 @@ export function Chat(props: ChatProps) {
     props.connected &&
     !running &&
     !props.historyLoading &&
-    !workHistoryUncertain &&
     !props.permissionModeSaving &&
     !props.permissionModeError &&
     !props.modelSaving &&
@@ -293,8 +274,7 @@ export function Chat(props: ChatProps) {
       event.preventDefault();
       dragDepth.current = 0;
       setDragging(false);
-      if (!submitting.current && pendingWorkContent.current === null)
-        attachmentDraft.add(filesFromTransfer(event.dataTransfer));
+      if (!submitting.current) attachmentDraft.add(filesFromTransfer(event.dataTransfer));
     }
     form.addEventListener('dragenter', enter);
     form.addEventListener('dragleave', leave);
@@ -347,23 +327,10 @@ export function Chat(props: ChatProps) {
   }, [draft]);
 
   async function submit() {
-    if (!canSend || submitting.current || pendingWorkContent.current !== null) return;
-    if (
-      needsWorkPermissionConfirmation({
-        projectId: props.project?.id ?? null,
-        sessionId: props.session?.id ?? null,
-        permissionMode,
-        historyLoaded: props.historyLoaded,
-        messages: props.conversation.messages,
-      })
-    ) {
-      pendingWorkContent.current = skillDraft;
-      setWorkPermissionPromptOpen(true);
-      return;
-    }
-    await sendDraft(skillDraft, permissionMode);
+    if (!canSend || submitting.current) return;
+    await sendDraft(skillDraft);
   }
-  async function sendDraft(savedDraft: SkillDraft, mode: PermissionMode) {
+  async function sendDraft(savedDraft: SkillDraft) {
     if (submitting.current) return;
     const savedAttachments = attachmentDraft.getSnapshot().items;
     if (savedAttachments.some((item) => item.status !== 'ready')) return;
@@ -377,7 +344,7 @@ export function Chat(props: ChatProps) {
     try {
       await props.onSend(
         savedDraft.text.trim(),
-        mode,
+        permissionMode,
         props.project ? selectedSkills(savedDraft) : [],
         reasoningEffort,
         inputs,
@@ -391,18 +358,6 @@ export function Chat(props: ChatProps) {
       submitting.current = false;
       setUploading(false);
     }
-  }
-  function cancelWorkPrompt() {
-    pendingWorkContent.current = null;
-    setWorkPermissionPromptOpen(false);
-  }
-  async function confirmWorkPermission(mode: PermissionMode) {
-    const content = pendingWorkContent.current;
-    if (content === null || !props.project || !canSend || submitting.current) return;
-    pendingWorkContent.current = null;
-    setWorkPermissionPromptOpen(false);
-    if (!props.session) setDraftPermissionMode(mode);
-    await sendDraft(content, mode);
   }
   async function permission(requestId: string, approved: boolean) {
     setPendingPermission(requestId);
@@ -422,7 +377,7 @@ export function Chat(props: ChatProps) {
     textarea.current?.focus();
   }
   function addFiles(files: File[]) {
-    if (submitting.current || workPermissionPromptOpen) return;
+    if (submitting.current) return;
     attachmentDraft.add(files);
   }
   function chooseSkill(skill: ProjectSkill) {
@@ -446,51 +401,6 @@ export function Chat(props: ChatProps) {
 
   return (
     <div className={`chat-surface ${hasMessages ? 'has-messages' : ''}`}>
-      <Modal
-        open={workPermissionPromptOpen}
-        onOpenChange={(open) => {
-          if (!open) cancelWorkPrompt();
-        }}
-        title={t('chat.confirmWorkPermissions')}
-        description={t('chat.workPermissionDescription')}
-        initialFocusRef={cancelWorkPermission}
-        returnFocusRef={textarea}
-      >
-        <div className="work-permission-confirmation">
-          <p>{t('chat.workPermissionExplanation')}</p>
-          <p>{t('chat.fullAccessExplanation')}</p>
-          <div className="work-permission-actions">
-            <button
-              className="button"
-              type="button"
-              ref={cancelWorkPermission}
-              onClick={cancelWorkPrompt}
-            >
-              {t('chat.cancel')}
-            </button>
-            <button
-              className="button"
-              type="button"
-              disabled={!canSend || !props.project}
-              onClick={() => {
-                void confirmWorkPermission('ask');
-              }}
-            >
-              {t('chat.confirmAndContinue')}
-            </button>
-            <button
-              className="button primary"
-              type="button"
-              disabled={!canSend || !props.project}
-              onClick={() => {
-                void confirmWorkPermission('allow-all');
-              }}
-            >
-              {t('chat.allowAllAndContinue')}
-            </button>
-          </div>
-        </div>
-      </Modal>
       <div
         className="transcript-scroll"
         ref={transcript}
@@ -505,12 +415,6 @@ export function Chat(props: ChatProps) {
       >
         {!hasMessages && !props.historyLoading ? (
           <div className="welcome">
-            <div className="welcome-eyebrow">
-              <span className="welcome-emblem">
-                <Sparkles size={20} strokeWidth={1.5} />
-              </span>
-              {props.project ? t('chat.workEyebrow') : t('chat.chatEyebrow')}
-            </div>
             <h1>{props.project ? t('chat.workHeading') : t('chat.chatHeading')}</h1>
             <p>
               {props.project
@@ -778,18 +682,6 @@ export function Chat(props: ChatProps) {
         )}
         {localError && <Notice>{localError}</Notice>}
         {attachments.error && <Notice>{attachments.error}</Notice>}
-        {workHistoryUncertain && !props.historyLoading && (
-          <Notice>
-            <span>{t('chat.workHistoryUncertain')}</span>
-            <button
-              className="text-button"
-              onClick={props.onReloadHistory}
-              disabled={!props.connected}
-            >
-              {t('chat.reloadHistory')}
-            </button>
-          </Notice>
-        )}
         {props.modelError && (
           <Notice>
             <span>{props.modelError}</span>
@@ -1016,14 +908,6 @@ export function Chat(props: ChatProps) {
               >
                 <Paperclip size={16} />
               </button>
-              <span
-                className="scope-pill"
-                title={props.project ? t('chat.workScopeHint') : t('chat.chatScopeHint')}
-              >
-                {props.project ? <Folder size={13} /> : <MessageSquare size={13} />}
-                {props.project ? t('chat.workMode') : t('chat.chatMode')}
-              </span>
-              <span className="toolbar-divider" />
               <Dropdown.Root>
                 <Dropdown.Trigger
                   className="model-selector"
@@ -1032,7 +916,7 @@ export function Chat(props: ChatProps) {
                   aria-busy={props.modelSaving}
                   title={modelHint}
                 >
-                  {modelLabel}
+                  <span className="model-selector-label">{modelLabel}</span>
                   {props.modelSaving ? <Spinner size={13} /> : <ChevronDown size={13} />}
                 </Dropdown.Trigger>
                 <Dropdown.Portal>
@@ -1087,28 +971,17 @@ export function Chat(props: ChatProps) {
                 }}
               />
               {props.project && (
-                <PermissionModeSelector
-                  mode={permissionMode}
-                  disabled={permissionModeDisabled}
-                  saving={props.permissionModeSaving}
-                  uncertain={Boolean(props.permissionModeError)}
-                  onChange={(mode) => {
-                    if (permissionModeDisabled) return;
-                    if (props.session) props.onPermissionMode(mode);
-                    else setDraftPermissionMode(mode);
-                  }}
-                />
-              )}
-              {props.project && (
-                <label className="fleet-toggle" title={t('fleet.toggleHint')}>
-                  <input
-                    type="checkbox"
-                    checked={fleet}
-                    disabled={permissionModeDisabled || uploading || workPermissionPromptOpen}
-                    onChange={(event) => setFleet(event.currentTarget.checked)}
-                  />
-                  {t('fleet.title')}
-                </label>
+                <button
+                  type="button"
+                  className="fleet-toggle"
+                  title={t('fleet.toggleHint')}
+                  aria-pressed={fleet}
+                  disabled={optionsDisabled || uploading}
+                  onClick={() => setFleet((enabled) => !enabled)}
+                >
+                  <UsersRound size={13} aria-hidden="true" />
+                  <span>{t('fleet.title')}</span>
+                </button>
               )}
             </div>
             {running && !props.session ? (
@@ -1148,9 +1021,11 @@ export function Chat(props: ChatProps) {
                 <ShieldCheck size={11} />
                 {props.permissionModeError
                   ? t('chat.permissionsUnconfirmed')
-                  : permissionMode === 'allow-all'
-                    ? t('chat.fullAccessFootnote')
-                    : t('chat.askPermissionFootnote')}
+                  : props.session?.permissionMode === 'ask'
+                    ? running
+                      ? t('chat.currentTaskPermissionsFootnote')
+                      : t('chat.fullAccessNextMessageFootnote')
+                    : t('chat.fullAccessFootnote')}
               </>
             ) : (
               <>

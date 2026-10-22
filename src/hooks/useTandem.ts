@@ -116,7 +116,11 @@ export function useTandem() {
       const effort = session?.reasoningEffort;
       if (
         session?.id !== sessionId ||
-        (effort !== null && effort !== 'low' && effort !== 'medium' && effort !== 'high')
+        (effort !== null &&
+          effort !== 'low' &&
+          effort !== 'medium' &&
+          effort !== 'high' &&
+          effort !== 'max')
       )
         throw new Error(t('error.invalidReasoning'));
       return effort;

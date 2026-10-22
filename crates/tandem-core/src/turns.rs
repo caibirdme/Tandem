@@ -218,11 +218,14 @@ impl ActiveTurns {
 
     pub fn agent(&self, session_id: &str, data: &Value) -> Result<Option<Message>> {
         let mut turns = self.0.lock().map_err(|_| Error::SessionStatePoisoned)?;
-        Ok(turns
-            .entry(session_id.to_owned())
-            .or_default()
-            .agents
-            .update(session_id, data))
+        let turn = if data["event"] == "subagent.started" {
+            turns.entry(session_id.to_owned()).or_default()
+        } else if let Some(turn) = turns.get_mut(session_id) {
+            turn
+        } else {
+            return Ok(None);
+        };
+        Ok(turn.agents.update(session_id, data))
     }
 
     pub fn agent_saved(&self, message: &Message) -> Result<()> {

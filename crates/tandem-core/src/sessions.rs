@@ -65,10 +65,15 @@ impl App {
         project_id: Option<String>,
         provider_id: String,
         model_id: String,
-        permission_mode: PermissionMode,
+        permission_mode: Option<PermissionMode>,
         reasoning_effort: Option<String>,
     ) -> Result<Session> {
         validate_reasoning_effort(reasoning_effort.as_deref())?;
+        let permission_mode = permission_mode.unwrap_or(if project_id.is_some() {
+            PermissionMode::AllowAll
+        } else {
+            PermissionMode::Ask
+        });
         if project_id.is_none() && permission_mode != PermissionMode::Ask {
             return Err(Error::ChatPermissionMode);
         }
@@ -576,7 +581,7 @@ mod tests {
                 None,
                 provider.id,
                 "fixture".into(),
-                PermissionMode::Ask,
+                Some(PermissionMode::Ask),
                 None,
             )
             .await?)
@@ -600,7 +605,7 @@ mod tests {
                 Some(project.id),
                 chat.provider_id,
                 chat.model_id,
-                PermissionMode::Ask,
+                Some(PermissionMode::Ask),
                 None,
             )
             .await?)
@@ -617,6 +622,8 @@ mod tests {
             (Some("low"), None, Some("low")),
             (Some("medium"), Some("high"), Some("high")),
             (Some("high"), Some("low"), Some("low")),
+            (Some("high"), Some("max"), Some("max")),
+            (Some("max"), None, Some("max")),
             (None, Some("medium"), Some("medium")),
             (None, None, None),
         ] {
@@ -650,7 +657,7 @@ mod tests {
         let mut provider = app.store.provider(&session.provider_id)?;
         provider.models[0].reasoning_effort = Some("medium".into());
         app.save_provider(provider, None).await?;
-        for effort in [None, Some("low"), Some("medium"), Some("high")] {
+        for effort in [None, Some("low"), Some("medium"), Some("high"), Some("max")] {
             let mut payload = json!({"providerId":session.provider_id,"modelId":session.model_id});
             if let Some(effort) = effort {
                 payload["reasoningEffort"] = json!(effort);
@@ -800,7 +807,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn session_commands_default_to_ask_and_restrict_permission_modes_to_work() -> Result<()> {
+    async fn session_commands_default_work_to_full_access_and_keep_chat_restricted() -> Result<()> {
         let (_directory, app) = application()?;
         let chat = session(&app).await?;
         let project = project(&app).await?;
@@ -820,7 +827,22 @@ mod tests {
                 if project_id.is_none() && mode == Some("allow-all") {
                     assert!(result.is_err());
                 } else {
-                    assert_eq!(result?["permissionMode"], mode.unwrap_or("ask"));
+                    let expected = mode.unwrap_or(if project_id.is_some() {
+                        "allow-all"
+                    } else {
+                        "ask"
+                    });
+                    let created: Session = serde_json::from_value(result?)?;
+                    assert_eq!(serde_json::to_value(created.permission_mode)?, expected);
+                    assert_eq!(
+                        app.store.session(&created.id)?.permission_mode,
+                        created.permission_mode
+                    );
+                    let options = app.session_options(
+                        &created,
+                        project_id.as_ref().map(|_| "/fixture".into()),
+                    )?;
+                    assert_eq!(options.permission_mode, created.permission_mode);
                 }
             }
         }

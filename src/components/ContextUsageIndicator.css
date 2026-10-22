@@ -12,7 +12,7 @@
   cursor: default;
 }
 .context-usage-high {
-  color: #a25e32;
+  color: var(--warning);
 }
 .context-usage circle {
   fill: none;
@@ -37,8 +37,8 @@
   padding: 7px 10px;
   border: 1px solid var(--line);
   border-radius: 10px;
-  background: #fff;
-  box-shadow: 0 4px 20px #292b281a;
+  background: var(--surface);
+  box-shadow: 0 4px 20px rgb(var(--shadow-rgb) / 0.1);
   color: var(--secondary);
   font-size: 0.75rem;
   font-variant-numeric: tabular-nums;
@@ -48,7 +48,7 @@
   opacity: 0;
 }
 .context-usage-count {
-  color: #292b28;
+  color: var(--text);
 }
 .context-usage:not([data-dismissed]):is(:hover, :focus) .context-usage-tooltip {
   visibility: visible;

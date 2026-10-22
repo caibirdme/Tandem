@@ -35,7 +35,7 @@ pub enum ValidationError {
     MissingModels,
     #[error("Model IDs must be unique: {id}")]
     DuplicateModelId { id: String },
-    #[error("Reasoning effort must be low, medium, or high.")]
+    #[error("Reasoning effort must be low, medium, high, or max.")]
     UnsupportedReasoningEffort { effort: String },
     #[error("Token counts must be between 1 and 10,000,000.")]
     InvalidTokenCount { count: i64 },
@@ -62,7 +62,7 @@ type Result<T> = std::result::Result<T, ValidationError>;
 
 pub(crate) fn validate_reasoning_effort(effort: Option<&str>) -> Result<()> {
     if let Some(effort) = effort
-        && !["low", "medium", "high"].contains(&effort)
+        && !["low", "medium", "high", "max"].contains(&effort)
     {
         return Err(ValidationError::UnsupportedReasoningEffort {
             effort: effort.into(),

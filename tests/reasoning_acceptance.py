@@ -131,6 +131,7 @@ def reject_invalid_efforts(app, directory, session, provider, project):
 
 
 def check_pending_reasoning_change(app, fixture, directory, work):
+    work = app.command("set_permission_mode", sessionId=work["id"], permissionMode="ask")
     prompt = "fixture:reasoning-permission Keep this pending approval during a reasoning change."
     offset = len(fixture.conversation_requests())
     app.command("send_message", sessionId=work["id"], content=prompt, messageId=str(uuid.uuid4()))
@@ -186,6 +187,8 @@ def check_reasoning_efforts(app, fixture, directory, fixture_url, project):
         events = check_reasoning_turn(app, fixture, session,
                                       "fixture:chat Preserve REASONING_ORIGINAL_HISTORY.", effort)
         app.wait_title(session["id"], events)
+    chat = set_effort(app, directory, chat, "max")
+    check_reasoning_turn(app, fixture, chat, "fixture:chat Use the maximum reasoning override.", "max")
     chat = set_effort(app, directory, chat, "medium")
     check_reasoning_turn(app, fixture, chat, "fixture:chat Use an explicit medium override.", "medium")
     require(stored_session(app, work["id"])["reasoningEffort"] == "high",
@@ -226,8 +229,8 @@ def check_reasoning_efforts(app, fixture, directory, fixture_url, project):
     check_reasoning_turn(app, fixture, chat, "fixture:chat Preserve the override across provider protocols.", "medium")
     chat = set_effort(app, directory, chat, None)
     check_reasoning_turn(app, fixture, chat, "fixture:chat Inherit the Responses provider default.", "low")
-    chat = set_effort(app, directory, chat, "high")
-    check_reasoning_turn(app, fixture, chat, "fixture:chat Keep the explicit override for restart.", "high")
+    chat = set_effort(app, directory, chat, "max")
+    check_reasoning_turn(app, fixture, chat, "fixture:chat Keep the maximum override for restart.", "max")
     return {"providers": providers, "chat": chat, "work": work,
             "messages": {session["id"]: app.command("messages", sessionId=session["id"])
                          for session in (chat, work)}}
@@ -237,7 +240,7 @@ def check_reasoning_after_restart(app, fixture, directory, state, ephemeral_secr
     if ephemeral_secrets:
         for provider in state["providers"]:
             app.command("save_provider", provider=provider, apiKey=FIXTURE_KEY)
-    for name, effort in (("chat", "high"), ("work", "high")):
+    for name, effort in (("chat", "max"), ("work", "high")):
         original = state[name]
         restored = stored_session(app, original["id"])
         require(restored["reasoningEffort"] == effort, "Restart lost the session reasoning override")

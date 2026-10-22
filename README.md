@@ -6,17 +6,17 @@ No GitHub Copilot subscription is required. Available for Windows and Apple Sili
 
 [Download](https://github.com/caibirdme/Tandem/releases) · [Get started](#get-started) · [User guide](docs/user-guide.md) · [Development](docs/development.md)
 
-![A Tandem work session showing a project conversation, model selection, and permission controls](docs/images/work-session.jpg)
+![A Tandem work session showing a project conversation and model selection](docs/images/work-session.jpg)
 
-_Keep project conversations, model selection, and permission controls together in one workspace. Screenshots use illustrative data._
+_Keep project conversations and model selection together in one workspace. Screenshots use illustrative data and may show an earlier interface._
 
 ## What you can do
 
 - **Chat with your models.** Connect OpenAI-compatible APIs, Anthropic, or your own model gateway. Chat can read web pages.
 - **Include images and files.** Paste an image or drop files into the composer, review the previews, and send them with your message.
 - **Work where your files are.** Open a local directory or connect to a Linux or macOS host over SSH. The agent can read and edit files and run commands.
-- **Choose how the agent works.** Approve each tool permission request or grant full access for a work session. Switch models and choose reasoning effort for each conversation.
-- **Delegate independent work.** Select **Multi-agent** in the Work composer to let the main agent coordinate subagents. Open an agent from its collaboration card to inspect its output and tool calls.
+- **Choose how the agent works.** Work uses full access automatically. Switch models and choose Low, Medium, High, or Max reasoning effort for each conversation.
+- **Delegate independent work.** Select **Expert team mode** in the Work composer to let the main agent coordinate subagents. Open an agent from its collaboration card to inspect its output and tool calls.
 
 ## Install
 
@@ -50,7 +50,7 @@ _Use your provider's model IDs and check the request URL preview before saving._
 - **For questions:** choose **New chat**, select a model, and send a message. Chat exposes web reading tools and approves their permission requests automatically.
 - **For project tasks:** choose **Add project**, select a local directory, then create **New work** in that project. Select a model, describe your task, and send it.
 
-Work starts with **Ask each time**. Use the control beside the composer to choose **Full access** if you want tool requests approved automatically. Commands run with your user account's access on the execution machine.
+Work uses **Full access** by default, with no permission selector or first-message confirmation. Tool requests are approved automatically. Commands run with your user account's access on the execution machine.
 
 The first message prepares the bundled runtime automatically. To use Simplified Chinese, open **Settings > General > Language**. Choose **Font size** in the same section for Small, Medium (the default), or Large text; changes apply immediately and are saved on this device.
 
@@ -62,7 +62,7 @@ Log in once with your system terminal to confirm the host fingerprint and set up
 
 ![Tandem remote project dialog with SSH connection details and a working-directory field](docs/images/ssh-project.jpg)
 
-_Choose a remote directory in the project dialog, then start work with the same conversation and permission controls._
+_Choose a remote directory in the project dialog, then start work with the same conversation controls._
 
 Tandem prepares the remote agent over SSH without opening an additional remote network port. Multiple Work conversations on the same host share a background runtime while keeping independent connections and permissions. See the [SSH guide](docs/user-guide.md#ssh-projects) for supported hosts and setup details.
 

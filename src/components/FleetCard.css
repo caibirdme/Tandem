@@ -3,38 +3,51 @@
   flex-direction: row;
   flex-shrink: 0;
   align-items: center;
-  gap: 6px;
-  padding: 5px 7px;
+  gap: 4px;
+  height: 28px;
+  max-width: 100%;
+  padding: 3px 7px;
+  border: 1px solid transparent;
   border-radius: 6px;
-  color: #61645d;
+  color: var(--secondary);
   cursor: pointer;
   font-size: 0.6875rem;
+  font-weight: 500;
   white-space: nowrap;
 }
-.fleet-toggle:has(input:checked) {
-  background: #edf2e9;
-  color: #486144;
+.fleet-toggle:hover:not(:disabled) {
+  background: var(--hover);
+  color: var(--text);
 }
-.fleet-toggle:hover:not(:has(input:disabled)) {
-  background: #f0f3eb;
+.fleet-toggle[aria-pressed='true'] {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--on-accent);
 }
-.fleet-toggle:has(input:disabled) {
+.fleet-toggle[aria-pressed='true']:hover:not(:disabled) {
+  border-color: var(--accent-hover);
+  background: var(--accent-hover);
+  color: var(--on-accent);
+}
+.fleet-toggle:disabled {
   cursor: default;
   opacity: 0.7;
 }
-.fleet-toggle input {
-  width: 12px;
-  height: 12px;
-  margin: 0;
-  accent-color: var(--accent);
-  cursor: inherit;
+.fleet-toggle:focus-visible {
+  outline: 2px solid var(--muted);
+  outline-offset: 2px;
+}
+.fleet-toggle > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .fleet-card {
   margin: 20px 0 28px;
   overflow: hidden;
   border: 1px solid var(--line);
   border-radius: 12px;
-  background: #fdfefb;
+  background: var(--surface);
 }
 .fleet-card-heading {
   display: flex;
@@ -45,7 +58,7 @@
   font-size: 0.6875rem;
 }
 .fleet-card-heading strong {
-  color: #4e5b47;
+  color: var(--text);
   font-weight: 600;
 }
 .fleet-card-heading > span {
@@ -70,7 +83,7 @@
 }
 .fleet-agent-row:hover,
 .fleet-agent-row.selected {
-  background: #f0f4eb;
+  background: var(--hover);
 }
 .fleet-agent-row:focus-visible {
   outline-offset: -2px;
@@ -82,10 +95,10 @@
   flex-shrink: 0;
   width: 28px;
   height: 28px;
-  border: 1px solid #e4e9df;
+  border: 1px solid var(--line);
   border-radius: 8px;
-  background: #f4f6f0;
-  color: #718064;
+  background: var(--surface-soft);
+  color: var(--secondary);
 }
 .fleet-agent-identity {
   display: flex;
@@ -103,7 +116,7 @@
 .fleet-agent-identity strong {
   font-size: 0.75rem;
   font-weight: 550;
-  color: #505b48;
+  color: var(--text);
 }
 .fleet-agent-identity > span {
   font-size: 0.625rem;
@@ -118,13 +131,13 @@
   font-size: 0.625rem;
 }
 .fleet-agent-status.running {
-  color: #70825f;
+  color: var(--secondary);
 }
 .fleet-agent-status.completed {
-  color: #68805c;
+  color: var(--success);
 }
 .fleet-agent-status.error {
-  color: #a7604b;
+  color: var(--danger);
 }
 .fleet-agent-chevron {
   color: var(--muted);
@@ -135,7 +148,7 @@
 }
 .fleet-inspector {
   border-top: 1px solid var(--line);
-  background: #fcfcf9;
+  background: var(--surface-soft);
 }
 .fleet-inspector-heading {
   display: flex;
@@ -144,7 +157,7 @@
   justify-content: space-between;
   gap: 8px;
   padding: 10px 14px;
-  border-bottom: 1px solid #edf0e7;
+  border-bottom: 1px solid var(--line);
 }
 .fleet-back-button {
   display: inline-flex;
@@ -195,7 +208,7 @@
 }
 .fleet-agent-error {
   align-items: flex-start;
-  color: #a7604b;
+  color: var(--danger);
   overflow-wrap: anywhere;
 }
 .fleet-agent-error > svg {

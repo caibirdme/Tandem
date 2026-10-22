@@ -427,14 +427,9 @@ export function App() {
                   .catch((reason: unknown) => tandem.setError(errorMessage(reason)));
             }}
             historyLoading={tandem.historyLoading}
-            historyLoaded={tandem.historyLoaded}
-            onReloadHistory={tandem.reloadHistory}
             sending={sending}
             permissionModeSaving={tandem.permissionModeSaving}
             permissionModeError={tandem.permissionModeError}
-            onPermissionMode={(mode) => {
-              if (session) void tandem.changePermissionMode(session.id, mode);
-            }}
             onConfirmPermissionMode={() => {
               if (session) void tandem.confirmPermissionMode(session.id);
             }}

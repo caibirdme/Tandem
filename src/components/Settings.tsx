@@ -453,6 +453,7 @@ export function ProviderEditor({
                   <option value="low">{t('settings.low')}</option>
                   <option value="medium">{t('settings.medium')}</option>
                   <option value="high">{t('settings.high')}</option>
+                  <option value="max">{t('settings.max')}</option>
                 </select>
                 <small>{t('settings.reasoningHint')}</small>
               </label>

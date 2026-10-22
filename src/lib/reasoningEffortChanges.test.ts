@@ -33,7 +33,7 @@ const snapshot: Snapshot = {
   },
   runtime: { available: true, version: null, message: 'Ready' },
 };
-const effort: ReasoningEffort = 'high';
+const effort: ReasoningEffort = 'max';
 const noop = () => undefined;
 
 function deferred<T>() {

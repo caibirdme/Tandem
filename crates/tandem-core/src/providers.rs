@@ -165,7 +165,7 @@ mod tests {
                 None,
                 provider.id.clone(),
                 "fixture".into(),
-                PermissionMode::Ask,
+                Some(PermissionMode::Ask),
                 None,
             )
             .await?;

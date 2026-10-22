@@ -1,6 +1,6 @@
 # From a message to project work
 
-Users configure a provider, then choose chat or project work. Both share history, model selection, and streaming display. The difference is runtime configuration: chat receives only web tools; work receives the selected directory and file/command tools, with per-session approval or full access.
+Users configure a provider, then choose chat or project work. Both share history, model selection, and streaming display. The difference is runtime configuration: chat receives only web tools; work receives the selected directory and file/command tools, with full access by default.
 
 After a conversation starts, users can still change its model or provider beside the composer. The next message uses the new selection and continues the existing history. Switching and sending share a session lock. Switching is rejected while running or waiting for approval; once the selection is saved, the old connection is invalidated and cleaned up, then the same SDK session ID resumes with the new configuration. The UI displays the selection only after service confirmation and offers reconfirmation after connection failures, keeping the displayed model consistent with actual inference.
 
@@ -32,7 +32,7 @@ flowchart LR
 
 Fleet is an explicit per-submission option for Work. Before inference, the runtime updates the SDK session's tool allowlist under the submission reservation: Fleet adds delegation and coordination tools; an ordinary submission restores the Work list. Fleet submissions call the SDK's `session.fleet.start` RPC with the prepared prompt and attachments. The SDK owns task decomposition and worker scheduling. Chat rejects Fleet. Local and SSH submissions carry the same option and retain the conversation's existing approval policy.
 
-Subagent lifecycle events become durable `agent` messages, updated in place. Worker text, reasoning, and tool activity carry `agentId` and remain separate from the main response. Active-turn snapshots include separate worker streams so reconnecting clients can recover partial output. Each turn's Fleet card lists its workers and opens an individual trace without moving the main transcript. Terminal events and restart recovery settle unfinished worker state as interrupted; completed traces remain in conversation history.
+Subagent lifecycle events become durable `agent` messages, updated in place. Only a start event creates a worker card; completion and failure events update workers already known to the current turn. Late terminal events after a stopped turn cannot recreate cards or alter workers in a later turn. Worker text, reasoning, and tool activity carry `agentId` and remain separate from the main response. Active-turn snapshots include separate worker streams so reconnecting clients can recover partial output. Each turn's Fleet card lists its workers and opens an individual trace without moving the main transcript. Terminal events and restart recovery settle unfinished worker state as interrupted; completed traces remain in conversation history.
 
 `tandem-remote` owns system SSH, platform detection, atomic deployment, and bidirectional JSON RPC with request IDs. Each remote Work conversation opens an SSH channel running `tandem-server --proxy`. The proxy forwards bounded frames through a private Unix socket to a shared `tandem-server --daemon`; it does not start an SDK or CLI. Provider keys pass through SSH and the socket in memory; they are not written to remote preference files or process arguments.
 
@@ -88,6 +88,8 @@ Desktop IPC and development HTTP serialize command failures as `{code, error}`. 
 
 ## Interface language
 
+The interface follows the system light or dark appearance. Shared color tokens keep the sidebar, conversation, dialogs, and tool output consistent: warm neutral surfaces in light appearance and charcoal surfaces in dark appearance. Composer controls use compact labels, truncate long model names, and wrap at narrow widths without hiding the send button. Permission selection is absent from the composer; the optional parallel-agent control is labeled **Expert team mode**.
+
 The application defaults to English, independently of the operating system language. Users can switch to Simplified Chinese in **Settings > General > Language**. The selection applies immediately and is saved under `tandem.locale` in the local browser/webview storage; only the language preference is stored there. Startup applies that preference before rendering the interface.
 
 `src/i18n/` owns the locale registry and typed message catalogs. Components select messages by stable keys rather than embedding translated copy. English defines the message shape, and other catalogs must provide the same keys and compatible message parameters. Use the active locale when introducing user-facing date or number formatting. Adding a language requires a catalog and a locale registry entry; it does not require changing component behavior. Untouched session-title placeholders use the selected language, identified by existing `titleState: "pending"` metadata; generated and manually saved titles retain their original values. User content, model IDs, paths, and backend diagnostic details also retain their original values.
@@ -102,7 +104,7 @@ This controls agent tool capabilities. The CLI still needs to save sessions, log
 
 ## Work permission modes
 
-Each work session stores `permissionMode`, either `ask` or `allow-all`. New work sessions default to asking each time. Ask mode shows each SDK permission request as an approval card; full access approves automatically without pending approvals. Chat always approves tool permission requests automatically, ignores this field, and offers no permission switch.
+Each work session stores `permissionMode`, either `ask` or `allow-all`. The session service resolves an omitted mode to `allow-all` for Work and `ask` for Chat. The composer always submits Work with full access and exposes neither a permission selector nor a first-message reminder. Full access approves automatically without pending approvals. The service still accepts explicit ask mode for callers that need individual approval. Chat always approves its web-tool permission requests automatically and retains its tool allowlist.
 
 Both local and remote session creation/recovery receive the permission mode again. Changes are allowed only when no task is active; the service rejects switches while running or waiting for approval. Switching disconnects the existing agent. The next explicit send resumes the same session with the new mode, preserving history without replaying tasks. The frontend also blocks sending while a switch is pending so concurrent requests cannot use an unexpected mode.
 

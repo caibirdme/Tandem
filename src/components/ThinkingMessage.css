@@ -43,7 +43,7 @@
   width: 4px;
   height: 4px;
   border-radius: 50%;
-  background: #93a27d;
+  background: var(--muted);
   animation: thinking-message-pulse 1.3s infinite;
 }
 
@@ -67,7 +67,7 @@
   scrollbar-gutter: stable;
   border: 1px solid var(--line);
   border-radius: 8px;
-  background: #f5f6f2;
+  background: var(--surface-soft);
   font-size: 0.75rem;
   line-height: 1.65;
   white-space: pre-wrap;

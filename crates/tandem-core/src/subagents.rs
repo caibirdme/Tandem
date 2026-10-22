@@ -66,7 +66,12 @@ impl Subagents {
                 .as_ref()
                 .is_some_and(|agent| agent.id == id || agent.tool_call_id == call_id)
         });
-        let index = index.unwrap_or_else(|| {
+        let index = index.or_else(|| {
+            // Terminal notifications can arrive after a stopped turn is settled.
+            // Only a start event may introduce a worker into the current turn.
+            if status != ActivityStatus::Running {
+                return None;
+            }
             let name = data["agentName"].as_str().unwrap_or("agent");
             self.messages.push(Message {
                 id: Uuid::new_v4().to_string(),
@@ -94,8 +99,8 @@ impl Subagents {
                 fleet: false,
                 interrupted: false,
             });
-            self.messages.len() - 1
-        });
+            Some(self.messages.len() - 1)
+        })?;
         let message = &mut self.messages[index];
         let agent = message.agent.as_mut()?;
         if data["agentId"].as_str().is_some_and(|id| !id.is_empty()) {
@@ -194,6 +199,17 @@ mod tests {
     fn cancelled_workers_are_interrupted_instead_of_successful() -> Result<()> {
         let mut agents = Subagents::default();
         for cancelled in [true, false] {
+            assert!(
+                agents
+                    .update(
+                        "session",
+                        &json!({
+                            "event":"subagent.started", "toolCallId":cancelled.to_string(),
+                            "agentId":cancelled.to_string()
+                        }),
+                    )
+                    .is_some()
+            );
             let message = agents
                 .update(
                     "session",

@@ -357,7 +357,13 @@ mod tests {
             "models":[{"id":"chat","name":"Chat","contextWindow":200_000},{"id":"title","name":"Title","contextWindow":1_000_000,"maxOutputTokens":128_000}]
         }))?, None).await?;
         let session = app
-            .create_session(None, provider.id, "chat".into(), PermissionMode::Ask, None)
+            .create_session(
+                None,
+                provider.id,
+                "chat".into(),
+                Some(PermissionMode::Ask),
+                None,
+            )
             .await?;
         Ok((directory, app, session))
     }
