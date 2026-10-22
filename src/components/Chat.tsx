@@ -47,7 +47,6 @@ import type {
   ProjectSkill,
   Provider,
   ReasoningEffort,
-  RuntimeStatus,
   Session,
   SelectedSkill,
   Subagent,
@@ -81,9 +80,6 @@ interface ChatProps {
   onReasoningEffort: (reasoningEffort: ReasoningEffort) => void;
   onConfirmReasoningEffort: () => void;
   onConfirmPermissionMode: () => void;
-  runtime: RuntimeStatus | undefined;
-  installing: boolean;
-  onInstall: () => void;
   onSettings: () => void;
   onSend: (
     content: string,
@@ -767,7 +763,7 @@ export function Chat(props: ChatProps) {
             </span>
           </div>
         )}
-        {props.providers.length === 0 ? (
+        {props.providers.length === 0 && (
           <div className="setup-banner">
             <span>
               <Sparkles size={16} />
@@ -778,29 +774,6 @@ export function Chat(props: ChatProps) {
               <ArrowRight size={13} />
             </button>
           </div>
-        ) : (
-          props.project?.connection.kind !== 'ssh' &&
-          !props.runtime?.available && (
-            <div className="setup-banner">
-              <span>
-                <Terminal size={16} />
-                {props.runtime?.message || t('chat.prepareRuntimeDescription')}
-              </span>
-              <button className="text-button" disabled={props.installing} onClick={props.onInstall}>
-                {props.installing ? (
-                  <>
-                    <Spinner />
-                    {t('chat.preparingRuntime')}
-                  </>
-                ) : (
-                  <>
-                    {t('chat.prepareRuntime')}
-                    <ArrowRight size={13} />
-                  </>
-                )}
-              </button>
-            </div>
-          )
         )}
         <form
           ref={composer}

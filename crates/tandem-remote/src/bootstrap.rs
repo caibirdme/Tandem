@@ -218,7 +218,7 @@ impl RemoteClient {
         self.connect_ready().await
     }
 
-    /// Reattach to a prepared host, validating its server without uploading or installing.
+    /// Reattach to a prepared host, validating its server and runtime without installing.
     ///
     /// # Errors
     /// Returns a process, transport, or server-version error if the host is no longer ready.
@@ -228,7 +228,13 @@ impl RemoteClient {
             .request("server_info", serde_json::Value::Null)
             .await;
         match result {
-            Ok(value) if valid_server_info(&value) => Ok(transport),
+            Ok(value) if valid_server_info(&value) && value["runtimeReady"] == true => {
+                Ok(transport)
+            }
+            Ok(value) if valid_server_info(&value) => {
+                transport.shutdown().await;
+                Err(RemoteError::RuntimeNotReady)
+            }
             result => {
                 transport.shutdown().await;
                 Err(result.err().unwrap_or(RemoteError::ServerVersionMismatch))
@@ -327,6 +333,7 @@ fn valid_server_info(value: &serde_json::Value) -> bool {
     value["protocolVersion"].as_u64() == Some(u64::from(tandem_protocol::PROTOCOL_VERSION))
         && value["serverVersion"].as_str() == Some(VERSION)
         && value["processId"].as_u64().is_some_and(|id| id > 0)
+        && value["runtimeReady"].is_boolean()
 }
 
 fn directory_command(path: &str, list: bool) -> Result<String, RemoteError> {
@@ -506,14 +513,20 @@ mod tests {
             "protocolVersion": tandem_protocol::PROTOCOL_VERSION,
             "serverVersion": VERSION,
             "processId": 123,
+            "runtimeReady": true,
         });
         assert!(valid_server_info(&valid));
+        let mut unprepared = valid.clone();
+        unprepared["runtimeReady"] = serde_json::json!(false);
+        assert!(valid_server_info(&unprepared));
         for (field, invalid) in [
             ("protocolVersion", serde_json::json!(0)),
             ("protocolVersion", serde_json::Value::Null),
             ("serverVersion", serde_json::json!("unrecognized")),
             ("processId", serde_json::json!(0)),
             ("processId", serde_json::json!("123")),
+            ("runtimeReady", serde_json::Value::Null),
+            ("runtimeReady", serde_json::json!("true")),
         ] {
             let mut value = valid.clone();
             value[field] = invalid;

@@ -149,7 +149,8 @@ export const zhCN = {
   'project.directory': '工作目录',
   'project.browse': '浏览目录',
   'project.loadingDirectories': '正在加载远端目录…',
-  'project.remoteSetup': '测试连接会准备远端运行环境，之后可直接在这里浏览并选择目录。',
+  'project.remoteSetup':
+    '测试 SSH 连接后，在这里浏览并选择目录。首次发送消息时会按需自动准备远端环境。',
   'project.directoryHint': 'Agent 可在这个目录中读取文件、编辑代码和执行命令。',
   'project.parentDirectory': '上级目录',
   'project.selectCurrent': '选择此目录',

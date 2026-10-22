@@ -100,12 +100,16 @@ def check_stdio(binary, home, endpoint, fixture):
     first_response = 'TANDEM_MODEL_SWITCH_OK ' + options['model']['id']
     server = StdioServer(binary, home)
     try:
+        require(server.command('server_info')['runtimeReady'] is False,
+                'A fresh stdio host incorrectly reports an initialized runtime')
         try:
             server.command('unknown_remote_command')
             raise AssertionError('Unknown remote command was accepted')
         except RuntimeError as error:
             require('Unsupported remote command' in str(error), 'Wrong remote command error')
         server.command('start_agent', options=options, resume=False, telemetry=telemetry)
+        require(server.command('server_info')['runtimeReady'] is True,
+                'A healthy initialized runtime was not reported ready')
         events = server.turn(session_id, first_prompt)
         require_context_usage(events, 128000)
         require(any(event['kind'] == 'delta' for event in events), 'stdio streaming delta missing')

@@ -40,7 +40,7 @@ API keys are stored in plaintext in a separate configuration table in the local 
 
 Choose **New chat** for a conversation with web reading tools. Chat exposes only those tools and automatically approves all tool permission requests.
 
-To work with files, choose **Add project**, select a local or SSH directory, and create **New work** within that project. Work gives the agent file and command tools on the execution machine. The first message prepares the bundled runtime automatically; you do not need to click **Prepare runtime** first.
+To work with files, choose **Add project**, select a local or SSH directory, and create **New work** within that project. Work gives the agent file and command tools on the execution machine. The first message prepares the bundled runtime automatically when needed. There is no manual initialization control.
 
 ### Inspect tool activity
 
@@ -122,7 +122,7 @@ The desktop supports macOS and Windows; remote hosts support Linux and macOS. Re
 
 ### Remote runtime and deployment
 
-Send a first message in a remote Work conversation to prepare an environment that is not ready. Tandem shows **Preparing the remote environment…** while keeping the message pending. First use may take about 10 seconds; deployment, network speed, and host startup can make it longer. The task is sent only after preparation succeeds. **Stop** cancels pending preparation without sending the task. If preparation fails, correct the reported problem and retry the retained message. Ready conversations and new conversations on the same prepared SSH connection reuse the environment. If a readiness check fails, Tandem prepares it again before sending.
+Send a first message in a remote Work conversation to prepare an environment that is not ready. Tandem shows **Preparing the remote environment…** while keeping the message pending. First use may take about 10 seconds; deployment, network speed, and host startup can make it longer. The task is sent only after preparation succeeds. **Stop** cancels pending preparation without sending the task. If preparation fails, correct the reported problem and retry the retained message. Ready conversations and new conversations on the same prepared host reuse the environment without a preparation notice, including after reopening the desktop app while the remote runtime remains healthy. This notice is informational, not a button. If the remote runtime has stopped, become unhealthy, or needs a matching server update, Tandem prepares it again before sending.
 
 During preparation, Tandem detects the remote platform and uploads the matching `tandem-server` to `~/.local/share/tandem/bin/`. You can open several Work conversations on the same host. Each has an independent SSH connection while sharing one background runtime for that remote user and server build. Models, project directories, and permission decisions remain independent. No additional remote network port is opened. Remote SDK history is stored in `~/.local/share/tandem/runtime`.
 

@@ -66,7 +66,7 @@ Log in once with your system terminal to confirm the host fingerprint and set up
 
 _Choose a remote directory in the project dialog, then start work with the same conversation controls._
 
-**Test connection** only verifies SSH access; it does not upload the server or prepare its runtime. Send the first message in a remote Work conversation to prepare the environment. The message stays pending while Tandem shows preparation progress; first use may take about 10 seconds, or longer depending on the host and connection. Tandem prepares the remote agent over SSH without opening an additional remote network port. Multiple Work conversations on the same host share a background runtime while keeping independent connections and permissions. See the [SSH guide](docs/user-guide.md#ssh-projects) for supported hosts and setup details.
+**Test connection** only verifies SSH access; it does not upload the server or prepare its runtime. Sending the first message checks the remote environment and prepares it automatically only if needed; there is no initialization button. New conversations reuse a healthy remote environment without repeating the preparation notice. During preparation, the message stays pending while Tandem shows progress; first use may take about 10 seconds, or longer depending on the host and connection. Tandem prepares the remote agent over SSH without opening an additional remote network port. Multiple Work conversations on the same host share a background runtime while keeping independent connections and permissions. See the [SSH guide](docs/user-guide.md#ssh-projects) for supported hosts and setup details.
 
 ## Troubleshooting
 
