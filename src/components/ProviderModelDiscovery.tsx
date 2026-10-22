@@ -1,14 +1,17 @@
-import { useEffect, useReducer, useRef } from 'react';
+import { RefreshCw } from 'lucide-react';
+import { useEffect, useId, useReducer, useRef } from 'react';
 
 import { useI18n } from '../i18n';
 import { dispatch, errorMessage } from '../lib/api';
 import type { CredentialEditorState } from '../lib/credentialEditor';
 import { emptyDiscovery, reduceDiscovery, selectedDiscoveryModels } from '../lib/modelDiscovery';
 import type { DiscoveredModel, ProviderProtocol } from '../lib/types';
+import { Spinner } from './ui';
 
 export function ProviderModelDiscovery({
   baseUrl,
   listModelsPath,
+  onListModelsPathChange,
   protocol,
   credential,
   hasSavedKey,
@@ -18,6 +21,7 @@ export function ProviderModelDiscovery({
 }: {
   baseUrl: string;
   listModelsPath: string;
+  onListModelsPathChange: (path: string) => void;
   protocol: ProviderProtocol;
   credential: CredentialEditorState;
   hasSavedKey: boolean;
@@ -26,6 +30,7 @@ export function ProviderModelDiscovery({
   onAdd: (models: DiscoveredModel[]) => void;
 }) {
   const { t } = useI18n();
+  const pathId = useId();
   const [state, update] = useReducer(reduceDiscovery, emptyDiscovery);
   const request = useRef(0);
   const inFlight = useRef(false);
@@ -85,16 +90,30 @@ export function ProviderModelDiscovery({
       aria-label={t('settings.fetchModels')}
       aria-busy={state.loading}
     >
-      <button
-        type="button"
-        className="text-button"
-        disabled={disabled || state.loading || credentialPending}
-        onClick={() => {
-          void fetchModels();
-        }}
-      >
-        {state.loading ? t('settings.fetchingModels') : t('settings.fetchModels')}
-      </button>
+      <label htmlFor={pathId}>{t('settings.listModelsPath')}</label>
+      <div className="model-discovery-controls">
+        <input
+          id={pathId}
+          value={listModelsPath}
+          placeholder="/v1/models"
+          aria-describedby={`${pathId}-hint`}
+          onChange={(event) => onListModelsPathChange(event.target.value)}
+        />
+        <button
+          type="button"
+          className="button primary"
+          disabled={disabled || state.loading || credentialPending}
+          onClick={() => {
+            void fetchModels();
+          }}
+        >
+          {state.loading ? <Spinner /> : <RefreshCw size={15} aria-hidden="true" />}
+          {state.loading ? t('settings.fetchingModels') : t('settings.fetchModels')}
+        </button>
+      </div>
+      <small id={`${pathId}-hint`} className="model-discovery-hint">
+        {t('settings.listModelsPathHint')}
+      </small>
       {credentialPending && (
         <p>
           {t(

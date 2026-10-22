@@ -29,9 +29,28 @@
 }
 
 .model-discovery {
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.model-discovery-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 8px;
+}
+.model-discovery-controls > input {
+  flex: 1 1 14rem;
+  min-width: 0;
+  max-width: 24rem;
+}
+.model-discovery-controls > .button {
+  flex: 0 0 auto;
+}
+.model-discovery-hint {
+  font-size: 0.625rem;
+  color: var(--secondary);
+  line-height: 1.7;
 }
 .model-discovery p {
   font-size: 0.8125rem;

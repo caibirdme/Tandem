@@ -44,6 +44,14 @@ describe('provider editor fields', () => {
     expect(rendered.indexOf('value="131.072"')).toBeLessThan(rendered.indexOf('<details'));
   });
 
+  it('places model discovery inside the form with one path input and an adjacent primary action', () => {
+    const rendered = markup(provider);
+    expect(rendered.match(/value="\/v1\/models"/g)).toHaveLength(1);
+    expect(rendered).toMatch(
+      /<form class="provider-form"[^]*<section class="model-discovery"[^]*<div class="model-discovery-controls"><input[^>]+><button type="button" class="button primary"/,
+    );
+  });
+
   it('offers Max and preserves a saved Max model default', () => {
     const rendered = markup({
       ...provider,
