@@ -312,10 +312,23 @@ mod tests {
             });
         }
         let directory = tempfile::TempDir::new()?;
+        let artifacts = directory.path().join("artifacts");
+        let linux = artifacts.join("x86_64-unknown-linux-gnu");
+        std::fs::create_dir_all(&linux)?;
+        std::fs::write(linux.join("tandem-server"), b"abc")?;
         let ssh = directory.path().join("ssh");
         let mut fixture = String::from(
             r#"#!/bin/sh
 set -eu
+for argument do command=$argument; done
+case "$command" in
+  *'tandem readiness probe'*)
+    printf 'Linux\000x86_64\000tandem-server %s (protocol %s)\000%s\000' "$TANDEM_TEST_VERSION" "$TANDEM_TEST_PROTOCOL" "$TANDEM_TEST_ARTIFACT_HASH"
+    exit 0
+    ;;
+  *'tandem verified proxy'*) ;;
+  *) exit 71 ;;
+esac
 read -r request
 printf '{"id":1,"value":{"serverVersion":"%s","protocolVersion":%s,"processId":1,"runtimeReady":false}}\n' "$TANDEM_TEST_VERSION" "$TANDEM_TEST_PROTOCOL"
 "#,
@@ -335,6 +348,11 @@ printf '{"id":1,"value":{"serverVersion":"%s","protocolVersion":%s,"processId":1
             ])
             .env(CHILD, "1")
             .env("PATH", std::env::join_paths(paths)?)
+            .env("TANDEM_REMOTE_ARTIFACTS", artifacts)
+            .env(
+                "TANDEM_TEST_ARTIFACT_HASH",
+                "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+            )
             .env("TANDEM_TEST_VERSION", env!("CARGO_PKG_VERSION"))
             .env(
                 "TANDEM_TEST_PROTOCOL",

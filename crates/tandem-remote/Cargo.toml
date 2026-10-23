@@ -9,6 +9,7 @@ license.workspace = true
 tandem-protocol = { path = "../tandem-protocol" }
 serde.workspace = true
 serde_json.workspace = true
+sha2 = "0.11"
 thiserror.workspace = true
 tokio.workspace = true
 
