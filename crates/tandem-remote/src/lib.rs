@@ -45,8 +45,10 @@ pub enum DirectoryValidationError {
 pub enum RemoteResponseError {
     #[error("environment probe was not UTF-8")]
     ProbeEncoding(#[source] std::str::Utf8Error),
-    #[error("incomplete environment probe; expected OS, architecture, and version fields")]
+    #[error("incomplete environment probe; expected OS, architecture, version, and SHA-256 fields")]
     IncompleteProbe,
+    #[error("environment probe returned an invalid SHA-256 digest")]
+    ArtifactDigest,
     #[error("expected one canonical directory, received {actual}")]
     CanonicalDirectoryCount { actual: usize },
     #[error("incomplete directory response")]
@@ -143,19 +145,29 @@ pub enum RemoteError {
     #[error("Remote platform {os}/{architecture} is unsupported; use a Linux or macOS SSH host")]
     UnsupportedPlatform { os: String, architecture: String },
     #[error(
-        "No tandem-server artifact for {target}. Place it at <TANDEM_REMOTE_ARTIFACTS>/{target}/tandem-server, or install the matching server on the host"
+        "No tandem-server artifact for {target}. Run just remote-build for the bundled Linux server, or place the target executable at <TANDEM_REMOTE_ARTIFACTS>/{target}/tandem-server. A local artifact is required to verify the installed server."
     )]
     ArtifactMissing { target: String },
     #[error(
         "Invalid tandem-server artifact {}: expected a non-empty executable smaller than 512 MiB", path.display()
     )]
     InvalidArtifact { path: std::path::PathBuf },
+    #[error("Could not read tandem-server artifact {}: {source}", path.display())]
+    ArtifactRead {
+        path: std::path::PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
     #[error("Invalid remote response: {0}")]
     InvalidResponse(#[from] RemoteResponseError),
     #[error(
         "The remote server has an incompatible protocol or release. Reconnect the project to deploy the matching server."
     )]
     ServerVersionMismatch,
+    #[error(
+        "The remote server differs from the local artifact. Reconnect the project to deploy the matching server."
+    )]
+    ServerArtifactMismatch,
     #[error("The remote agent runtime is not ready and must be initialized")]
     RuntimeNotReady,
     #[error("Invalid remote RPC frame: {0}")]
@@ -203,9 +215,11 @@ impl RemoteError {
             | Self::UnsupportedPlatform { .. }
             | Self::ArtifactMissing { .. }
             | Self::InvalidArtifact { .. }
+            | Self::ArtifactRead { .. }
             | Self::InvalidResponse(_)
             | Self::RuntimeNotReady
             | Self::ServerVersionMismatch
+            | Self::ServerArtifactMismatch
             | Self::Disconnected(_)
             | Self::OutputTooLarge { .. }
             | Self::Io(_) => RpcErrorCode::RuntimeUnavailable,

@@ -87,6 +87,7 @@ jobs:
               - '!.github/workflows/bundle.yml'
               - '!.github/workflows/release.yml'
             bundle:
+              - '.gitattributes'
               - '**/Cargo.toml'
               - '.cargo/**'
               - '.github/actions/**'
@@ -97,6 +98,12 @@ jobs:
               - 'src-tauri/build.rs'
               - 'src-tauri/Cargo.toml'
               - 'crates/tandem-server/build.rs'
+              - 'crates/tandem-server/src/**'
+              - 'crates/copilot-runtime/src/**'
+              - 'crates/tandem-protocol/src/**'
+              - 'scripts/*remote*.mjs'
+              - 'scripts/remote-linux.Dockerfile'
+              - 'justfile'
               - 'Cargo.toml'
               - 'Cargo.lock'
               - 'rust-toolchain.toml'
@@ -185,6 +192,7 @@ jobs:
     timeout-minutes: 60
     env:
       CARGO_PROFILE_DEV_DEBUG: 0
+      CARGO_PROFILE_TEST_DEBUG: 0
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
@@ -199,6 +207,8 @@ jobs:
       - run: sudo mkdir -p /run/sshd
       # Hosted images provide Git >= 2.45, required for inspection without lazy fetch.
       - run: git --version
+      # Exercise deployment and proxy shell scripts with Ubuntu's /bin/sh (dash).
+      - run: cargo test -p tandem-remote --locked
       - run: cargo build -p tandem-dev-server -p tandem-server --locked
       # Each run owns its daemon, temporary home, host key and client identity.
       - run: python tests/remote_e2e.py

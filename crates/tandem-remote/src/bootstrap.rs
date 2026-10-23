@@ -1,24 +1,64 @@
-use std::{path::PathBuf, time::Duration};
+use std::{
+    path::{Path, PathBuf},
+    time::Duration,
+};
 
 use serde::Serialize;
+use sha2::{Digest, Sha256};
+use tokio::io::AsyncReadExt;
 
 use crate::{
     DirectoryValidationError, RemoteError, RemoteResponseError, RemoteTransport, SshConnection,
     ssh::{run, shell_quote},
 };
 
-const PROBE: &str = r#"set -eu
-printf '%s\000%s\000' "$(uname -s)" "$(uname -m)"
-if [ -x "$HOME/.local/share/tandem/bin/tandem-server" ]; then
-  "$HOME/.local/share/tandem/bin/tandem-server" --version || true
-fi
+const CHECKSUM_FUNCTION: &str = r#"tandem_sha256() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum < "$1"
+  else
+    shasum -a 256 < "$1"
+  fi
+}
 "#;
-const RUNTIME_COMMAND: &str = r#"export PATH="$HOME/.local/share/tandem/bin:$HOME/.local/bin:$PATH"; exec "$HOME/.local/share/tandem/bin/tandem-server" --install-runtime"#;
-const SERVER_COMMAND: &str = r#"export PATH="$HOME/.local/share/tandem/bin:$HOME/.local/bin:$PATH"; exec "$HOME/.local/share/tandem/bin/tandem-server" --proxy"#;
 const PROBE_TIMEOUT: Duration = Duration::from_secs(30);
 const INSTALL_TIMEOUT: Duration = Duration::from_secs(180);
 const MAX_ARTIFACT_BYTES: u64 = 512 * 1024 * 1024;
 const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+struct ServerProbe {
+    platform: RemotePlatform,
+    version: Option<String>,
+    digest: Option<String>,
+}
+
+impl ServerProbe {
+    fn matches(&self, digest: &str) -> bool {
+        self.version.as_deref() == Some(&server_signature())
+            && self.digest.as_deref() == Some(digest)
+    }
+}
+
+#[derive(Clone, Copy)]
+enum ServerMode {
+    Runtime,
+    Proxy,
+}
+
+impl ServerMode {
+    const fn argument(self) -> &'static str {
+        match self {
+            Self::Runtime => "--install-runtime",
+            Self::Proxy => "--proxy",
+        }
+    }
+
+    const fn marker(self) -> &'static str {
+        match self {
+            Self::Runtime => "runtime",
+            Self::Proxy => "proxy",
+        }
+    }
+}
 
 /// Server artifacts are native executables built for the destination, not archives.
 /// Each artifact directory supports `<target>/tandem-server` and `tandem-server-<target>`.
@@ -172,22 +212,15 @@ impl RemoteClient {
     /// # Errors
     /// Returns an SSH, unsupported-platform, missing-artifact, or runtime setup error.
     pub async fn bootstrap(&self) -> Result<BootstrapReport, RemoteError> {
-        let output = run(
-            &self.connection,
-            "environment probe",
-            PROBE,
-            None,
-            PROBE_TIMEOUT,
-        )
-        .await?;
-        let (platform, version) = parse_probe(&output)?;
-        let deployed = version.as_deref() != Some(&server_signature());
+        let probe = self.probe(false).await?;
+        let artifact = self.artifacts.locate(&probe.platform).await?;
+        let digest = artifact_digest(&artifact).await?;
+        let deployed = !probe.matches(&digest);
         if deployed {
-            let artifact = self.artifacts.locate(&platform).await?;
             run(
                 &self.connection,
                 "server deployment",
-                &upload_command(),
+                &upload_command(&digest),
                 Some(&artifact),
                 INSTALL_TIMEOUT,
             )
@@ -196,13 +229,13 @@ impl RemoteClient {
         run(
             &self.connection,
             "runtime initialization",
-            RUNTIME_COMMAND,
+            &guarded_server_command(&digest, ServerMode::Runtime),
             None,
             INSTALL_TIMEOUT,
         )
         .await?;
         Ok(BootstrapReport {
-            platform,
+            platform: probe.platform,
             server_version: VERSION.into(),
             deployed,
             runtime_ready: true,
@@ -223,7 +256,7 @@ impl RemoteClient {
     /// # Errors
     /// Returns a process, transport, or server-version error if the host is no longer ready.
     pub async fn connect_ready(&self) -> Result<RemoteTransport, RemoteError> {
-        let transport = self.open_transport()?;
+        let transport = self.open_transport().await?;
         let result = transport
             .request("server_info", serde_json::Value::Null)
             .await;
@@ -247,7 +280,7 @@ impl RemoteClient {
     /// # Errors
     /// Returns a connection or version error; this never deploys or initializes a runtime.
     pub async fn connect_review(&self) -> Result<RemoteTransport, RemoteError> {
-        let transport = self.open_transport()?;
+        let transport = self.open_transport().await?;
         let result = transport
             .request("server_info", serde_json::Value::Null)
             .await;
@@ -260,12 +293,41 @@ impl RemoteClient {
         }
     }
 
-    /// Attach a proxy to a previously bootstrapped daemon without deployment checks.
+    /// Attach a proxy only when the installed server matches the local artifact.
     ///
     /// # Errors
-    /// Returns an error if the system SSH executable cannot be launched.
-    pub fn open_transport(&self) -> Result<RemoteTransport, RemoteError> {
-        RemoteTransport::spawn(self.connection.command(SERVER_COMMAND))
+    /// Returns an artifact, version, response, or SSH failure without deploying a server.
+    pub async fn open_transport(&self) -> Result<RemoteTransport, RemoteError> {
+        let probe = self.probe(true).await?;
+        let artifact = self.artifacts.locate(&probe.platform).await?;
+        let digest = artifact_digest(&artifact).await?;
+        if probe.version.as_deref() != Some(&server_signature()) {
+            return Err(RemoteError::ServerVersionMismatch);
+        }
+        if probe.digest.as_deref() != Some(&digest) {
+            return Err(RemoteError::ServerArtifactMismatch);
+        }
+        RemoteTransport::spawn(
+            self.connection
+                .command(&guarded_server_command(&digest, ServerMode::Proxy)),
+        )
+    }
+
+    async fn probe(&self, readiness: bool) -> Result<ServerProbe, RemoteError> {
+        let operation = if readiness {
+            "readiness probe"
+        } else {
+            "environment probe"
+        };
+        let output = run(
+            &self.connection,
+            operation,
+            &probe_command(readiness),
+            None,
+            PROBE_TIMEOUT,
+        )
+        .await?;
+        parse_probe(&output)
     }
 
     /// Resolve a readable remote directory, accepting `~` for the remote home.
@@ -312,22 +374,109 @@ impl RemoteClient {
     }
 }
 
-fn parse_probe(output: &[u8]) -> Result<(RemotePlatform, Option<String>), RemoteError> {
+async fn artifact_digest(path: &Path) -> Result<String, RemoteError> {
+    let read_error = |source| RemoteError::ArtifactRead {
+        path: path.to_owned(),
+        source,
+    };
+    let mut file = tokio::fs::File::open(path).await.map_err(read_error)?;
+    let metadata = file.metadata().await.map_err(read_error)?;
+    if !metadata.is_file() || metadata.len() == 0 || metadata.len() > MAX_ARTIFACT_BYTES {
+        return Err(RemoteError::InvalidArtifact {
+            path: path.to_owned(),
+        });
+    }
+    let mut hasher = Sha256::new();
+    let mut buffer = vec![0_u8; 64 * 1024];
+    let mut total = 0_u64;
+    loop {
+        let count = file.read(&mut buffer).await.map_err(read_error)?;
+        if count == 0 {
+            break;
+        }
+        total += count as u64;
+        if total > MAX_ARTIFACT_BYTES {
+            return Err(RemoteError::InvalidArtifact {
+                path: path.to_owned(),
+            });
+        }
+        hasher.update(&buffer[..count]);
+    }
+    if total != metadata.len() {
+        return Err(RemoteError::InvalidArtifact {
+            path: path.to_owned(),
+        });
+    }
+    let mut digest = String::with_capacity(64);
+    for byte in hasher.finalize() {
+        for nibble in [byte >> 4, byte & 0x0f] {
+            digest.push(char::from(b"0123456789abcdef"[usize::from(nibble)]));
+        }
+    }
+    Ok(digest)
+}
+
+fn probe_command(readiness: bool) -> String {
+    let marker = if readiness {
+        "readiness"
+    } else {
+        "environment"
+    };
+    format!(
+        r#"# tandem {marker} probe
+set -eu
+{CHECKSUM_FUNCTION}
+os=$(uname -s)
+architecture=$(uname -m)
+version=''
+digest=''
+installed="$HOME/.local/share/tandem/bin/tandem-server"
+if [ -x "$installed" ]; then
+  version=$("$installed" --version || true)
+  digest=$(tandem_sha256 "$installed")
+  digest=${{digest%% *}}
+fi
+printf '%s\000%s\000%s\000%s\000' "$os" "$architecture" "$version" "$digest"
+"#,
+    )
+}
+
+fn parse_probe(output: &[u8]) -> Result<ServerProbe, RemoteError> {
     let response = std::str::from_utf8(output).map_err(RemoteResponseError::ProbeEncoding)?;
-    let mut parts = response.splitn(3, '\0');
+    let mut parts = response.split('\0');
     let os = parts.next().ok_or(RemoteResponseError::IncompleteProbe)?;
     let architecture = parts.next().ok_or(RemoteResponseError::IncompleteProbe)?;
     let version = parts.next().ok_or(RemoteResponseError::IncompleteProbe)?;
+    let digest = parts.next().ok_or(RemoteResponseError::IncompleteProbe)?;
+    if parts.next() != Some("") || parts.next().is_some() {
+        return Err(RemoteResponseError::IncompleteProbe.into());
+    }
+    let digest = if digest.is_empty() {
+        None
+    } else if digest.len() == 64
+        && digest
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    {
+        Some(digest.to_owned())
+    } else {
+        return Err(RemoteResponseError::ArtifactDigest.into());
+    };
     let version = version
         .trim()
         .strip_prefix("tandem-server ")
         .map(str::to_owned);
-    Ok((RemotePlatform::from_uname(os, architecture)?, version))
+    Ok(ServerProbe {
+        platform: RemotePlatform::from_uname(os, architecture)?,
+        version,
+        digest,
+    })
 }
 
-fn upload_command() -> String {
+fn upload_command(digest: &str) -> String {
     format!(
         r#"set -eu
+{CHECKSUM_FUNCTION}
 umask 077
 destination="$HOME/.local/share/tandem/bin"
 mkdir -p "$destination"
@@ -335,11 +484,57 @@ temporary=$(mktemp "$destination/.tandem-server.XXXXXX")
 trap 'rm -f "$temporary"' EXIT HUP INT TERM
 cat > "$temporary"
 chmod 700 "$temporary"
+actual_digest=$(tandem_sha256 "$temporary")
+actual_digest=${{actual_digest%% *}}
+[ "$actual_digest" = {} ] || {{ printf '%s\n' 'tandem-server artifact mismatch' >&2; exit 1; }}
 actual_version=$("$temporary" --version)
 [ "$actual_version" = {} ] || {{ printf '%s\n' 'tandem-server version mismatch' >&2; exit 1; }}
 mv -f "$temporary" "$destination/tandem-server"
 "#,
+        shell_quote(digest),
         shell_quote(&format!("tandem-server {}", server_signature()))
+    )
+}
+
+fn guarded_server_command(digest: &str, mode: ServerMode) -> String {
+    format!(
+        r#"# tandem verified {}
+set -eu
+{CHECKSUM_FUNCTION}
+export PATH="$HOME/.local/share/tandem/bin:$HOME/.local/bin:$PATH"
+umask 077
+destination="$HOME/.local/share/tandem/bin"
+temporary=$(mktemp -d "$destination/.tandem-run.XXXXXX")
+child=''
+cleanup() {{
+  if [ -n "$child" ]; then
+    kill "$child" 2>/dev/null || true
+    wait "$child" 2>/dev/null || true
+  fi
+  rm -rf "$temporary"
+}}
+trap cleanup EXIT
+trap 'exit 1' HUP INT TERM
+ln -L "$destination/tandem-server" "$temporary/tandem-server"
+actual_digest=$(tandem_sha256 "$temporary/tandem-server")
+actual_digest=${{actual_digest%% *}}
+[ "$actual_digest" = {} ] || {{ printf '%s\n' 'tandem-server artifact mismatch' >&2; exit 1; }}
+actual_version=$("$temporary/tandem-server" --version)
+[ "$actual_version" = {} ] || {{ printf '%s\n' 'tandem-server version mismatch' >&2; exit 1; }}
+# Preserve RPC input before POSIX shells redirect background stdin to /dev/null.
+exec 3<&0
+"$temporary/tandem-server" {} <&3 3<&- &
+child=$!
+exec 3<&-
+status=0
+wait "$child" || status=$?
+child=''
+exit "$status"
+"#,
+        mode.marker(),
+        shell_quote(digest),
+        shell_quote(&format!("tandem-server {}", server_signature())),
+        mode.argument(),
     )
 }
 
@@ -424,6 +619,253 @@ fn parse_directories(output: &[u8]) -> Result<Vec<RemoteDirectory>, RemoteError>
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    struct TestDirectory(PathBuf);
+
+    impl TestDirectory {
+        fn new(name: &str) -> Result<Self, Box<dyn std::error::Error>> {
+            let timestamp = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)?
+                .as_nanos();
+            let directory = Self(
+                std::env::temp_dir()
+                    .join(format!("tandem-{name}-{}-{timestamp}", std::process::id())),
+            );
+            std::fs::create_dir(&directory.0)?;
+            Ok(directory)
+        }
+    }
+
+    impl Drop for TestDirectory {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[tokio::test]
+    async fn artifact_hash_reads_binary_content_and_enforces_upload_size()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let root = TestDirectory::new("artifact-hash")?;
+        let path = root.0.join("tandem-server");
+        std::fs::write(&path, b"abc")?;
+        std::fs::write(root.0.join("artifact.json"), b"untrusted metadata")?;
+        assert_eq!(
+            artifact_digest(&path).await?,
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+        std::fs::write(&path, b"abcd")?;
+        assert_eq!(
+            artifact_digest(&path).await?,
+            "88d4266fd4e6338d13b845fcf289579d209c897823b9217da3e161936f031589"
+        );
+        std::fs::write(&path, b"")?;
+        assert!(matches!(
+            artifact_digest(&path).await,
+            Err(RemoteError::InvalidArtifact { .. })
+        ));
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(&path)?
+            .set_len(MAX_ARTIFACT_BYTES + 1)?;
+        assert!(matches!(
+            artifact_digest(&path).await,
+            Err(RemoteError::InvalidArtifact { .. })
+        ));
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    fn executable(path: &Path, content: &str) -> std::io::Result<()> {
+        use std::os::unix::fs::PermissionsExt;
+
+        std::fs::write(path, content)?;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700))
+    }
+
+    #[cfg(unix)]
+    fn shell(command: &str, home: &Path, input: &[u8]) -> std::io::Result<std::process::Output> {
+        use std::{io::Write, process::Stdio};
+
+        let mut child = std::process::Command::new("sh")
+            .args(["-c", command])
+            .env("HOME", home)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()?;
+        if let Some(mut writer) = child.stdin.take() {
+            writer.write_all(input)?;
+        }
+        child.wait_with_output()
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn upload_checks_digest_and_version_before_replacing_installed_file()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let root = TestDirectory::new("artifact-upload")?;
+        let destination = root.0.join(".local/share/tandem/bin");
+        std::fs::create_dir_all(&destination)?;
+        let installed = destination.join("tandem-server");
+        let source = root.0.join("source");
+        let valid = format!(
+            "#!/bin/sh\nprintf '%s\\n' {}\n",
+            shell_quote(&format!("tandem-server {}", server_signature()))
+        );
+        executable(&source, &valid)?;
+        let digest = artifact_digest(&source).await?;
+        std::fs::write(&installed, b"previous")?;
+        let tampered = format!("{valid}\n# changed bytes\n");
+        let result = shell(&upload_command(&digest), &root.0, tampered.as_bytes())?;
+        assert!(!result.status.success());
+        assert_eq!(std::fs::read(&installed)?, b"previous");
+        let wrong_version = "#!/bin/sh\nprintf 'tandem-server incompatible\\n'\n";
+        executable(&source, wrong_version)?;
+        let result = shell(
+            &upload_command(&artifact_digest(&source).await?),
+            &root.0,
+            wrong_version.as_bytes(),
+        )?;
+        assert!(!result.status.success());
+        assert_eq!(std::fs::read(&installed)?, b"previous");
+        let result = shell(&upload_command(&digest), &root.0, valid.as_bytes())?;
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        assert_eq!(std::fs::read(&installed)?, valid.as_bytes());
+        assert_eq!(std::fs::read_dir(&destination)?.count(), 1);
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn verified_execution_pins_the_inode_across_replacement_and_preserves_rpc_input()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let root = TestDirectory::new("artifact-pin")?;
+        let destination = root.0.join(".local/share/tandem/bin");
+        std::fs::create_dir_all(&destination)?;
+        let installed = destination.join("tandem-server");
+        let original = format!(
+            r#"#!/bin/sh
+case "$1" in
+  --version)
+    if [ -f "$HOME/replacement" ]; then mv "$HOME/replacement" "$HOME/.local/share/tandem/bin/tandem-server"; fi
+    printf '%s\n' {}
+    ;;
+  --proxy) printf 'original:'; cat ;;
+  --install-runtime) printf 'original-runtime' ;;
+esac
+"#,
+            shell_quote(&format!("tandem-server {}", server_signature()))
+        );
+        for (mode, expected) in [
+            (ServerMode::Proxy, "original:rpc input"),
+            (ServerMode::Runtime, "original-runtime"),
+        ] {
+            executable(&installed, &original)?;
+            executable(
+                &root.0.join("replacement"),
+                "#!/bin/sh\nprintf 'replacement'\n",
+            )?;
+            let digest = artifact_digest(&installed).await?;
+            let result = shell(
+                &guarded_server_command(&digest, mode),
+                &root.0,
+                b"rpc input",
+            )?;
+            assert!(
+                result.status.success(),
+                "{}",
+                String::from_utf8_lossy(&result.stderr)
+            );
+            assert_eq!(String::from_utf8(result.stdout)?, expected);
+            assert_ne!(artifact_digest(&installed).await?, digest);
+            assert_eq!(std::fs::read_dir(&destination)?.count(), 1);
+        }
+        executable(&installed, &original)?;
+        let result = shell(
+            &guarded_server_command(&"0".repeat(64), ServerMode::Proxy),
+            &root.0,
+            b"rpc input",
+        )?;
+        assert!(!result.status.success());
+        assert_eq!(result.stdout, b"");
+        assert_eq!(std::fs::read_dir(&destination)?.count(), 1);
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn terminating_the_wrapper_reaps_its_proxy_and_removes_the_pin()
+    -> Result<(), Box<dyn std::error::Error>> {
+        use std::process::Stdio;
+
+        let root = TestDirectory::new("artifact-cancel")?;
+        let destination = root.0.join(".local/share/tandem/bin");
+        std::fs::create_dir_all(&destination)?;
+        let installed = destination.join("tandem-server");
+        let program = format!(
+            r#"#!/bin/sh
+case "$1" in
+  --version) printf '%s\n' {} ;;
+  --proxy) printf '%s\n' "$$" > "$HOME/proxy-pid"; exec sleep 30 ;;
+esac
+"#,
+            shell_quote(&format!("tandem-server {}", server_signature())),
+        );
+        executable(&installed, &program)?;
+        let command =
+            guarded_server_command(&artifact_digest(&installed).await?, ServerMode::Proxy);
+        let mut child = tokio::process::Command::new("sh")
+            .args(["-c", &command])
+            .env("HOME", &root.0)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .kill_on_drop(true)
+            .spawn()?;
+        let proxy_pid = tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                if let Ok(value) = tokio::fs::read_to_string(root.0.join("proxy-pid")).await
+                    && let Ok(pid) = value.trim().parse::<u32>()
+                {
+                    return pid;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await?;
+        let wrapper_pid = child
+            .id()
+            .ok_or_else(|| std::io::Error::other("wrapper exited before signal"))?;
+        assert!(
+            std::process::Command::new("kill")
+                .args(["-TERM", &wrapper_pid.to_string()])
+                .status()?
+                .success()
+        );
+        let completed = tokio::time::timeout(Duration::from_secs(5), child.wait()).await;
+        if completed.is_err() {
+            let _ = std::process::Command::new("kill")
+                .args(["-TERM", &proxy_pid.to_string()])
+                .status();
+            child.kill().await?;
+        }
+        assert!(!completed??.success());
+        assert!(
+            !std::process::Command::new("kill")
+                .args(["-0", &proxy_pid.to_string()])
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status()?
+                .success()
+        );
+        assert_eq!(std::fs::read_dir(&destination)?.count(), 1);
+        assert_eq!(std::fs::read(&installed)?, program.as_bytes());
+        Ok(())
+    }
 
     #[test]
     fn maps_supported_architectures_to_exact_release_artifacts() {
@@ -514,15 +956,15 @@ mod tests {
     #[test]
     fn probe_does_not_mistake_banners_or_other_binaries_for_our_version() {
         for (output, expected) in [
-            ("Linux\0x86_64\0tandem-server 0.1.0\n", Some("0.1.0")),
-            ("Linux\0x86_64\0", None),
-            ("Linux\0x86_64\0other-server 0.1.0\n", None),
+            ("Linux\0x86_64\0tandem-server 0.1.0\0\0", Some("0.1.0")),
+            ("Linux\0x86_64\0\0\0", None),
+            ("Linux\0x86_64\0other-server 0.1.0\0\0", None),
         ] {
-            let (_, version) = parse_probe(output.as_bytes())
+            let probe = parse_probe(output.as_bytes())
                 .unwrap_or_else(|error| panic!("probe failed: {error}"));
-            assert_eq!(version.as_deref(), expected);
+            assert_eq!(probe.version.as_deref(), expected);
         }
-        assert!(parse_probe(b"Welcome\nLinux\0x86_64\0").is_err());
+        assert!(parse_probe(b"Welcome\nLinux\0x86_64\0\0\0").is_err());
     }
 
     #[test]
@@ -550,28 +992,58 @@ mod tests {
             value[field] = invalid;
             assert!(!valid_server_info(&value));
         }
-        assert!(upload_command().contains(&format!("tandem-server {}", server_signature())));
-        assert!(SERVER_COMMAND.ends_with("--proxy"));
+    }
+
+    #[test]
+    fn probe_requires_canonical_hash_and_matching_release_and_bytes() {
+        let digest = "a".repeat(64);
+        let probe = parse_probe(
+            format!(
+                "Linux\0x86_64\0tandem-server {}\0{digest}\0",
+                server_signature()
+            )
+            .as_bytes(),
+        )
+        .unwrap_or_else(|error| panic!("probe failed: {error}"));
+        assert!(probe.matches(&digest));
+        assert!(!probe.matches(&"b".repeat(64)));
+        let wrong_version = ServerProbe {
+            version: Some("different".into()),
+            ..probe
+        };
+        assert!(!wrong_version.matches(&digest));
+        for invalid in [
+            "invalid".to_owned(),
+            "a".repeat(63),
+            "A".repeat(64),
+            format!("{}\n", "a".repeat(64)),
+        ] {
+            assert!(matches!(
+                parse_probe(format!("Linux\0x86_64\0\0{invalid}\0").as_bytes()),
+                Err(RemoteError::InvalidResponse(
+                    RemoteResponseError::ArtifactDigest
+                ))
+            ));
+        }
+        for incomplete in [
+            "Linux\0x86_64\0\0",
+            "Linux\0x86_64\0\0\0extra",
+            "Linux\0x86_64\0\0\0\0",
+        ] {
+            assert!(matches!(
+                parse_probe(incomplete.as_bytes()),
+                Err(RemoteError::InvalidResponse(
+                    RemoteResponseError::IncompleteProbe
+                ))
+            ));
+        }
     }
 
     #[cfg(unix)]
     #[test]
     fn shell_directory_discovery_preserves_literals_and_expands_only_home()
     -> Result<(), Box<dyn std::error::Error>> {
-        struct TestDirectory(PathBuf);
-        impl Drop for TestDirectory {
-            fn drop(&mut self) {
-                let _ = std::fs::remove_dir_all(&self.0);
-            }
-        }
-        let timestamp = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)?
-            .as_nanos();
-        let directory = TestDirectory(std::env::temp_dir().join(format!(
-            "tandem-directory-test-{}-{timestamp}",
-            std::process::id()
-        )));
-        std::fs::create_dir(&directory.0)?;
+        let directory = TestDirectory::new("directory-test")?;
         let literal_name = "a ' $(exit 91)\n b";
         let literal_directory = directory.0.join(literal_name);
         std::fs::create_dir(&literal_directory)?;

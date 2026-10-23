@@ -52,7 +52,8 @@ Stack: Tauri 2, Rust 1.99.1 / edition 2024, React, TypeScript 7, Vite 8, and pnp
 - `just check`: formatting, static analysis, type checks, and tests all pass.
 - `just check-workspace`: verify one-way workspace dependencies and ensure the remote binary excludes local services, databases, credential stores, and desktop frameworks.
 - `just build`: compile the frontend, `tandem-dev-server`, and `tandem-server`.
-- `just desktop-build`: successfully bundle the desktop application for the current platform.
+- `just desktop-build`: compile the native desktop executable using verified Linux x64 remote artifacts. Use `just desktop-build-full` to prepare missing or changed remote artifacts first.
+- `just desktop-bundle`: successfully bundle the desktop application for the current platform.
 - PRs must pass CI's `Required checks` before merging into `main`. When adding directories, build inputs, or check commands, update the path rules and steps in `.github/workflows/ci.yml`.
 - Run the relevant integration verification for session, provider, or permission changes. Record commands, results, tested platforms, and limitations in the PR description, including whether real services or test services were used. Keep `docs/verification.md` as the current verification guide; do not append per-change logs or historical run results.
 - Do not commit secrets, caches, build outputs, or local session data.

@@ -1,5 +1,6 @@
 """Exercise permission policy changes through the real local or SSH runtime."""
 
+import json
 import uuid
 
 from acceptance_support import activity_tools
@@ -13,11 +14,14 @@ def auto_turn(app, session, prompt):
         not any(event["kind"] == "permission" for event in events),
         "Automatically authorized session still requested an interactive approval",
     )
+    failed_tools = [
+        {"name": tool["name"], "error": tool.get("error")}
+        for tool in activity_tools(events)
+        if tool["status"] == "error"
+    ]
     require(
-        not any(
-            tool["status"] == "error" for tool in activity_tools(events)
-        ),
-        "Automatically authorized tool execution failed",
+        not failed_tools,
+        "Automatically authorized tool execution failed: " + json.dumps(failed_tools),
     )
     return events
 

@@ -20,6 +20,10 @@ jobs:
     steps:
       - run: apt-get update && apt-get install -y curl git build-essential pkg-config libssl-dev ca-certificates
       - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          package-manager-cache: false
       - run: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain none --profile minimal
       - run: echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
       - run: rustup toolchain install
@@ -27,34 +31,17 @@ jobs:
         with:
           purpose: remote-release-x86_64-unknown-linux-gnu-ubuntu22
       - run: cargo build --release -p tandem-server --locked
+      - run: node scripts/prepare-remote.mjs
       - uses: actions/upload-artifact@v7
         with:
           name: remote-x86_64-unknown-linux-gnu
-          path: target/release/tandem-server
-          if-no-files-found: error
-          retention-days: 1
-
-  remote-macos:
-    name: Remote Agent (aarch64-apple-darwin)
-    runs-on: macos-15
-    timeout-minutes: 60
-    steps:
-      - uses: actions/checkout@v7
-      - run: rustup toolchain install
-      - uses: ./.github/actions/setup-rust-cache
-        with:
-          purpose: remote-release-aarch64-apple-darwin
-      - run: cargo build --release -p tandem-server --locked
-      - uses: actions/upload-artifact@v7
-        with:
-          name: remote-aarch64-apple-darwin
-          path: target/release/tandem-server
+          path: src-tauri/remote/x86_64-unknown-linux-gnu/
           if-no-files-found: error
           retention-days: 1
 
   desktop:
     name: Desktop (${{ matrix.platform }})
-    needs: [remote-linux, remote-macos]
+    needs: remote-linux
     strategy:
       fail-fast: false
       matrix:
@@ -68,25 +55,41 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-node-dependencies
+      - uses: extractions/setup-just@f8a3cce218d9f83db3a2ecd90e41ac3de6cdfd9b # v3
+        with:
+          just-version: '1.59.0'
       - run: rustup toolchain install
       - uses: ./.github/actions/setup-rust-cache
         with:
           purpose: desktop-release-${{ matrix.platform }}
       - uses: actions/download-artifact@v8
         with:
-          pattern: remote-*
-          path: artifacts
-      - name: Add remote Agents to bundle resources
+          name: remote-x86_64-unknown-linux-gnu
+          path: src-tauri/remote/x86_64-unknown-linux-gnu
+      - name: Make the bundled remote Agent executable
+        shell: bash
+        run: chmod 700 src-tauri/remote/x86_64-unknown-linux-gnu/tandem-server
+      # This also verifies the resource layout used by a standalone local build.
+      - run: just desktop-build
+        shell: bash
+      - name: Verify standalone remote resources
         shell: bash
         run: |
-          for directory in artifacts/remote-*; do
-            target="${directory#artifacts/remote-}"
-            mkdir -p "src-tauri/remote/$target"
-            cp "$directory/tandem-server" "src-tauri/remote/$target/tandem-server"
-            chmod 700 "src-tauri/remote/$target/tandem-server"
-          done
+          node --input-type=module <<'JS'
+          import assert from 'node:assert/strict';
+          import { readdirSync } from 'node:fs';
+          import { REMOTE_TARGETS, verifyArtifact } from './scripts/remote-artifacts.mjs';
+          assert.deepEqual(readdirSync('target/release/remote').sort(), [...REMOTE_TARGETS].sort());
+          for (const target of REMOTE_TARGETS) {
+            verifyArtifact({ root: process.cwd(), target, directory: 'target/release/remote' });
+          }
+          JS
+      # Full builds reuse the Linux artifact staged by the shared remote build job.
+      - run: just desktop-build-full
+        shell: bash
       # macOS uses the ad hoc signature configured in tauri.conf.json without an Apple certificate.
-      - run: pnpm tauri build
+      - run: just desktop-bundle
+        shell: bash
       - uses: actions/upload-artifact@v7
         with:
           name: tandem-${{ matrix.platform }}

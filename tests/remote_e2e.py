@@ -238,11 +238,11 @@ class IsolatedSsh:
                           f'os.environ.update({remote_environment!r})\n'
                           f'os.chdir({str(self.home)!r})\n'
                           'delay = Path("delay-bootstrap")\n'
-                          'if "uname -s" in os.environ["SSH_ORIGINAL_COMMAND"] and delay.exists():\n'
+                          'if "# tandem environment probe" in os.environ["SSH_ORIGINAL_COMMAND"] and delay.exists():\n'
                           '    Path("bootstrap-waiting").touch()\n'
                           '    while delay.exists(): time.sleep(.05)\n'
                           'command = os.environ["SSH_ORIGINAL_COMMAND"]\n'
-                          'if "uname -s" in command:\n'
+                          'if "# tandem environment probe" in command:\n'
                           '    with open("environment-probes", "ab", buffering=0) as probes: probes.write(b"x")\n'
                           'os.execv("/bin/sh", ["sh", "-c", os.environ["SSH_ORIGINAL_COMMAND"]])\n')
         config = directory / 'sshd_config'
@@ -451,6 +451,51 @@ def replace_with_obsolete_server(deployed):
     previous_protocol.write_text('#!/bin/sh\n[ "$1" = "--version" ] || exit 97\nprintf "tandem-server 0.0.3\\n"\n')
     previous_protocol.chmod(0o700)
     previous_protocol.replace(deployed)
+
+
+def check_same_version_redeployment(app, ssh, remote_server, project, provider, existing_session):
+    """Refresh changed bytes even when an existing daemon reports the same version."""
+    deployed = ssh.home / '.local/share/tandem/bin/tandem-server'
+    expected_digest = digest(remote_server)
+    expected_version = subprocess.check_output([remote_server, '--version'], text=True, timeout=10)
+    replacement = deployed.with_name('.tandem-server-same-version')
+    shutil.copy2(deployed, replacement)
+    with replacement.open('ab') as stream:
+        stream.write(b'\nTANDEM_SAME_VERSION_DIFFERENT_ARTIFACT\n')
+    require(subprocess.check_output([replacement, '--version'], text=True, timeout=10) == expected_version,
+            'Changed-byte fixture did not preserve the server version and protocol')
+    replacement.replace(deployed)
+    require(digest(deployed) != expected_digest, 'Changed-byte fixture retained the expected digest')
+
+    refreshed = app.command('create_session', projectId=project['id'],
+                            providerId=provider['id'], modelId='gpt-4.1')
+    refreshed_events = app.turn(refreshed, 'fixture:chat Refresh a changed server with the same version.')
+    require_preparation_before_delivery(refreshed_events)
+    require(digest(deployed) == expected_digest,
+            'A new session reused different server bytes with the same version and protocol')
+    modification = deployed.stat().st_mtime_ns
+    app.wait_title(refreshed['id'], refreshed_events)
+
+    commands_before = ssh.command_count()
+    existing_events = app.turn(existing_session, 'fixture:chat Keep the existing connection after server replacement.')
+    require(not any(event['kind'] == 'preparation' and event['data']['preparing']
+                    for event in existing_events), 'Server replacement reinitialized an existing session')
+    require(ssh.command_count() == commands_before,
+            'Server replacement disconnected the existing session and forced another SSH connection')
+    require(any(event['kind'] == 'message' and event['data'].get('content') == 'TANDEM_CHAT_OK'
+                for event in existing_events), 'The existing session failed after server replacement')
+
+    reused = app.command('create_session', projectId=project['id'],
+                         providerId=provider['id'], modelId='gpt-4.1')
+    reused_events = app.turn(reused, 'fixture:chat Reuse the verified replacement in another new session.')
+    require(not any(event['kind'] == 'preparation' and event['data']['preparing']
+                    for event in reused_events), 'A matching replacement repeated environment preparation')
+    require(deployed.stat().st_mtime_ns == modification,
+            'A matching replacement was uploaded again for an existing or new session')
+    require(digest(deployed) == expected_digest, 'Ready reuse changed the verified server bytes')
+    app.wait_title(reused['id'], reused_events)
+    for session in (refreshed, reused):
+        app.command('delete_session', sessionId=session['id'])
 
 
 def require_preparation_before_delivery(events):
@@ -725,6 +770,7 @@ def check_ssh(remote_server, dev_server, root, endpoint, fixture):
         require(deployed.stat().st_mtime_ns == modification, 'A new session redeployed a ready SSH host')
         app.wait_title(ready_session['id'], ready_events)
         app.command('delete_session', sessionId=ready_session['id'])
+        check_same_version_redeployment(app, ssh, remote_server, configured_project, provider, configured_session)
         app.command('delete_session', sessionId=configured_session['id'])
         app.command('delete_project', id=configured_project['id'])
         app.command('save_preferences', telemetry={'enabled': True, 'endpoint': endpoint,
@@ -856,7 +902,7 @@ def main():
             if not arguments.skip_ssh:
                 require(os.name == 'posix', 'Use --skip-ssh on hosts without a POSIX SSH daemon')
                 check_ssh(remote_server, dev_server, root, endpoint_url, fixture)
-                checks.append('OpenSSH: strict host trust, key rejection, concurrent atomic deployments share one daemon and CLI, literal directories, Fleet opt-in and isolated worker traces/permissions/cancellation, image/text attachments, grouped tool activity, confirmed skill selection metadata, repeated skill discovery reuses idle work without new SSH connections, remote tools, reconnect/resume, native thinking history and cancellation, core session reasoning changes, pending approval, native-default reset with complete history, and immutable workspace/session/turn reviews including agent commits and cancellation')
+                checks.append('OpenSSH: strict host trust, key rejection, concurrent atomic deployments share one daemon and CLI, same-version changed-byte deployment preserves existing connections and reuses matching artifacts, literal directories, Fleet opt-in and isolated worker traces/permissions/cancellation, image/text attachments, grouped tool activity, confirmed skill selection metadata, repeated skill discovery reuses idle work without new SSH connections, remote tools, reconnect/resume, native thinking history and cancellation, core session reasoning changes, pending approval, native-default reset with complete history, and immutable workspace/session/turn reviews including agent commits and cancellation')
             print(json.dumps({'result': 'passed', 'checks': checks, 'inferenceRequests': len(fixture.requests),
                               'telemetryExports': len(fixture.exports)}, indent=2))
         finally:

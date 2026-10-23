@@ -846,9 +846,12 @@ mod tests {
             r#"#!/bin/sh
 for argument do command=$argument; done
 case "$command" in
-  *uname*)
-    printf 'probe\n' >> "$TANDEM_TEST_SSH_CALLS"
-    printf 'Linux\000x86_64\000tandem-server %s (protocol %s)\n' "$TANDEM_TEST_VERSION" "$TANDEM_TEST_PROTOCOL"
+  *'tandem readiness probe'*|*'tandem environment probe'*)
+    case "$command" in
+      *'tandem readiness probe'*) printf 'readiness\n' >> "$TANDEM_TEST_SSH_CALLS" ;;
+      *) printf 'probe\n' >> "$TANDEM_TEST_SSH_CALLS" ;;
+    esac
+    printf 'Linux\000x86_64\000tandem-server %s (protocol %s)\000%s\000' "$TANDEM_TEST_VERSION" "$TANDEM_TEST_PROTOCOL" "$TANDEM_TEST_ARTIFACT_HASH"
     ;;
   *--install-runtime*)
     printf 'runtime\n' >> "$TANDEM_TEST_SSH_CALLS"
@@ -938,10 +941,17 @@ esac
         assert_eq!(app.submissions.preparing()?, Vec::<String>::new());
         app.finish_submission("concurrent-ready");
         transport.shutdown().await;
-        assert_eq!(
-            std::fs::read_to_string(calls)?,
-            "proxy\nprobe\nruntime\nproxy\nproxy\nproxy\nproxy\nprobe\nruntime\nproxy\nproxy\nprobe\nruntime\nproxy\nproxy\n"
-        );
+        let calls = std::fs::read_to_string(calls)?;
+        // Only the cold, stopped, and stale daemons need preparation. Every
+        // connection still verifies the installed executable before reuse.
+        for (operation, expected) in [("probe", 3), ("runtime", 3), ("readiness", 9), ("proxy", 9)]
+        {
+            assert_eq!(
+                calls.lines().filter(|call| *call == operation).count(),
+                expected,
+                "unexpected {operation} count: {calls}",
+            );
+        }
         Ok(())
     }
 
@@ -1093,13 +1103,19 @@ esac
                 .block_on(async { check_remote_preparation().await });
         }
         let directory = TempDir::new()?;
+        let artifacts = directory.path().join("artifacts");
+        let linux = artifacts.join("x86_64-unknown-linux-gnu");
+        std::fs::create_dir_all(&linux)?;
+        std::fs::write(linux.join("tandem-server"), b"abc")?;
         let ssh = directory.path().join("ssh");
         std::fs::write(
             &ssh,
             r#"#!/bin/sh
 printf '%s\n' called >> "$TANDEM_TEST_SSH_CALLS"
 for argument do command=$argument; done
-case "$command" in *--proxy*) exit 1 ;; esac
+case "$command" in
+  *'tandem readiness probe'*|*--proxy*) exit 1 ;;
+esac
 if [ -f "$TANDEM_TEST_SSH_FAIL" ]; then exit 1; fi
 exec sleep 60
 "#,
@@ -1115,6 +1131,11 @@ exec sleep 60
             .env(CHILD, "1")
             .env("PATH", path)
             .env("TANDEM_TEST_SSH_PROGRAM", &ssh)
+            .env("TANDEM_REMOTE_ARTIFACTS", artifacts)
+            .env(
+                "TANDEM_TEST_ARTIFACT_HASH",
+                "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+            )
             .env("TANDEM_TEST_VERSION", env!("CARGO_PKG_VERSION"))
             .env(
                 "TANDEM_TEST_PROTOCOL",

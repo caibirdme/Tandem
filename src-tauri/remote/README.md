@@ -1,4 +1,7 @@
-Tandem remote binaries are placed here by `just remote-build` or the release workflow.
-They are bundled under `remote/<target>/tandem-server` and deployed through SSH.
-The deployed executable is `~/.local/share/tandem/bin/tandem-server`.
-Only Linux and macOS are supported as remote hosts.
+Run `just remote-build` to prepare the Linux x86_64 server here, or `just remote-check` to validate it without compiling. Use `just desktop-build-full` for the first local desktop build and after remote sources change; it prepares the server before building the desktop. Use `just desktop-build` for subsequent builds; it only validates the artifact and never invokes Docker or compiles the remote server. All four commands take no arguments. Both desktop commands build without an installer; `just desktop-bundle` produces native installers for CI and local packaging checks.
+
+The `x86_64-unknown-linux-gnu/` directory contains `tandem-server` and `artifact.json`. Preparation verifies the current source fingerprint, target architecture, and executable SHA-256 before reusing the artifact. Keep both files together when copying it between build machines.
+
+Mac and Windows desktops include the same Linux x86_64 server. Preparing it on Mac or Windows requires a running Docker-compatible engine; a valid cached artifact does not. Start and select the engine yourself before preparation. Linux x86_64 hosts can build it natively. Ordinary builds, including direct `pnpm tauri build`, only validate the staged artifact; a missing, stale, or corrupt artifact fails with guidance to run the full build. CI builds the server once and shares it between both desktop jobs. See [Packaging and remote artifacts](../../docs/development.md#packaging-and-remote-artifacts).
+
+Tauri bundles only `remote/x86_64-unknown-linux-gnu/` and also copies it beside an executable built without an installer. SSH deploys the program to `~/.local/share/tandem/bin/tandem-server`. Linux x86_64 is the only remote target prepared and bundled by these build commands.
