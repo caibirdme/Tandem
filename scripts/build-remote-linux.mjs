@@ -36,10 +36,67 @@ function bindMount(source, destination, readonly = false) {
   return `type=bind,${escaped},target=${destination}${readonly ? ',readonly' : ''}`;
 }
 
+function selectContainerEngine(runCommand, requestedEngine) {
+  if (requestedEngine !== undefined && !['docker', 'podman'].includes(requestedEngine)) {
+    throw new Error('TANDEM_CONTAINER_ENGINE must be docker or podman.');
+  }
+  const failures = [];
+  const candidates = requestedEngine ? [requestedEngine] : ['docker', 'podman'];
+  for (const command of candidates) {
+    const name = command === 'podman' ? 'Podman' : 'Docker';
+    const format = command === 'podman' ? 'json' : '{{json .}}';
+    let information;
+    try {
+      information = runCommand(command, ['info', '--format', format], {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+      }).trim();
+    } catch (error) {
+      failures.push(
+        new Error(
+          error.code === 'ENOENT'
+            ? `${name} was not found on PATH.`
+            : `Cannot connect to ${name}; confirm that ${command} info succeeds.`,
+          { cause: error },
+        ),
+      );
+      continue;
+    }
+    let engine;
+    try {
+      engine = JSON.parse(information);
+      if (!engine || typeof engine !== 'object' || Array.isArray(engine)) {
+        throw new Error('Expected a container engine system information object.');
+      }
+    } catch (error) {
+      throw new Error(
+        `${name} returned invalid system information. Check that ${command} info succeeds and retry the build.`,
+        { cause: error },
+      );
+    }
+    return {
+      command,
+      name,
+      os: command === 'podman' ? engine.host?.os : engine.OSType,
+      architecture: command === 'podman' ? engine.host?.arch : engine.Architecture,
+    };
+  }
+  throw new Error(
+    `${failures.map((error) => error.message).join(' ')} ` +
+      'Building the Linux SSH server requires a running Docker or Podman engine. ' +
+      'Start Docker Desktop or your Docker Engine, or run podman machine start on Windows/macOS ' +
+      '(run podman machine init first if no machine exists). ' +
+      'Install the chosen CLI on PATH and set TANDEM_CONTAINER_ENGINE=docker or podman to select it explicitly.',
+    { cause: new AggregateError(failures, 'Container engine detection failed.') },
+  );
+}
+
 export function buildLinuxArtifact({
   root = repositoryRoot,
   target = 'x86_64-unknown-linux-gnu',
   runCommand = execFileSync,
+  environment = process.env,
+  containerEngine = environment.TANDEM_CONTAINER_ENGINE,
 } = {}) {
   const targetPlatform = platforms.get(target);
   if (!targetPlatform) {
@@ -57,58 +114,32 @@ export function buildLinuxArtifact({
     );
   }
 
-  let dockerInformation;
-  try {
-    dockerInformation = runCommand('docker', ['info', '--format', '{{json .}}'], {
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'pipe'],
-    }).trim();
-  } catch (error) {
-    if (error.code === 'ENOENT') {
-      throw new Error(
-        'Docker is required to build the Linux SSH server. Install Docker Desktop (https://docs.docker.com/get-docker/), start it, and retry the build.',
-        { cause: error },
-      );
-    }
+  const engine = selectContainerEngine(runCommand, containerEngine);
+  if (engine.os !== 'linux') {
     throw new Error(
-      'Cannot connect to Docker. Start Docker Desktop or your Docker Engine, confirm that docker info succeeds, and retry the build.',
-      { cause: error },
-    );
-  }
-  let engine;
-  try {
-    engine = JSON.parse(dockerInformation);
-    if (!engine || typeof engine !== 'object' || Array.isArray(engine)) {
-      throw new Error('Expected a Docker system information object.');
-    }
-  } catch (error) {
-    throw new Error(
-      'Docker returned invalid system information. Check that docker info succeeds and retry the build.',
-      { cause: error },
-    );
-  }
-  if (engine.OSType !== 'linux') {
-    throw new Error(
-      'The Linux SSH server requires Linux containers. Switch Docker Desktop to Linux containers and retry the build.',
+      'The Linux SSH server requires Linux containers. ' +
+        (engine.command === 'docker'
+          ? 'Switch Docker Desktop to Linux containers and retry the build.'
+          : 'Select a Linux Podman connection, confirm that podman info succeeds, and retry the build.'),
     );
   }
 
-  const architecture = engineArchitectures.get(engine.Architecture);
+  const architecture = engineArchitectures.get(engine.architecture);
   if (!architecture) {
     throw new Error(
-      `Unsupported Docker engine architecture: ${engine.Architecture}. Use a Linux Docker engine on x86_64 or ARM64.`,
+      `Unsupported ${engine.name} engine architecture: ${engine.architecture}. Use a Linux ${engine.name} engine on x86_64 or ARM64.`,
     );
   }
   const platform = `linux/${architecture}`;
   const compilerPackage =
     architecture === targetPlatform.architecture ? '' : targetPlatform.package;
-  const image = `tandem-remote-builder:${rustVersion}-${architecture}-${target}`;
+  const image = `localhost/tandem-remote-builder:${rustVersion}-${architecture}-${target}`;
   console.info(
     `Preparing the native ${platform} SSH server builder for ${target} with Rust ${rustVersion}.`,
   );
   try {
     runCommand(
-      'docker',
+      engine.command,
       [
         'build',
         '--platform',
@@ -129,7 +160,7 @@ export function buildLinuxArtifact({
     );
   } catch (error) {
     throw new Error(
-      `Could not prepare the Docker builder for ${target} on ${platform}. Check the Docker output above and access to Ubuntu packages and the Rust toolchain.`,
+      `Could not prepare the ${engine.name} builder for ${target} on ${platform}. Check the ${engine.name} output above and access to Ubuntu packages and the Rust toolchain.`,
       { cause: error },
     );
   }
@@ -140,10 +171,10 @@ export function buildLinuxArtifact({
   const sourcePath = join(output, 'tandem-server');
   const repositoryId = createHash('sha256').update(sourceRoot).digest('hex').slice(0, 12);
   const environmentTarget = target.replaceAll('-', '_');
-  console.info(`Building tandem-server for ${target} in Docker.`);
+  console.info(`Building tandem-server for ${target} in ${engine.name}.`);
   try {
     runCommand(
-      'docker',
+      engine.command,
       [
         'run',
         '--rm',
@@ -176,12 +207,12 @@ export function buildLinuxArtifact({
       { stdio: 'inherit' },
     );
     if (!existsSync(sourcePath)) {
-      throw new Error(`Docker completed without writing ${sourcePath}.`);
+      throw new Error(`${engine.name} completed without writing ${sourcePath}.`);
     }
   } catch (error) {
     rmSync(output, { recursive: true, force: true });
     throw new Error(
-      `Could not build the Linux SSH server for ${target}. Check the Docker output above.`,
+      `Could not build the Linux SSH server for ${target}. Check the ${engine.name} output above.`,
       {
         cause: error,
       },

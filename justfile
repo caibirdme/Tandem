@@ -89,11 +89,11 @@ integration-usage: build-server
 integration-ssh: build-server
     {{python}} tests/remote_e2e.py
 
-# Prepare the Linux x64 remote Agent, using Docker on macOS and Windows.
+# Prepare the Linux x64 remote Agent, using Docker or Podman on macOS and Windows.
 remote-build:
     pnpm remote:build
 
-# Verify prepared remote Agents without compiling them or invoking Docker.
+# Verify prepared remote Agents without compiling them or invoking a container engine.
 remote-check:
     pnpm remote:check
 

@@ -13,7 +13,7 @@ On Windows, install [just](https://github.com/casey/just#installation) with `win
 
 Start the desktop with `just dev`. For UI-only changes, run `just server` and `just web` in separate terminals and open `http://127.0.0.1:1420`. Both modes share the service contract; browser mode uses the built-in directory browser when no native directory picker is available.
 
-Before testing SSH projects in `just dev`, run `just remote-build`; repeat it after changing remote server sources. Development startup does not prepare the remote artifact. See [Packaging and remote artifacts](#packaging-and-remote-artifacts) for the Docker requirement.
+Before testing SSH projects in `just dev`, run `just remote-build`; repeat it after changing remote server sources. Development startup does not prepare the remote artifact. See [Packaging and remote artifacts](#packaging-and-remote-artifacts) for container engine requirements.
 
 `just server` starts `tandem-dev-server`, which calls the same `tandem-core` services as the desktop over HTTP. It builds `tandem-server` first so SSH projects can also be tested during browser development. `tandem-server` provides the remote Unix daemon, its SSH stdio proxy, and an isolated stdio host for protocol verification. It does not host development HTTP.
 
@@ -134,19 +134,29 @@ Shared RPC definitions live in `tandem-protocol`, so the remote agent does not n
 
 Use `just desktop-build-full` for the first local desktop build and after changing remote server sources. For later desktop builds with the current remote artifact, use `just desktop-build`. Mac builds produce a Mac desktop and Windows builds produce a Windows desktop; both include the same Linux x86_64 server. These commands build the executable and resources without an installer for development verification. They take no arguments.
 
-| Command                   | Behavior                                                                                                                                    |
-| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| `just desktop-build`      | Validates the staged Linux x86_64 server, then builds the desktop without an installer. Never invokes Docker or compiles the remote server. |
-| `just desktop-build-full` | Prepares the Linux x86_64 server, rebuilding it only when missing, stale, or invalid, then performs the ordinary desktop build.             |
-| `just desktop-bundle`     | Builds native installers for CI or local packaging verification, using the prepared Linux x86_64 server.                                    |
-| `just remote-build`       | Prepares the Linux x86_64 server without building the desktop.                                                                              |
-| `just remote-check`       | Validates the Linux x86_64 server without compiling or starting Docker.                                                                     |
+| Command                   | Behavior                                                                                                                                                |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `just desktop-build`      | Validates the staged Linux x86_64 server, then builds the desktop without an installer. Never invokes a container engine or compiles the remote server. |
+| `just desktop-build-full` | Prepares the Linux x86_64 server, rebuilding it only when missing, stale, or invalid, then performs the ordinary desktop build.                         |
+| `just desktop-bundle`     | Builds native installers for CI or local packaging verification, using the prepared Linux x86_64 server.                                                |
+| `just remote-build`       | Prepares the Linux x86_64 server without building the desktop.                                                                                          |
+| `just remote-check`       | Validates the Linux x86_64 server without compiling or invoking a container engine.                                                                     |
 
 An ordinary build with a missing, stale, or corrupt artifact fails with instructions to run the full build. The two local desktop commands use Tauri's `--no-bundle` mode. Release installers are produced in GitHub CI; use `just desktop-bundle` locally when a change needs installer verification. Direct `pnpm tauri build` uses the same validation-only hook (`pnpm remote:check` followed by `pnpm build`); it never prepares remote artifacts automatically.
 
-Ordinary builds need no Docker. Before a full build that must regenerate the server on macOS or Windows, start Docker Desktop or a Docker-compatible engine such as Colima running Linux containers. The build uses the selected engine and never starts or switches it. Remote preparation builds Linux x86_64 from the current checkout in Ubuntu 22.04, using the engine's native CPU architecture and a GNU cross-compiler when needed; on Linux x86_64 it builds natively. The first container build downloads its image, Rust toolchain, dependencies, and Copilot CLI; later builds reuse the build cache. Compilation does not require CPU emulation.
+Ordinary builds need no container engine. Before a full build that must regenerate the server on macOS or Windows, start Docker Desktop, Podman, or a Docker-compatible engine such as Colima running Linux containers. The selected CLI must be available on `PATH`; reopen your terminal after installing it. With no override, the build probes Docker and then Podman and uses the first reachable engine, including Podman when Docker is installed but stopped. Set `TANDEM_CONTAINER_ENGINE=docker` or `TANDEM_CONTAINER_ENGINE=podman` to require that engine; an unavailable explicit selection fails without falling back. The build never starts machines or changes engine contexts.
 
-Prepared resources contain `tandem-server` and `artifact.json` under `src-tauri/remote/x86_64-unknown-linux-gnu/`. Validation checks the recorded source fingerprint, target architecture, and executable SHA-256. The fingerprint covers workspace manifests, the lockfile, toolchain, and the three remote crates. Full builds reuse a valid artifact, so an unchanged full build also needs no Docker. CI builds the Linux server once and shares it, with the same metadata, between the Mac and Windows desktop jobs. Tauri bundles only this Linux x86_64 resource directory.
+For Podman on Windows, initialize a machine once with `podman machine init` if none exists. With Git for Windows `sh` available on `PATH`, run this in PowerShell:
+
+```powershell
+podman machine start
+$env:TANDEM_CONTAINER_ENGINE = 'podman'
+just desktop-build-full
+```
+
+The environment override applies to commands in that terminal. Remove it with `Remove-Item Env:TANDEM_CONTAINER_ENGINE` to restore automatic selection. The repository directory must be available to the engine's Linux machine for bind mounts. Remote preparation builds Linux x86_64 from the current checkout in Ubuntu 22.04, using the engine's native CPU architecture and a GNU cross-compiler when needed; on Linux x86_64 it builds natively. The first container build downloads its image, Rust toolchain, dependencies, and Copilot CLI; later builds reuse the build cache. Compilation does not require CPU emulation.
+
+Prepared resources contain `tandem-server` and `artifact.json` under `src-tauri/remote/x86_64-unknown-linux-gnu/`. Validation checks the recorded source fingerprint, target architecture, and executable SHA-256. The fingerprint covers workspace manifests, the lockfile, toolchain, and the three remote crates. Full builds reuse a valid artifact, so an unchanged full build also needs no container engine. CI builds the Linux server once and shares it, with the same metadata, between the Mac and Windows desktop jobs. Tauri bundles only this Linux x86_64 resource directory.
 
 `tandem-dev-server` is excluded from installers. macOS output is in `target/release/bundle/`. Local signing is ad hoc by default. For a formally signed release, override `bundle.macOS.signingIdentity` and configure notarization. Signing and notarization require a release account; no credentials are stored in this repository.
 
