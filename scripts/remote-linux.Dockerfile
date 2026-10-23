@@ -1,4 +1,4 @@
-FROM ubuntu:22.04
+FROM docker.io/library/ubuntu:22.04
 
 ARG RUST_VERSION
 ARG RUST_TARGET
