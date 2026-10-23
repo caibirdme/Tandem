@@ -70,6 +70,8 @@ export async function subscribe(
           'error',
           'title',
           'title_error',
+          'usage_updated',
+          'usage_error',
           'context_usage',
           'review_updated',
           'review_invalidated',

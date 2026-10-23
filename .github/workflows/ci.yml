@@ -168,6 +168,7 @@ jobs:
       # Discovery verifies catalog limits/capabilities and restart persistence;
       # runtime acceptance covers raw xhigh reasoning through the real SDK.
       - run: python tests/provider_models_e2e.py
+      - run: python tests/usage_dashboard_e2e.py
       - run: python tests/runtime_e2e.py
       - run: python tests/agentlens_e2e.py
       - run: python tests/grpc_e2e.py

@@ -19,6 +19,22 @@ pub(crate) enum EventOutcome {
 impl App {
     /// Classifies the result only after persistence and application notification.
     pub(crate) fn receive_event(self: &Arc<Self>, event: &RuntimeEvent) -> EventOutcome {
+        // Optional local statistics must never turn an otherwise successful chat into an error.
+        if matches!(event.kind, EventKind::Usage | EventKind::SkillUsage) {
+            match self.store.record_usage(event) {
+                Ok(true) => self.emit(&event.session_id, "usage_updated", json!({})),
+                Ok(false) => {}
+                Err(error) => {
+                    tracing::warn!(%error, "could not save local usage statistics");
+                    self.emit(
+                        &event.session_id,
+                        "usage_error",
+                        json!({"message":"Some usage statistics could not be saved."}),
+                    );
+                }
+            }
+            return EventOutcome::Continue;
+        }
         let result = self.persist_event(event);
         match result {
             Ok(Some((kind, data))) => {
@@ -56,6 +72,7 @@ impl App {
         self.finish_reasoning_phase(event)?;
         let mut data = event.data.clone();
         let kind = match event.kind {
+            EventKind::Usage | EventKind::SkillUsage => return Ok(None),
             EventKind::Reasoning | EventKind::ReasoningDelta => {
                 self.publish_reasoning(event)?;
                 return Ok(None);

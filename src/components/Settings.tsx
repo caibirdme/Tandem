@@ -1,4 +1,5 @@
 import {
+  ChartNoAxesCombined,
   Check,
   ChevronLeft,
   ChevronRight,
@@ -37,6 +38,7 @@ import { ProviderModelDialog } from './ProviderModelDialog';
 import { ProviderModelDiscovery } from './ProviderModelDiscovery';
 import { TitlePreferences } from './TitlePreferences';
 import { Modal, Notice, RequiredMark, Spinner, Toggle } from './ui';
+import { UsageDashboard } from './UsageDashboard';
 
 import './ProviderForm.css';
 
@@ -58,7 +60,9 @@ export function Settings({
   onSaved: () => Promise<unknown>;
 }) {
   const { t } = useI18n();
-  const [tab, setTab] = useState<'providers' | 'titles' | 'telemetry' | 'general'>('providers');
+  const [tab, setTab] = useState<'providers' | 'titles' | 'telemetry' | 'general' | 'usage'>(
+    'providers',
+  );
   const [editing, setEditing] = useState<ProviderEditSession | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
@@ -100,6 +104,10 @@ export function Settings({
           >
             <SlidersHorizontal size={16} />
             {t('settings.providers')}
+          </button>
+          <button className={tab === 'usage' ? 'active' : ''} onClick={() => setTab('usage')}>
+            <ChartNoAxesCombined size={16} />
+            {t('usage.title')}
           </button>
           <button className={tab === 'titles' ? 'active' : ''} onClick={() => setTab('titles')}>
             <Sparkles size={16} />
@@ -219,6 +227,7 @@ export function Settings({
                 )}
               </>
             ))}
+          {tab === 'usage' && <UsageDashboard />}
           {tab === 'telemetry' && (
             <Preferences key="telemetry" settings={settings} onSaved={onSaved} mode="telemetry" />
           )}

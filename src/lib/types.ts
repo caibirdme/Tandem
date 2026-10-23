@@ -1,3 +1,5 @@
+import type { UsageDashboardData, UsageDayWindow } from './usage';
+
 export type ProviderProtocol = 'openai-completions' | 'openai-responses' | 'anthropic';
 export type ReasoningEffortValue = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 export type ReasoningEffort = ReasoningEffortValue | null;
@@ -164,6 +166,8 @@ export type RuntimeEvent = { sessionId: string } & (
   | { kind: 'error'; data: { message: string } }
   | { kind: 'title'; data: { title: string } }
   | { kind: 'title_error'; data: { message: string } }
+  | { kind: 'usage_error'; data: { message: string } }
+  | { kind: 'usage_updated'; data: Record<string, never> }
   | { kind: 'context_usage'; data: ContextUsage | null }
   | { kind: 'review_updated' | 'review_invalidated'; data: Record<string, unknown> }
 );
@@ -173,6 +177,7 @@ export interface DirectoryListing {
 }
 export type ProviderDraft = Omit<Provider, 'hasApiKey'>;
 export interface Commands {
+  get_usage_dashboard: { payload: { days: UsageDayWindow[] }; result: UsageDashboardData };
   get_review_summary: {
     payload: { sessionId: string; selection: ReviewSelection };
     result: ReviewOverview;

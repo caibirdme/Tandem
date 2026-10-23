@@ -1,8 +1,10 @@
 import { enChat } from './messages/chat';
 import { enReview } from './messages/review';
+import { enUsage } from './messages/usage';
 
 export const en = {
   ...enChat,
+  ...enUsage,
   ...enReview,
   'panel.close': 'Close detail panel',
   'panel.resize': 'Resize detail panel',

@@ -80,6 +80,10 @@ integration-models:
     cargo build -p tandem-dev-server
     {{python}} tests/provider_models_e2e.py
 
+# Verify durable local statistics and remote usage events with synthetic inference.
+integration-usage: build-server
+    {{python}} tests/usage_dashboard_e2e.py
+
 # Requires local ssh/sshd; all keys and host records stay in a temporary directory.
 integration-ssh: build-server
     {{python}} tests/remote_e2e.py
