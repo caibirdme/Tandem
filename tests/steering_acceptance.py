@@ -42,7 +42,7 @@ class SteeringFixture(Fixture):
 
     def response(self, body):
         if is_title_request(body):
-            return "Steering acceptance"
+            return super().response(body)
         messages = body.get("messages", [])
         text = json.dumps(messages, ensure_ascii=False)
         latest_user = next((item for item in reversed(messages) if item.get("role") == "user"), {})
