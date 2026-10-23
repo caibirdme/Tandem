@@ -1,16 +1,26 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
+import { fileURLToPath } from 'node:url';
 
-import { buildRemoteArtifacts, defaultTargets } from './build-remote.mjs';
+import { buildRemoteArtifacts } from './build-remote.mjs';
 import { stageArtifact, verifyArtifact } from './remote-artifacts.mjs';
 
 const linux = 'x86_64-unknown-linux-gnu';
-const linuxArm = 'aarch64-unknown-linux-gnu';
 const mac = 'aarch64-apple-darwin';
-const macIntel = 'x86_64-apple-darwin';
+const windows = 'x86_64-pc-windows-msvc';
 
 function write(path, content) {
   mkdirSync(dirname(path), { recursive: true });
@@ -30,29 +40,54 @@ function fixture(context) {
   return root;
 }
 
-function binary(target) {
+function binary() {
   const bytes = Buffer.alloc(256);
-  if (target.endsWith('linux-gnu')) {
-    bytes.writeUInt32BE(0x7f454c46, 0);
-    bytes[4] = 2;
-    bytes[5] = 1;
-    bytes[6] = 1;
-    bytes.writeUInt16LE(3, 16);
-    bytes.writeUInt16LE(target === linux ? 62 : 183, 18);
-    bytes.writeUInt32LE(1, 20);
-    bytes.writeUInt16LE(64, 52);
-  } else {
-    bytes.writeUInt32LE(0xfeedfacf, 0);
-    bytes.writeUInt32LE(target === mac ? 0x0100000c : 0x01000007, 4);
-    bytes.writeUInt32LE(2, 12);
-  }
+  bytes.writeUInt32BE(0x7f454c46, 0);
+  bytes[4] = 2;
+  bytes[5] = 1;
+  bytes[6] = 1;
+  bytes.writeUInt16LE(3, 16);
+  bytes.writeUInt16LE(62, 18);
+  bytes.writeUInt32LE(1, 20);
+  bytes.writeUInt16LE(64, 52);
   return bytes;
 }
 
-function prepared(root, target) {
-  const source = join(root, 'ci-output', target, 'tandem-server');
-  write(source, binary(target));
-  return stageArtifact({ root, target, source });
+function prepared(root) {
+  const source = join(root, 'ci-output', 'tandem-server');
+  write(source, binary());
+  return stageArtifact({ root, target: linux, source });
+}
+
+function snapshot(path) {
+  const metadata = statSync(path, { bigint: true });
+  return {
+    mode: metadata.mode,
+    modified: metadata.mtimeNs,
+    contents: metadata.isDirectory()
+      ? Object.fromEntries(
+          readdirSync(path)
+            .toSorted()
+            .map((name) => [name, snapshot(join(path, name))]),
+        )
+      : readFileSync(path),
+  };
+}
+
+function artifactSnapshot(root) {
+  const directory = join(root, 'src-tauri', 'remote');
+  return existsSync(directory) ? snapshot(directory) : undefined;
+}
+
+function changeSources(root) {
+  write(join(root, 'crates/tandem-protocol/src/lib.rs'), 'pub fn changed() {}\n');
+}
+
+function corrupt(root) {
+  const path = join(root, 'src-tauri', 'remote', linux, 'tandem-server');
+  const bytes = readFileSync(path);
+  bytes[200] = 42;
+  writeFileSync(path, bytes);
 }
 
 function builders(root, host = mac) {
@@ -68,7 +103,6 @@ function builders(root, host = mac) {
       commands.push([command, args]);
       assert.equal(options.cwd, root);
       if (command === 'cargo' && args[0] === 'build') {
-        const target = args[args.indexOf('--target') + 1];
         assert.deepEqual(args, [
           'build',
           '--release',
@@ -76,84 +110,106 @@ function builders(root, host = mac) {
           '-p',
           'tandem-server',
           '--target',
-          target,
+          linux,
         ]);
-        write(join(targetDirectory, target, 'release', 'tandem-server'), binary(target));
+        write(join(targetDirectory, linux, 'release', 'tandem-server'), binary());
         return '';
       }
       if (command === 'cargo' && args[0] === 'metadata') {
+        assert.deepEqual(args, ['metadata', '--format-version', '1', '--no-deps', '--locked']);
         return JSON.stringify({ target_directory: targetDirectory });
       }
       assert.fail(`Unexpected command: ${command} ${args.join(' ')}`);
     },
     buildLinux({ root: requestedRoot, target }) {
       assert.equal(requestedRoot, root);
+      assert.equal(target, linux);
       linuxBuilds.push(target);
-      const source = join(root, 'docker-output', target, 'tandem-server');
-      write(source, binary(target));
+      const source = join(root, 'docker-output', 'tandem-server');
+      write(source, binary());
       return source;
     },
   };
 }
 
-test('Mac defaults build Linux plus the native server using the Cargo target directory', (context) => {
-  assert.deepEqual(defaultTargets(mac), [linux, mac]);
-  assert.deepEqual(defaultTargets(macIntel), [linux, macIntel]);
-  assert.deepEqual(defaultTargets(linux), [linux]);
-  assert.deepEqual(defaultTargets('x86_64-pc-windows-msvc'), [linux]);
+for (const host of [mac, 'x86_64-apple-darwin', windows]) {
+  test(`${host} prepares only Linux x64 through Docker`, (context) => {
+    const root = fixture(context);
+    const build = builders(root, host);
+    buildRemoteArtifacts(build);
+    assert.deepEqual(build.linuxBuilds, [linux]);
+    assert.deepEqual(build.commands, []);
+    assert.deepEqual(readdirSync(join(root, 'src-tauri', 'remote')), [linux]);
+    assert.ok(verifyArtifact({ root, target: linux }));
+    assert.equal(existsSync(join(root, 'docker-output', 'tandem-server')), false);
+  });
+}
+
+test('native Linux x64 uses Cargo and honors its target directory', (context) => {
   const root = fixture(context);
-  const build = builders(root);
+  const build = builders(root, linux);
   buildRemoteArtifacts(build);
-  assert.deepEqual(build.linuxBuilds, [linux]);
+  assert.deepEqual(build.linuxBuilds, []);
   assert.deepEqual(
     build.commands.map(([, args]) => args[0]),
     ['build', 'metadata'],
   );
   assert.equal(existsSync(join(root, 'target')), false);
-  for (const target of [linux, mac]) assert.ok(verifyArtifact({ root, target }));
+  assert.ok(existsSync(join(root, 'custom-cargo-target', linux, 'release', 'tandem-server')));
+  assert.ok(verifyArtifact({ root, target: linux }));
 });
 
-test('verified CI artifacts are reused without compilation or Docker on a different host', (context) => {
-  const root = fixture(context);
-  for (const target of [linux, mac]) prepared(root, target);
-  const build = builders(root, 'x86_64-pc-windows-msvc');
-  buildRemoteArtifacts(build);
-  assert.deepEqual(build.commands, []);
-  assert.deepEqual(build.linuxBuilds, []);
-});
+for (const checkOnly of [false, true]) {
+  test(`valid Linux cache is reused without host discovery or builds (checkOnly=${checkOnly})`, (context) => {
+    const root = fixture(context);
+    prepared(root);
+    const before = artifactSnapshot(root);
+    const build = builders(root);
+    buildRemoteArtifacts({ ...build, host: undefined, checkOnly });
+    assert.deepEqual(build.commands, []);
+    assert.deepEqual(build.linuxBuilds, []);
+    assert.deepEqual(artifactSnapshot(root), before);
+  });
+}
 
-test('protocol and runtime source changes rebuild both Linux and native artifacts', async (context) => {
+test('protocol and runtime source changes rebuild the Linux artifact', async (context) => {
   await Promise.all(
     ['tandem-protocol', 'copilot-runtime'].map((crate) =>
       context.test(crate, (subcontext) => {
         const root = fixture(subcontext);
-        for (const target of [linux, mac]) prepared(root, target);
+        prepared(root);
         write(join(root, `crates/${crate}/src/lib.rs`), 'pub fn changed() {}\n');
         const build = builders(root);
         buildRemoteArtifacts(build);
         assert.deepEqual(build.linuxBuilds, [linux]);
-        assert.equal(build.commands.filter(([, args]) => args[0] === 'build').length, 1);
-        for (const target of [linux, mac]) assert.ok(verifyArtifact({ root, target }));
+        assert.deepEqual(build.commands, []);
+        assert.ok(verifyArtifact({ root, target: linux }));
       }),
     ),
   );
 });
 
-test('a stale Mac artifact blocks builds on a host that cannot rebuild it', (context) => {
+test('other staged target directories are ignored during preparation and checks', (context) => {
   const root = fixture(context);
-  prepared(root, macIntel);
-  write(join(root, 'crates/tandem-server/src/lib.rs'), 'pub fn changed() {}\n');
+  const extra = join(root, 'src-tauri', 'remote', mac);
+  write(join(extra, 'tandem-server'), 'old unsupported binary');
+  write(join(extra, 'artifact.json'), '{"sourceHash":"stale"}');
+  mkdirSync(join(root, 'src-tauri', 'remote', 'unknown-target'));
+  const before = snapshot(extra);
   const build = builders(root);
-  assert.throws(
-    () => buildRemoteArtifacts({ ...build, targets: [macIntel] }),
-    /matching Mac.*prepare-remote/,
-  );
+  buildRemoteArtifacts(build);
+  assert.deepEqual(build.linuxBuilds, [linux]);
   assert.deepEqual(build.commands, []);
-  assert.deepEqual(build.linuxBuilds, []);
-  assert.throws(() => verifyArtifact({ root, target: macIntel }), /Stale tandem-server artifact/);
+  assert.deepEqual(snapshot(extra), before);
+  const allArtifacts = artifactSnapshot(root);
+  const check = builders(root, windows);
+  buildRemoteArtifacts({ ...check, checkOnly: true });
+  assert.deepEqual(check.commands, []);
+  assert.deepEqual(check.linuxBuilds, []);
+  assert.deepEqual(artifactSnapshot(root), allArtifacts);
 });
 
-test('Linux failures and missing outputs stop preparation before native compilation', (context) => {
+test('Linux failures and missing outputs stop preparation', (context) => {
   const root = fixture(context);
   const build = builders(root);
   const failure = new Error('Docker build failed');
@@ -190,7 +246,7 @@ test('source changes during compilation prevent staging the resulting binary', (
         ...build,
         buildLinux(options) {
           const path = build.buildLinux(options);
-          write(join(root, 'crates/tandem-server/src/lib.rs'), 'pub fn changed() {}\n');
+          changeSources(root);
           return path;
         },
       }),
@@ -200,25 +256,73 @@ test('source changes during compilation prevent staging the resulting binary', (
   assert.deepEqual(build.commands, []);
 });
 
-test('additional staged targets are refreshed even when omitted from the requested targets', (context) => {
-  const root = fixture(context);
-  for (const target of [linux, mac, linuxArm]) prepared(root, target);
-  write(join(root, 'crates/tandem-protocol/src/lib.rs'), 'pub fn changed() {}\n');
-  const build = builders(root);
-  buildRemoteArtifacts(build);
-  assert.deepEqual(build.linuxBuilds, [linux, linuxArm]);
-  for (const target of [linux, mac, linuxArm]) assert.ok(verifyArtifact({ root, target }));
+test('check failures provide preparation commands without changing artifacts or invoking tools', async (context) => {
+  const cases = [
+    { name: 'missing', prepare() {}, reason: /Missing tandem-server artifact/ },
+    {
+      name: 'stale',
+      prepare(root) {
+        prepared(root);
+        changeSources(root);
+      },
+      reason: /Stale tandem-server artifact/,
+    },
+    {
+      name: 'corrupt',
+      prepare(root) {
+        prepared(root);
+        corrupt(root);
+      },
+      reason: /SHA-256 does not match/,
+    },
+    {
+      name: 'invalid provenance',
+      prepare(root) {
+        prepared(root);
+        write(join(root, 'src-tauri', 'remote', linux, 'artifact.json'), '{');
+      },
+      reason: /Cannot read artifact provenance/,
+    },
+  ];
+  await Promise.all(
+    cases.map(({ name, prepare, reason }) =>
+      context.test(name, (subcontext) => {
+        const root = fixture(subcontext);
+        prepare(root);
+        const before = artifactSnapshot(root);
+        const build = builders(root);
+        assert.throws(
+          () => buildRemoteArtifacts({ ...build, host: undefined, checkOnly: true }),
+          (error) => {
+            assert.match(error.message, /Remote artifact check failed/);
+            assert.ok(error.message.includes(linux));
+            assert.match(error.message, reason);
+            assert.match(error.message, /just desktop-build-full/);
+            assert.match(error.message, /just remote-build/);
+            assert.match(error.cause.message, reason);
+            return true;
+          },
+        );
+        assert.deepEqual(build.commands, []);
+        assert.deepEqual(build.linuxBuilds, []);
+        assert.deepEqual(artifactSnapshot(root), before);
+      }),
+    ),
+  );
 });
 
-test('unsupported requested or already-staged targets fail before any build command', (context) => {
+test('CLI rejects positional targets and unknown flags before invoking build tools', (context) => {
   const root = fixture(context);
-  const build = builders(root);
-  assert.throws(
-    () => buildRemoteArtifacts({ ...build, targets: ['../unsupported'] }),
-    /Unsupported remote artifact target/,
-  );
-  mkdirSync(join(root, 'src-tauri/remote/unsupported'), { recursive: true });
-  assert.throws(() => buildRemoteArtifacts(build), /Unsupported remote artifact target/);
-  assert.deepEqual(build.commands, []);
-  assert.deepEqual(build.linuxBuilds, []);
+  const script = fileURLToPath(new URL('./build-remote.mjs', import.meta.url));
+  for (const args of [[linux], ['--unknown'], ['--check', mac]]) {
+    const result = spawnSync(process.execPath, [script, ...args], {
+      cwd: root,
+      encoding: 'utf8',
+      env: { ...process.env, PATH: '' },
+    });
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /Unexpected arguments/);
+    assert.match(result.stderr, /Usage: node scripts\/build-remote.mjs \[--check\]/);
+    assert.equal(result.stdout, '');
+  }
 });

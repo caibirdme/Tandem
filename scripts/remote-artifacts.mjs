@@ -12,7 +12,7 @@ import {
 } from 'node:fs';
 import { join, resolve } from 'node:path';
 
-export const REMOTE_TARGETS = ['x86_64-unknown-linux-gnu', 'aarch64-apple-darwin'];
+export const REMOTE_TARGETS = ['x86_64-unknown-linux-gnu'];
 
 const schemaVersion = 1;
 const maxArtifactBytes = 512 * 1024 * 1024;

@@ -125,7 +125,7 @@ test('the remote fingerprint does not include the development host or local serv
 });
 
 test('stages and verifies supported executable targets with current provenance', async (context) => {
-  assert.deepEqual(REMOTE_TARGETS, [linuxTarget, 'aarch64-apple-darwin']);
+  assert.deepEqual(REMOTE_TARGETS, [linuxTarget]);
   const checks = [];
   for (const target of [
     linuxTarget,

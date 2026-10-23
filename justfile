@@ -89,9 +89,21 @@ integration-usage: build-server
 integration-ssh: build-server
     {{python}} tests/remote_e2e.py
 
-# Prepare Linux x64 and native remote Agents, using Docker for cross-platform Linux builds.
+# Prepare the Linux x64 remote Agent, using Docker on macOS and Windows.
 remote-build:
     pnpm remote:build
 
+# Verify prepared remote Agents without compiling them or invoking Docker.
+remote-check:
+    pnpm remote:check
+
+# Build the native desktop executable using the verified Linux remote Agent.
 desktop-build:
+    pnpm tauri build --no-bundle
+
+# Prepare a changed or missing Linux remote Agent, then build the native desktop executable.
+desktop-build-full: remote-build desktop-build
+
+# Create native installers using the verified Linux remote Agent, as in release CI.
+desktop-bundle:
     pnpm tauri build

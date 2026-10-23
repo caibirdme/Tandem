@@ -9,9 +9,11 @@ cd .worktrees/example
 
 Use English for project documentation, code comments, commits, PRs, and other project information. Localized UI copy belongs in locale catalogs.
 
+On Windows, install [just](https://github.com/casey/just#installation) with `winget install --id Casey.Just --exact` and install [Git for Windows](https://git-scm.com/downloads/win). Run this repository's `just` commands from Git Bash with `sh` available on `PATH`.
+
 Start the desktop with `just dev`. For UI-only changes, run `just server` and `just web` in separate terminals and open `http://127.0.0.1:1420`. Both modes share the service contract; browser mode uses the built-in directory browser when no native directory picker is available.
 
-Before testing SSH projects in `just dev`, run `just remote-build`; repeat it after changing remote server sources. Development startup does not run the desktop build preparation hook. See [Packaging and remote artifacts](#packaging-and-remote-artifacts) for the Docker requirement and additional targets.
+Before testing SSH projects in `just dev`, run `just remote-build`; repeat it after changing remote server sources. Development startup does not prepare the remote artifact. See [Packaging and remote artifacts](#packaging-and-remote-artifacts) for the Docker requirement.
 
 `just server` starts `tandem-dev-server`, which calls the same `tandem-core` services as the desktop over HTTP. It builds `tandem-server` first so SSH projects can also be tested during browser development. `tandem-server` provides the remote Unix daemon, its SSH stdio proxy, and an isolated stdio host for protocol verification. It does not host development HTTP.
 
@@ -19,20 +21,21 @@ The workspace default target is also `tandem-dev-server`, so `cargo run` starts 
 
 ## Checks for each change
 
-| Change                                        | Checks                                                               |
-| --------------------------------------------- | -------------------------------------------------------------------- |
-| React / TypeScript                            | `just lint-web`, `pnpm test`, `pnpm build`                           |
-| Rust services or SDK integration              | `just lint-rust`, `cargo test --workspace`                           |
-| Crate dependencies and service entry points   | `just check-workspace`                                               |
-| Verification scripts and event waiting        | `just test-python`                                                   |
-| Formatting                                    | `just format`, then `just check-format`                              |
-| Sessions, tools, providers, or telemetry      | `just integration`                                                   |
-| AgentLens export, content, or credentials     | `just integration-agentlens`                                         |
-| OTLP/gRPC transport, traces, or metrics       | `just integration-grpc`                                              |
-| Git workspace, session, or turn review        | `just integration-review`, `just integration-ssh`                    |
-| SSH transport, deployment, or remote protocol | `just integration-ssh`                                               |
-| Remote build scripts or artifact validation   | `pnpm test:build`, then `pnpm tauri build --no-bundle`               |
-| Windows, resources, or native features        | `just desktop-build`, then open and verify the generated application |
+| Change                                        | Checks                                                                                              |
+| --------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| React / TypeScript                            | `just lint-web`, `pnpm test`, `pnpm build`                                                          |
+| Rust services or SDK integration              | `just lint-rust`, `cargo test --workspace`                                                          |
+| Crate dependencies and service entry points   | `just check-workspace`                                                                              |
+| Verification scripts and event waiting        | `just test-python`                                                                                  |
+| Formatting                                    | `just format`, then `just check-format`                                                             |
+| Sessions, tools, providers, or telemetry      | `just integration`                                                                                  |
+| AgentLens export, content, or credentials     | `just integration-agentlens`                                                                        |
+| OTLP/gRPC transport, traces, or metrics       | `just integration-grpc`                                                                             |
+| Git workspace, session, or turn review        | `just integration-review`, `just integration-ssh`                                                   |
+| SSH transport, deployment, or remote protocol | `just integration-ssh`                                                                              |
+| Remote build scripts or artifact validation   | `pnpm test:build`, then verify ordinary/full builds as described in [Verification](verification.md) |
+| Windows, resources, or native features        | `just desktop-build-full`, then open and verify the generated application                           |
+| Installer packaging                           | `just desktop-bundle`, then open and verify the native installer                                    |
 
 Run `just check` before committing. oxlint enables React, TypeScript, accessibility, and strict rules. TypeScript uses strict mode; Rust runs Clippy all + pedantic with warnings treated as failures. Formatting uses oxfmt and nightly rustfmt; rustfmt merges imports by crate and groups standard library, external crate, and current crate imports.
 
@@ -66,7 +69,7 @@ When a PR targets `main`, CI runs when the PR is opened, reopened, or updated wi
 | `SSH integration` | Linux                           | Same path rules as Rust                                               | Real isolated OpenSSH authentication/deployment, shared daemon, SDK sessions, and Work review lifecycle                        |
 | `Desktop bundle`  | Linux container, macOS, Windows | No packaging configuration, icons, dependencies, or toolchain changes | The release packaging procedure, with downloadable artifacts                                                                   |
 
-Unit and local integration checks run on macOS and Windows; a separate Linux job runs the real SSH suite. Linux also handles change detection, formatting, the aggregate gate, and Linux remote binary builds when packaging inputs change. The Rust job builds both services and runs `python tests/remote_e2e.py --skip-ssh` to verify the remote protocol with the real SDK and test inference services. On Unix, this also runs `tests/daemon_acceptance.py`: five independent proxies share one daemon and CLI, with concurrent sessions, separate providers/directories, isolated approvals, prepared-message invalidation, connection-loss cleanup, and explicit history resume. The SSH job installs OpenSSH and runs the same script without `--skip-ssh`, adding actual SSH authentication, deployment, and review lifecycle checks. Run `just integration-ssh` locally when a POSIX SSH daemon is available. The shared helpers in `tests/remote_protocol.py` preserve the same bounded framing and process-cleanup assertions for both modes.
+Unit and local integration checks run on macOS and Windows; a separate Linux job runs the real SSH suite. Linux also handles change detection, formatting, the aggregate gate, and Linux remote binary builds when packaging inputs change. The Rust job builds both services and runs `python tests/remote_e2e.py --skip-ssh` to verify the remote protocol with the real SDK and test inference services. On Unix, this also runs `tests/daemon_acceptance.py`: five independent proxies share one daemon and CLI, with concurrent sessions, separate providers/directories, isolated approvals, prepared-message invalidation, connection-loss cleanup, and explicit history resume. The SSH job installs OpenSSH and runs the same script without `--skip-ssh`, adding actual SSH authentication, deployment, and review lifecycle checks. Run `just integration-ssh` locally when a POSIX SSH daemon is available. This uses a native test server; packaged Linux x86_64 artifacts require the separate cross-platform resource checks. The shared helpers in `tests/remote_protocol.py` preserve the same bounded framing and process-cleanup assertions for both modes.
 
 Skipped checks count as successful. The `changes` job in `.github/workflows/ci.yml` defines the path rules. Format, web, and Rust checks default to relevant changes unless all modified paths match their exclusions. New directories therefore trigger the relevant checks automatically. Packaging runs only when listed inputs change. Update these rules when adding build inputs or check commands.
 
@@ -120,7 +123,8 @@ Service build targets are listed below. Use the development host for local appli
 | `just integration`      | Builds only `tandem-dev-server` and runs local SDK verification                                   |
 | `just integration-grpc` | Builds both services and verifies local and remote native OTLP/gRPC export                        |
 | `just integration-ssh`  | Builds both services, starts the local development host, and deploys the remote agent through SSH |
-| `just remote-build`     | Prepares current release remote programs for Linux x64 and the native macOS target when on Mac    |
+| `just remote-build`     | Prepares the current release server for Linux x86_64                                              |
+| `just remote-check`     | Validates the prepared Linux x86_64 server against the current sources without compiling it       |
 
 Shared RPC definitions live in `tandem-protocol`, so the remote agent does not need the entire SSH client or application service merely to read requests. When changing dependencies, check the [architecture boundaries](architecture.md#responsibilities-and-dependencies). Keep development HTTP, SQLite, and system credential stores out of the remote binary.
 
@@ -128,23 +132,31 @@ Shared RPC definitions live in `tandem-protocol`, so the remote agent does not n
 
 ## Packaging and remote artifacts
 
-Run `just desktop-build` or `pnpm tauri build` to create an installer. Use `pnpm tauri build --no-bundle` to build the desktop executable without an installer. All three run `pnpm remote:build` before the frontend build, so the executable has the remote programs it needs even with `--no-bundle`.
+Use `just desktop-build-full` for the first local desktop build and after changing remote server sources. For later desktop builds with the current remote artifact, use `just desktop-build`. Mac builds produce a Mac desktop and Windows builds produce a Windows desktop; both include the same Linux x86_64 server. These commands build the executable and resources without an installer for development verification. They take no arguments.
 
-On macOS and Windows, start Docker Desktop or a Docker-compatible engine running Linux containers. The remote preparation step builds Linux x64 from the current checkout in Ubuntu 22.04, using the engine's native CPU architecture and a GNU cross-compiler when needed; on a matching Linux host it builds natively. macOS builds also prepare a native macOS remote program. Run `pnpm remote:build` or `just remote-build` to prepare these resources separately. The first container build downloads its image, Rust toolchain, dependencies, and Copilot CLI; later builds reuse the build cache. Compilation does not require CPU emulation.
+| Command                   | Behavior                                                                                                                                    |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `just desktop-build`      | Validates the staged Linux x86_64 server, then builds the desktop without an installer. Never invokes Docker or compiles the remote server. |
+| `just desktop-build-full` | Prepares the Linux x86_64 server, rebuilding it only when missing, stale, or invalid, then performs the ordinary desktop build.             |
+| `just desktop-bundle`     | Builds native installers for CI or local packaging verification, using the prepared Linux x86_64 server.                                    |
+| `just remote-build`       | Prepares the Linux x86_64 server without building the desktop.                                                                              |
+| `just remote-check`       | Validates the Linux x86_64 server without compiling or starting Docker.                                                                     |
 
-Prepared resources contain `tandem-server` and `artifact.json` under `src-tauri/remote/<target>/`. Preparation reuses them only when the recorded source fingerprint, target architecture, and executable SHA-256 match. The fingerprint covers workspace manifests, the lockfile, toolchain, and the three remote crates. A source change or invalid artifact triggers a rebuild; a valid cached Linux artifact does not require a running Docker engine. Release CI stages Linux x64 and Apple Silicon macOS artifacts with the same metadata before the desktop build, so its preparation hook reuses them.
+An ordinary build with a missing, stale, or corrupt artifact fails with instructions to run the full build. The two local desktop commands use Tauri's `--no-bundle` mode. Release installers are produced in GitHub CI; use `just desktop-bundle` locally when a change needs installer verification. Direct `pnpm tauri build` uses the same validation-only hook (`pnpm remote:check` followed by `pnpm build`); it never prepares remote artifacts automatically.
+
+Ordinary builds need no Docker. Before a full build that must regenerate the server on macOS or Windows, start Docker Desktop or a Docker-compatible engine such as Colima running Linux containers. The build uses the selected engine and never starts or switches it. Remote preparation builds Linux x86_64 from the current checkout in Ubuntu 22.04, using the engine's native CPU architecture and a GNU cross-compiler when needed; on Linux x86_64 it builds natively. The first container build downloads its image, Rust toolchain, dependencies, and Copilot CLI; later builds reuse the build cache. Compilation does not require CPU emulation.
+
+Prepared resources contain `tandem-server` and `artifact.json` under `src-tauri/remote/x86_64-unknown-linux-gnu/`. Validation checks the recorded source fingerprint, target architecture, and executable SHA-256. The fingerprint covers workspace manifests, the lockfile, toolchain, and the three remote crates. Full builds reuse a valid artifact, so an unchanged full build also needs no Docker. CI builds the Linux server once and shares it, with the same metadata, between the Mac and Windows desktop jobs. Tauri bundles only this Linux x86_64 resource directory.
 
 `tandem-dev-server` is excluded from installers. macOS output is in `target/release/bundle/`. Local signing is ad hoc by default. For a formally signed release, override `bundle.macOS.signingIdentity` and configure notarization. Signing and notarization require a release account; no credentials are stored in this repository.
 
 On Windows, use the NSIS `x64-setup.exe` installer in `target/release/bundle/nsis/`. Tauri automatically merges `src-tauri/tauri.windows.conf.json`, which selects NSIS as the only Windows installer target.
 
-Use `CI=true just desktop-build` on a locked screen or in automation to skip DMG window decoration that requires Finder interaction.
+Use `CI=true just desktop-bundle` on a locked screen or in automation to skip DMG window decoration that requires Finder interaction.
 
-Released installers bundle remote agents for Linux x64 (`x86_64-unknown-linux-gnu`) and Apple Silicon macOS (`aarch64-apple-darwin`). To add Linux arm64, run `pnpm remote:build aarch64-unknown-linux-gnu` before building the desktop. This uses Docker and the ARM64 cross-compiler when the target differs from the build host.
+These build commands prepare and bundle only Linux x86_64 (`x86_64-unknown-linux-gnu`) remote servers. `just remote-build` and `just remote-check` take no target arguments.
 
-To add a different macOS architecture, build on a Mac with that architecture from the same remote sources. Run `pnpm remote:build <target>`, or stage an already compiled executable with `node scripts/prepare-remote.mjs <target> --source <binary>`. Copy the complete `src-tauri/remote/<target>/` directory, including `artifact.json`, to the desktop checkout before building. The preparation step does not cross-compile macOS programs.
-
-The executable without an installer is `target/release/tandem-desktop` on macOS or `target/release/tandem-desktop.exe` on Windows; launch it from the Cargo output directory, where Tauri also copies `remote/`. At runtime, `TANDEM_REMOTE_ARTIFACTS` can point to a custom directory containing `<target>/tandem-server` or `tandem-server-<target>`; this override accepts bare executables and does not require `artifact.json`. Desktop build resources require the metadata described above.
+The executable without an installer is `target/release/tandem-desktop` on macOS or `target/release/tandem-desktop.exe` on Windows; launch it from the Cargo output directory, where Tauri also copies `remote/x86_64-unknown-linux-gnu/`. At runtime, `TANDEM_REMOTE_ARTIFACTS` can point to a custom directory containing `x86_64-unknown-linux-gnu/tandem-server` or `tandem-server-x86_64-unknown-linux-gnu`; this override accepts bare executables and does not require `artifact.json`. Desktop build resources require the metadata described above.
 
 SSH uses BatchMode and strict host verification, supporting keys and ssh-agent. For an unknown host or interactive login, log in from a terminal first. Windows clients require system OpenSSH; Windows remote execution hosts are not supported.
 

@@ -14,7 +14,7 @@ _Keep project conversations and model selection together in one workspace. Scree
 
 - **Chat with your models.** Connect OpenAI-compatible APIs, Anthropic, or your own model gateway. Chat can read web pages.
 - **Include images and files.** Paste an image or drop files into the composer, review the previews, and send them with your message.
-- **Work where your files are.** Open a local directory or connect to a Linux or macOS host over SSH. The agent can read and edit files and run commands.
+- **Work where your files are.** Open a local directory or connect to a Linux x86_64 host over SSH. The agent can read and edit files and run commands.
 - **Review code changes.** Open **Changes** in a Work conversation to compare current workspace, session, or individual-turn changes. Review requires Git 2.45 or newer on the execution host; see the [review guide](docs/user-guide.md#review-code-changes).
 - **Choose how the agent works.** Work uses full access automatically. Switch models and choose `low`, `medium`, `high`, `xhigh`, or `max` reasoning effort for each conversation, according to the model's supported values.
 - **Delegate independent work.** Select **Expert team mode** in the Work composer to let the main agent coordinate subagents. Open an agent from its collaboration card to inspect live output, thinking, and tool calls in the right-hand detail panel. Select another agent to switch the panel; close it or press Escape to return to the unchanged conversation layout. Drag the divider, or focus it and use the arrow keys, to adjust the width. On narrow windows the panel fills the screen.
@@ -99,16 +99,20 @@ If the error persists with fresh data, report the error text, Tandem version, an
 
 ## Run from source
 
-Install Node.js 24, pnpm 12, Rust 1.99.1, just, and the [Tauri development prerequisites](https://v2.tauri.app/start/prerequisites/) for your system.
+Install Node.js 24, pnpm 12, Rust 1.99.1, [just](https://github.com/casey/just#installation), and the [Tauri development prerequisites](https://v2.tauri.app/start/prerequisites/) for your system.
 
 On macOS, install Xcode Command Line Tools; on Windows, install Visual Studio C++ Build Tools and WebView2. Tests also require Python 3.10 or later. Install the pinned test dependencies with `python3 -m pip install -r tests/requirements.txt` (use `python` on Windows), preferably in a virtual environment; `just setup` also installs them.
+
+On Windows, install just with `winget install --id Casey.Just --exact` and install [Git for Windows](https://git-scm.com/downloads/win). Run the commands below in Git Bash with `sh` on `PATH`.
 
 ```sh
 just setup
 just dev
 ```
 
-Before using SSH projects in `just dev`, run `just remote-build`. To build the desktop, run `pnpm tauri build` or `pnpm tauri build --no-bundle`; both prepare the remote programs automatically. On macOS and Windows, start Docker Desktop or a Docker-compatible engine running Linux containers before the first build. Docker is needed again only when the Linux remote program must be rebuilt. See [Packaging and remote artifacts](docs/development.md#packaging-and-remote-artifacts).
+For the first local desktop build, run `just desktop-build-full`. Use `just desktop-build` for subsequent builds, and the full command again after remote server sources change. Both build the desktop executable for development verification without an installer and take no arguments. Release installers are built in GitHub CI; use `just desktop-bundle` locally when checking packaging changes.
+
+Mac builds produce the Mac desktop and Windows builds produce the Windows desktop; both include the same Linux x86_64 server. Ordinary builds validate that server and need no Docker. Full builds prepare it when missing or outdated; start Docker Desktop or a Docker-compatible engine such as Colima when it needs rebuilding. The build does not start or switch engines. Before using SSH projects in `just dev`, run `just remote-build`. See [Packaging and remote artifacts](docs/development.md#packaging-and-remote-artifacts).
 
 Tandem uses React, Tauri 2, and Rust services built on GitHub Copilot SDK 1.x from crates.io. `Cargo.lock` currently resolves SDK `1.0.25`, and its matching Copilot CLI `1.0.102` is bundled automatically.
 

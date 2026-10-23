@@ -31,7 +31,7 @@ const target =
 if (!target) throw new Error('Unable to determine Rust target.');
 if (!/^[a-z0-9_-]+$/.test(target)) throw new Error('Invalid Rust target.');
 if (target.includes('windows')) {
-  console.info('Windows desktops use Linux or macOS remote artifacts from the release build.');
+  console.info('Windows desktops use the Linux x64 remote artifact from just remote-build or CI.');
   process.exit(0);
 }
 source ??= join(root, 'target', ...(explicitTarget ? [target] : []), 'release', 'tandem-server');

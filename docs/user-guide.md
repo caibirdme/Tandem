@@ -154,7 +154,7 @@ Saved hosts use their SSH alias directly, so OpenSSH applies the current usernam
 
 Directory browsing progress and errors stay beside the directory controls in the project dialog. On Windows, SSH runs in the background without opening a console window.
 
-The desktop supports macOS and Windows; remote hosts support Linux and macOS. Release installers include remote agents for Linux x64 and Apple Silicon macOS. Other recognized platforms require a matching artifact; first-message preparation reports the target platform if one is missing.
+The desktop supports macOS and Windows. Both installers include the same remote server for Linux x86_64.
 
 ### Remote runtime and deployment
 
@@ -164,7 +164,7 @@ During preparation, Tandem detects the remote platform and uploads the matching 
 
 If one SSH connection breaks, its work is interrupted and unanswered permissions are denied; other conversations continue. Send another message to reconnect and resume its history. Tandem does not automatically repeat a submitted task. The shared runtime stays ready for five minutes after the last connection closes, then shuts down.
 
-When building Tandem from source, run `pnpm tauri build` or `pnpm tauri build --no-bundle`; both prepare the Linux x64 remote program automatically, plus the native macOS program when building on a Mac. Start a Docker-compatible engine before building a Linux program on macOS or Windows. Valid cached programs are reused without Docker. For `just dev`, run `just remote-build` before testing SSH projects and after changing remote server sources. See [Packaging and remote artifacts](development.md#packaging-and-remote-artifacts) for additional targets and custom artifact directories.
+When building Tandem from source, run `just desktop-build-full` initially and after remote server sources change; it prepares the Linux x86_64 server and builds the desktop for your current platform. Use `just desktop-build` for later builds; it validates the prepared server and needs no Docker. Both take no arguments and build a local executable without an installer. A full build on Mac or Windows needs a running Docker-compatible engine only when it must regenerate the server; start the engine yourself. For `just dev`, run `just remote-build` before testing SSH projects and after changing remote server sources. See [Packaging and remote artifacts](development.md#packaging-and-remote-artifacts) for setup and custom artifact directories.
 
 ## Images and files
 
@@ -204,4 +204,4 @@ Tandem bundles the matching Copilot CLI, so you do not need to install Copilot s
 
 For source builds, the first Rust build downloads that CLI and verifies its checksum. At runtime, Tandem extracts it from bundled resources. The **Copilot CLI path** field in **Settings > General** is an optional debugging override; leave it empty for normal use.
 
-On Windows, you can build without an installer using `pnpm tauri build --no-bundle`, then open `target/release/tandem-desktop.exe`. See [Development](development.md) for prerequisites, checks, and desktop packaging.
+On Windows, install just and Git for Windows, then run `just desktop-build-full` in Git Bash for the first local build. Open `target/release/tandem-desktop.exe`. Use `just desktop-build` while the remote server artifact remains current. Release installers come from GitHub CI; `just desktop-bundle` is available for local packaging checks. See [Development](development.md) for prerequisites and verification.

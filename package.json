@@ -14,6 +14,7 @@
     "test": "vitest run src && pnpm test:build",
     "test:build": "node --test scripts/*.test.mjs",
     "remote:build": "node scripts/build-remote.mjs",
+    "remote:check": "node scripts/build-remote.mjs --check",
     "tauri": "tauri"
   },
   "dependencies": {
