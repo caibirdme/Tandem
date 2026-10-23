@@ -28,7 +28,8 @@ export const enUsage = {
     'Chat and Work include subagents, but exclude automatic titles. Tokens are SDK-reported input + output; cache counts are not added separately. These are not billing amounts.',
   'usage.loading': 'Loading your usage…',
   'usage.showSeries': 'Show or hide {name}',
-  'usage.chartHint': 'Hover or focus a day for details. Use the legend to show or hide series.',
+  'usage.chartHint':
+    'Hover a day or focus the chart and use Left/Right arrows for details. Use the legend to show or hide series.',
   'usage.dayDetails': 'Daily details',
   'usage.allSeries': 'Show all',
   'usage.noSeries': 'Select a series below to view the chart.',
@@ -64,7 +65,7 @@ export const zhCNUsage: Record<keyof typeof enUsage, string> = {
     '统计 Chat 和 Work 会话（含子智能体），不含自动标题生成。Token 数为 SDK 上报的输入与输出之和，不额外叠加缓存数，也不代表账单金额。',
   'usage.loading': '正在加载使用统计…',
   'usage.showSeries': '显示或隐藏 {name}',
-  'usage.chartHint': '悬停或聚焦日期查看详情；点击图例显示或隐藏数据。',
+  'usage.chartHint': '悬停日期，或聚焦图表后按左右方向键查看详情；点击图例显示或隐藏数据。',
   'usage.dayDetails': '每日详情',
   'usage.allSeries': '显示全部',
   'usage.noSeries': '请在下方选择要显示的数据。',

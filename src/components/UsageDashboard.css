@@ -128,32 +128,18 @@
 .usage-chart-scroll {
   overflow-x: auto;
 }
-.usage-chart svg {
-  display: block;
-  width: 100%;
-  min-width: 560px;
-  overflow: visible;
-}
-.usage-grid line {
-  stroke: var(--line);
-  stroke-dasharray: 3 4;
-}
-.usage-grid text,
-.usage-axis-label {
-  fill: var(--muted);
-  font-size: 11px;
-}
-.usage-cursor {
-  stroke: var(--muted);
-  stroke-dasharray: 3 3;
-  pointer-events: none;
-}
-.usage-hit-target {
-  cursor: crosshair;
-}
-.usage-hit-target:focus-visible {
+.usage-plot .recharts-surface:focus-visible {
   outline: 2px solid var(--usage-color-0);
   outline-offset: -2px;
+}
+.usage-chart-loading {
+  display: grid;
+  place-items: center;
+  height: 230px;
+  color: var(--muted);
+}
+.usage-day-details {
+  min-height: 51px;
 }
 .usage-tooltip {
   border-radius: 8px;
@@ -379,22 +365,6 @@
 .usage-plot {
   position: relative;
   min-width: 560px;
-}
-.usage-plot-interaction {
-  position: absolute;
-  left: 7.558%;
-  right: 2.326%;
-  top: 6.957%;
-  bottom: 14.783%;
-  display: flex;
-}
-.usage-plot-interaction button {
-  flex: 1;
-  min-width: 0;
-  padding: 0;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
 }
 .usage-retry {
   border: 1px solid var(--line-strong);

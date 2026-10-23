@@ -6,8 +6,9 @@ python := if os() == "windows" { "python" } else { "python3" }
 default:
     @just --list
 
-# Install frontend dependencies; Rust uses the version in rust-toolchain.toml.
+# Install frontend and Python test dependencies; Rust uses the version in rust-toolchain.toml.
 setup:
+    {{python}} -m pip install -r tests/requirements.txt
     pnpm install --frozen-lockfile
     rustup toolchain install nightly --profile minimal --component rustfmt
 

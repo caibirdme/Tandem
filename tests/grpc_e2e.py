@@ -1,64 +1,53 @@
 #!/usr/bin/env python3
 """Verify OTLP/gRPC through the real SDK with isolated local test services.
 
-The collector implements the HTTP/2 framing needed for unary gRPC in Python's
-standard library. Inference is the existing fixture; no external key is needed.
+The collector uses generated OTLP services with gRPC Python. Inference is the
+existing fixture; no external key is needed.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
-import socket
-import socketserver
-import struct
 import tempfile
 import threading
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 
+import grpc
+from opentelemetry.proto.collector.metrics.v1 import metrics_service_pb2, metrics_service_pb2_grpc
+from opentelemetry.proto.collector.trace.v1 import trace_service_pb2, trace_service_pb2_grpc
+
 from acceptance_support import Application, debug_binary
 from credential_checks import scan_for_key
-from inference_fixture import FIXTURE_KEY, Fixture, handler_for, protobuf_fields, protobuf_span_names, require
+from inference_fixture import FIXTURE_KEY, Fixture, handler_for, protobuf_span_names, require
 from remote_protocol import StdioServer, private_environment
 
-PREFACE = b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"
 MAX_MESSAGE = 16 * 1024 * 1024
 
 
-def frame(kind, flags, stream, payload=b""):
-    return len(payload).to_bytes(3, "big") + bytes((kind, flags)) + struct.pack("!I", stream) + payload
+class TraceService(trace_service_pb2_grpc.TraceServiceServicer):
+    def __init__(self, receiver):
+        self.receiver = receiver
+
+    def Export(self, request, context):
+        self.receiver.export("traces", request, context)
+        return trace_service_pb2.ExportTraceServiceResponse()
 
 
-def header(name, value):
-    # Literal HPACK header without indexing or Huffman coding. All fixture
-    # response names and values fit HPACK's one-byte length representation.
-    return b"\x00" + bytes((len(name),)) + name + bytes((len(value),)) + value
+class MetricsService(metrics_service_pb2_grpc.MetricsServiceServicer):
+    def __init__(self, receiver):
+        self.receiver = receiver
+
+    def Export(self, request, context):
+        self.receiver.export("metrics", request, context)
+        return metrics_service_pb2.ExportMetricsServiceResponse()
 
 
-def signal_names(payload):
-    items = [item for number, resource in protobuf_fields(payload) if number == 1
-             for number, scope in protobuf_fields(resource) if number == 2
-             for number, item in protobuf_fields(scope) if number == 2]
-    require(bool(items), "The gRPC export contained no OTLP spans or metrics")
-    first = dict(protobuf_fields(items[0]))
-    if len(first.get(1, b"")) == 16 and len(first.get(2, b"")) == 8:
-        return "traces", protobuf_span_names(payload)
-    names = []
-    for item in items:
-        fields = dict(protobuf_fields(item))
-        require(any(number in fields for number in (5, 7, 9, 10, 11)),
-                "The gRPC export contained an unrecognized OTLP metric")
-        names.append(fields.get(1, b"").decode())
-    require(all(names), "An exported gRPC metric has no name")
-    return "metrics", names
-
-
-class Receiver(socketserver.ThreadingTCPServer):
-    allow_reuse_address = True
-    daemon_threads = True
-    block_on_close = False
+class Receiver:
+    """A real OTLP service, with one deliberate transient collector failure."""
 
     def __init__(self):
         self.lock = threading.Lock()
@@ -66,107 +55,46 @@ class Receiver(socketserver.ThreadingTCPServer):
         self.attempts = 0
         self.failed_payload = None
         self.errors = []
-        self.connections = set()
-        super().__init__(("127.0.0.1", 0), CollectorConnection)
-        self.thread = threading.Thread(target=self.serve_forever, daemon=True)
-        self.thread.start()
+        self.executor = ThreadPoolExecutor(max_workers=4)
+        self.server = grpc.server(self.executor, options=[
+            ("grpc.max_receive_message_length", MAX_MESSAGE),
+        ])
+        trace_service_pb2_grpc.add_TraceServiceServicer_to_server(TraceService(self), self.server)
+        metrics_service_pb2_grpc.add_MetricsServiceServicer_to_server(MetricsService(self), self.server)
+        port = self.server.add_insecure_port("127.0.0.1:0")
+        require(port != 0, "Could not bind the local gRPC collector")
+        self.endpoint = f"http://127.0.0.1:{port}"
+        self.server.start()
 
-    @property
-    def endpoint(self):
-        return f"http://127.0.0.1:{self.server_address[1]}"
-
-    def export(self, payload):
-        kind, names = signal_names(payload)
+    def export(self, kind, request, context):
+        payload = request.SerializeToString(deterministic=True)
+        try:
+            if kind == "traces":
+                names = protobuf_span_names(payload)
+            else:
+                metrics = [metric for resource in request.resource_metrics
+                           for scope in resource.scope_metrics for metric in scope.metrics]
+                require(all(metric.WhichOneof("data") is not None for metric in metrics),
+                        "The gRPC export contained an unrecognized OTLP metric")
+                names = [metric.name for metric in metrics]
+            require(bool(names) and all(names), "The gRPC export contained no named OTLP records")
+        except (AssertionError, ValueError) as error:
+            with self.lock:
+                self.errors.append(str(error))
+            context.abort(grpc.StatusCode.INVALID_ARGUMENT, "Invalid fixture telemetry")
         with self.lock:
             self.attempts += 1
-            if self.failed_payload is None:
+            retry = self.failed_payload is None
+            if retry:
                 self.failed_payload = payload
-                return b"14"
-            self.exports.append({"kind": kind, "names": names, "payload": payload})
-        return b"0"
+            else:
+                self.exports.append({"kind": kind, "names": names, "payload": payload})
+        if retry:
+            context.abort(grpc.StatusCode.UNAVAILABLE, "Retry this fixture export")
 
     def close(self):
-        self.shutdown()
-        with self.lock:
-            connections = list(self.connections)
-        for connection in connections:
-            try:
-                connection.shutdown(socket.SHUT_RDWR)
-            except OSError:
-                pass
-            connection.close()
-        self.server_close()
-        self.thread.join(timeout=2)
-
-
-class CollectorConnection(socketserver.BaseRequestHandler):
-    def read_exact(self, size):
-        data = bytearray()
-        while len(data) < size:
-            chunk = self.request.recv(size - len(data))
-            if not chunk and not data:
-                return None
-            require(bool(chunk), "The gRPC client truncated an HTTP/2 frame")
-            data.extend(chunk)
-        return bytes(data)
-
-    def handle(self):
-        receiver = self.server
-        with receiver.lock:
-            receiver.connections.add(self.request)
-        try:
-            require(self.read_exact(len(PREFACE)) == PREFACE, "The exporter did not use HTTP/2")
-            # Increase both flow-control windows for the bounded OTLP request.
-            self.request.sendall(frame(4, 0, 0, struct.pack("!HI", 4, MAX_MESSAGE))
-                                 + frame(8, 0, 0, struct.pack("!I", 0x7FFFFFFF - 65535)))
-            streams = {}
-            while True:
-                raw = self.read_exact(9)
-                if raw is None:
-                    return
-                size, kind, flags = int.from_bytes(raw[:3], "big"), raw[3], raw[4]
-                stream = int.from_bytes(raw[5:], "big") & 0x7FFFFFFF
-                require(size <= MAX_MESSAGE, "The gRPC client exceeded the HTTP/2 frame limit")
-                payload = self.read_exact(size) if size else b""
-                require(payload is not None, "The gRPC client omitted an HTTP/2 payload")
-                if kind == 4 and not flags & 1:
-                    self.request.sendall(frame(4, 1, 0))
-                elif kind == 6 and not flags & 1:
-                    self.request.sendall(frame(6, 1, 0, payload))
-                elif kind == 1:
-                    # HPACK request headers are opaque to this transport fixture.
-                    # OTLP protobuf structure distinguishes the two signal types.
-                    streams.setdefault(stream, bytearray())
-                elif kind == 0:
-                    require(stream in streams, "The gRPC request omitted HTTP/2 headers")
-                    body = payload[1:len(payload) - payload[0]] if flags & 8 else payload
-                    streams[stream].extend(body)
-                    require(len(streams[stream]) <= MAX_MESSAGE + 5, "The gRPC message exceeded its limit")
-                    if size:
-                        window = struct.pack("!I", size)
-                        self.request.sendall(frame(8, 0, 0, window) + frame(8, 0, stream, window))
-                elif kind == 3:
-                    streams.pop(stream, None)
-                elif kind == 7:
-                    return
-                if kind in (0, 1) and flags & 1:
-                    message = bytes(streams.pop(stream))
-                    require(len(message) >= 5 and message[0] == 0, "The gRPC envelope is invalid or compressed")
-                    require(int.from_bytes(message[1:5], "big") == len(message) - 5,
-                            "The unary gRPC request length did not match its protobuf message")
-                    status = receiver.export(message[5:])
-                    self.request.sendall(frame(1, 4, stream, b"\x88" + header(b"content-type", b"application/grpc"))
-                                         + frame(0, 0, stream, b"\x00\x00\x00\x00\x00")
-                                         + frame(1, 5, stream, header(b"grpc-status", status)))
-        except (AssertionError, UnicodeError, ValueError, KeyError) as error:
-            with receiver.lock:
-                receiver.errors.append(str(error))
-        except (ConnectionError, OSError):
-            # The application owns and closes its channels during shutdown.
-            pass
-        finally:
-            with receiver.lock:
-                receiver.connections.discard(self.request)
+        self.server.stop(0).wait()
+        self.executor.shutdown(wait=True)
 
 
 def telemetry(endpoint, capture=True, enabled=True):
@@ -248,7 +176,7 @@ def check_remote(binary, root, inference, endpoint, marker):
 
 
 def check_exports(receiver, sessions, marker, metadata_marker):
-    require(not receiver.errors, f"The gRPC collector rejected transport frames: {receiver.errors}")
+    require(not receiver.errors, f"The gRPC collector rejected telemetry: {receiver.errors}")
     traces = [batch for batch in receiver.exports if batch["kind"] == "traces"]
     metrics = [batch for batch in receiver.exports if batch["kind"] == "metrics"]
     require(bool(traces), "The collector received no gRPC trace exports")

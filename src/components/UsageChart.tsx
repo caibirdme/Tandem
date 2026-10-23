@@ -1,175 +1,108 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import {
+  Bar,
+  CartesianGrid,
+  ComposedChart,
+  Line,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts';
 
 import { useI18n } from '../i18n';
 import { formatTokens, seriesColor, usageDateLabel } from '../lib/usage';
 import type { UsageDayWindow, UsageSeries } from '../lib/usage';
 
-const plot = { left: 52, top: 16, width: 620, height: 180 };
-
-export function UsageChart({
-  days,
-  series,
-  kind,
-}: {
+export interface UsageChartProps {
   days: UsageDayWindow[];
   series: UsageSeries[];
   kind: 'tokens' | 'skills';
-}) {
+}
+
+export function UsageChart({ days, series, kind }: UsageChartProps) {
   const { t, locale } = useI18n();
   const [hidden, setHidden] = useState<Set<string>>(new Set());
-  const [selected, setSelected] = useState<number | null>(null);
+  const [selected, setSelected] = useState<string | number | undefined>();
   const visible = series
     .map((item, index) => ({ ...item, color: seriesColor(index), index }))
     .filter((item) => !hidden.has(item.id));
   const format = kind === 'tokens' ? formatTokens : (count: number) => count.toLocaleString(locale);
-  const totals = days.map((_, index) =>
-    visible.reduce((sum, item) => sum + (item.values[index] ?? 0), 0),
-  );
-  const peak = Math.max(
-    1,
-    ...(kind === 'tokens' ? totals : visible.flatMap((item) => item.values)),
-  );
-  const step = Math.max(1, 10 ** Math.floor(Math.log10(peak)));
-  const max = Math.max(4, Math.ceil(peak / (step * 4)) * step * 4);
-  const slot = plot.width / days.length;
-  const x = (index: number) => plot.left + slot * (index + 0.5);
-  const y = (value: number) => plot.top + plot.height * (1 - value / max);
-  const activeDay = selected === null ? null : days[selected];
+  const data = days.map((day, index) => ({
+    date: day.date,
+    values: series.map((item) => item.values[index] ?? 0),
+  }));
   return (
     <div className="usage-chart">
       <p className="usage-chart-hint">{t('usage.chartHint')}</p>
       {visible.length === 0 && <p className="usage-chart-empty">{t('usage.noSeries')}</p>}
       <div className="usage-chart-scroll">
         <div className="usage-plot">
-          <svg viewBox="0 0 688 230" aria-hidden="true">
-            {[0, 1, 2, 3, 4].map((tick) => {
-              const value = (max * tick) / 4;
-              return (
-                <g key={tick} className="usage-grid" aria-hidden="true">
-                  <line x1={plot.left} x2={plot.left + plot.width} y1={y(value)} y2={y(value)} />
-                  <text x={plot.left - 10} y={y(value) + 4} textAnchor="end">
-                    {format(Math.round(value))}
-                  </text>
-                </g>
-              );
-            })}
-            {kind === 'tokens' &&
-              days.map((day, index) => {
-                let base = 0;
-                return (
-                  <g key={day.date} aria-hidden="true">
-                    {visible.map((item) => {
-                      const value = item.values[index] ?? 0;
-                      const bottom = base;
-                      base += value;
-                      return (
-                        <rect
-                          key={item.id}
-                          x={x(index) - slot * 0.31}
-                          y={y(base)}
-                          width={slot * 0.62}
-                          height={(plot.height * value) / max}
-                          fill={item.color}
-                          rx={2}
-                          opacity={selected === null || selected === index ? 1 : 0.5}
-                          data-series={item.id}
-                          data-value={value}
-                          data-base={bottom}
-                        />
-                      );
-                    })}
-                  </g>
-                );
-              })}
-            {kind === 'skills' &&
-              visible.map((item) => (
-                <g key={item.id} aria-hidden="true">
-                  <polyline
-                    points={item.values.map((value, index) => `${x(index)},${y(value)}`).join(' ')}
-                    fill="none"
+          <ResponsiveContainer
+            width="100%"
+            height={230}
+            initialDimension={{ width: 688, height: 230 }}
+          >
+            <ComposedChart
+              data={data}
+              title={t(kind === 'tokens' ? 'usage.tokens' : 'usage.skills')}
+              desc={t('usage.chartHint')}
+              accessibilityLayer
+              margin={{ top: 16, right: 16, bottom: 0, left: 0 }}
+            >
+              <CartesianGrid vertical={false} stroke="var(--line)" strokeDasharray="3 4" />
+              <XAxis
+                dataKey="date"
+                tickFormatter={(date: string) => usageDateLabel(date, locale)}
+                minTickGap={28}
+                tickLine={false}
+                axisLine={false}
+                tick={{ fill: 'var(--muted)', fontSize: 11 }}
+              />
+              <YAxis
+                allowDecimals={false}
+                tickFormatter={format}
+                tickLine={false}
+                axisLine={false}
+                tick={{ fill: 'var(--muted)', fontSize: 11 }}
+                width={60}
+              />
+              {visible.map((item) =>
+                kind === 'tokens' ? (
+                  <Bar
+                    key={item.id}
+                    dataKey={(day: (typeof data)[number]) => day.values[item.index] ?? 0}
+                    name={item.label}
+                    stackId="tokens"
+                    fill={item.color}
+                    maxBarSize={36}
+                    isAnimationActive={false}
+                  />
+                ) : (
+                  <Line
+                    key={item.id}
+                    dataKey={(day: (typeof data)[number]) => day.values[item.index] ?? 0}
+                    name={item.label}
                     stroke={item.color}
                     strokeWidth={2.5}
-                    strokeLinejoin="round"
-                    strokeLinecap="round"
-                    strokeDasharray={item.index >= 8 ? `${3 + (item.index % 4) * 2} 3` : undefined}
+                    dot={{ r: 2.5, stroke: 'var(--surface)', strokeWidth: 1.5 }}
+                    activeDot={{ r: 4 }}
+                    strokeDasharray={item.index >= 8 ? `${3 + (item.index % 4) * 2} 3` : ''}
+                    isAnimationActive={false}
                   />
-                  {item.values.map((value, index) => (
-                    <circle
-                      key={days[index]?.date}
-                      cx={x(index)}
-                      cy={y(value)}
-                      r={selected === index ? 4 : 2.5}
-                      fill={item.color}
-                      stroke="var(--surface)"
-                      strokeWidth={1.5}
-                    />
-                  ))}
-                </g>
-              ))}
-            {activeDay && (
-              <line
-                className="usage-cursor"
-                x1={x(selected ?? 0)}
-                x2={x(selected ?? 0)}
-                y1={plot.top}
-                y2={plot.top + plot.height}
-                aria-hidden="true"
-              />
-            )}
-            {days.map(
-              (day, index) =>
-                (index === 0 ||
-                  index === days.length - 1 ||
-                  index % Math.ceil(days.length / 7) === 0) && (
-                  <text
-                    key={day.date}
-                    className="usage-axis-label"
-                    x={x(index)}
-                    y={219}
-                    textAnchor="middle"
-                  >
-                    {usageDateLabel(day.date, locale)}
-                  </text>
                 ),
-            )}
-          </svg>
-          <div className="usage-plot-interaction">
-            {days.map((day, index) => (
-              <button
-                key={day.date}
-                type="button"
-                className="usage-hit-target"
-                aria-label={`${usageDateLabel(day.date, locale, true)}. ${visible.map((item) => `${item.label}: ${(item.values[index] ?? 0).toLocaleString(locale)}`).join(', ')}`}
-                onMouseEnter={() => setSelected(index)}
-                onFocus={() => setSelected(index)}
-                onClick={() => setSelected(index)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Escape') setSelected(null);
-                }}
+              )}
+              <Tooltip
+                isAnimationActive={false}
+                cursor={{ stroke: 'var(--muted)', strokeDasharray: '3 3', fill: 'var(--hover)' }}
+                content={<SelectedDay onSelect={setSelected} />}
               />
-            ))}
-          </div>
+            </ComposedChart>
+          </ResponsiveContainer>
         </div>
       </div>
-      <div className={`usage-tooltip${activeDay ? ' visible' : ''}`} aria-live="polite">
-        {activeDay ? (
-          <>
-            <strong>{usageDateLabel(activeDay.date, locale, true)}</strong>
-            <div>
-              {visible.map((item) => (
-                <span key={item.id}>
-                  <i style={{ background: item.color }} />
-                  {item.label}
-                  <b title={(item.values[selected ?? 0] ?? 0).toLocaleString(locale)}>
-                    {format(item.values[selected ?? 0] ?? 0)}
-                  </b>
-                </span>
-              ))}
-            </div>
-          </>
-        ) : (
-          <span>{t('usage.dayDetails')}</span>
-        )}
+      <div className="usage-day-details" aria-label={t('usage.dayDetails')} aria-live="polite">
+        <UsageTooltip days={days} series={visible} kind={kind} label={selected} />
       </div>
       <div
         className="usage-legend"
@@ -202,4 +135,60 @@ export function UsageChart({
       </div>
     </div>
   );
+}
+
+function UsageTooltip({
+  days,
+  series,
+  kind,
+  label,
+}: Omit<UsageChartProps, 'series'> & {
+  series: (UsageSeries & { color: string })[];
+  label?: string | number | undefined;
+}) {
+  const { locale } = useI18n();
+  const index = days.findIndex((day) => day.date === label);
+  const day = days[index];
+  if (!day) return null;
+  return (
+    <div className="usage-tooltip">
+      <strong>{usageDateLabel(day.date, locale, true)}</strong>
+      <div>
+        {series.map((item) => {
+          const value = item.values[index] ?? 0;
+          return (
+            <span key={item.id}>
+              <i style={{ background: item.color }} />
+              {item.label}
+              <b title={value.toLocaleString(locale)}>
+                {kind === 'tokens' ? formatTokens(value) : value.toLocaleString(locale)}
+              </b>
+            </span>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// Keep details outside the chart's event tree so users can scroll them without
+// moving the active day. Recharts still owns hit testing and keyboard navigation.
+function SelectedDay({
+  label,
+  onSelect,
+}: {
+  label?: string | number;
+  onSelect: (label: string | number | undefined) => void;
+}) {
+  useEffect(() => {
+    if (label !== undefined) onSelect(label);
+  }, [label, onSelect]);
+  useEffect(() => {
+    function dismiss(event: KeyboardEvent) {
+      if (event.key === 'Escape') onSelect(undefined);
+    }
+    document.addEventListener('keydown', dismiss);
+    return () => document.removeEventListener('keydown', dismiss);
+  }, [onSelect]);
+  return null;
 }
