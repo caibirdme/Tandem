@@ -146,8 +146,20 @@ impl HostedSession {
                     },
                 )?;
             }
-            "send_agent" | "prepare_agent_message" => {
-                self.prepare(command, payload).await?;
+            "send_agent" | "prepare_agent_message" | "prepare_agent_steering" => {
+                return self.prepare(command, payload).await;
+            }
+            "discard_prepared_agent_message" => {
+                let _operation = self.operation.lock().await;
+                let id = required(payload, "preparedId")?;
+                let mut submission = self.submission();
+                if submission
+                    .prepared
+                    .as_ref()
+                    .is_some_and(|(prepared_id, _)| prepared_id == id)
+                {
+                    submission.prepared = None;
+                }
             }
             "send_prepared_agent_message" => {
                 let _operation = self
@@ -178,7 +190,7 @@ impl HostedSession {
         Ok(Value::Null)
     }
 
-    async fn prepare(&self, command: &str, payload: &Value) -> Result<()> {
+    async fn prepare(&self, command: &str, payload: &Value) -> Result<Value> {
         let _operation = self
             .operation
             .try_lock()
@@ -192,7 +204,7 @@ impl HostedSession {
                 .ok_or(ServerError::InvalidBoolean { field: "fleet" })?,
             None => false,
         };
-        let id = if command == "prepare_agent_message" {
+        let id = if matches!(command, "prepare_agent_message" | "prepare_agent_steering") {
             Some(required(payload, "preparedId")?)
         } else {
             None
@@ -206,17 +218,29 @@ impl HostedSession {
         let prepared = tokio::select! {
             biased;
             () = self.cancelled_after(generation) => return Err(ServerError::PreparedMessageUnavailable),
-            result = self.agent.prepare_message(content, &selected, &attachments, fleet) => result?,
+            result = async {
+                if command == "prepare_agent_steering" {
+                    self.agent.prepare_steering(content, &selected, &attachments).await
+                } else {
+                    self.agent.prepare_message(content, &selected, &attachments, fleet).await
+                }
+            } => result?,
         };
         if let Some(id) = id {
             let mut submission = self.submission();
             if submission.generation != generation || !self.is_connected() {
                 return Err(ServerError::PreparedMessageUnavailable);
             }
+            let starts_new_turn = prepared.starts_new_turn();
             submission.prepared = Some((id.to_owned(), prepared));
-            Ok(())
+            Ok(if command == "prepare_agent_steering" {
+                json!({"startsNewTurn": starts_new_turn})
+            } else {
+                Value::Null
+            })
         } else {
-            self.send(prepared, generation).await
+            self.send(prepared, generation).await?;
+            Ok(Value::Null)
         }
     }
 
@@ -231,6 +255,19 @@ impl HostedSession {
     }
 
     async fn send(&self, prepared: PreparedMessage, generation: u64) -> Result<()> {
+        if prepared.is_steering() {
+            if self.submission().generation != generation {
+                return Err(ServerError::PreparedMessageUnavailable);
+            }
+            // Do not discard an acknowledgement after the guidance reached the
+            // SDK. Abort waits for the operation lock, then stops that work.
+            return self
+                .agent
+                .send_prepared(prepared)
+                .await
+                .map(|_| ())
+                .map_err(Into::into);
+        }
         tokio::select! {
             biased;
             () = self.cancelled_after(generation) => Err(ServerError::PreparedMessageUnavailable),

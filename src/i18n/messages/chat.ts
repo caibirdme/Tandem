@@ -1,4 +1,17 @@
 export const enChat = {
+  'chat.stagedMessages': 'Staged messages',
+  'chat.stagedHint': 'Only sent when you choose · Kept until this app closes',
+  'chat.stageMessage': 'Stage message',
+  'chat.editStaged': 'Edit staged message',
+  'chat.removeStaged': 'Remove staged message',
+  'chat.editingStaged': 'Editing staged message',
+  'chat.saveStaged': 'Save to staged messages',
+  'chat.steer': 'Steer',
+  'chat.steerHint':
+    'Submit to the current agent; takes effect at its next opportunity, without stopping a running tool.',
+  'chat.stagedUnknown':
+    'Delivery is uncertain. Check the conversation; this draft will not be sent again. If the session stays running, use Stop before continuing.',
+
   'chat.preparingRemoteEnvironment':
     'Preparing the remote environment. First-time setup may take around 10 seconds…',
   'chat.cancelPreparation': 'Cancel environment preparation',
@@ -156,6 +169,18 @@ export const enChat = {
 } as const;
 
 export const zhCNChat = {
+  'chat.stagedMessages': '暂存消息',
+  'chat.stagedHint': '仅在你主动发送时提交 · 关闭应用后清空',
+  'chat.stageMessage': '暂存消息',
+  'chat.editStaged': '编辑暂存消息',
+  'chat.removeStaged': '移除暂存消息',
+  'chat.editingStaged': '正在编辑暂存消息',
+  'chat.saveStaged': '保存到暂存区',
+  'chat.steer': '引导',
+  'chat.steerHint': '提交给当前智能体，在下一次可处理时生效，不会中断正在执行的工具。',
+  'chat.stagedUnknown':
+    '无法确认是否已提交，请先检查对话。这条暂存消息不会再次发送；若会话持续显示运行中，可点击停止后再操作。',
+
   'chat.preparingRemoteEnvironment': '正在准备远端环境，首次使用可能需要10秒左右…',
   'chat.cancelPreparation': '取消环境准备',
   'chat.messagePending': '尚未发送',

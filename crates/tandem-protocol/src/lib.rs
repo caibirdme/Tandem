@@ -60,8 +60,8 @@ pub enum ProtocolError {
 pub const MAX_FRAME_BYTES: usize = 32 * 1024 * 1024;
 
 /// Version of the remote daemon's connection and session ownership contract.
-/// Version 4 forwards per-call token usage and skill invocation events.
-pub const PROTOCOL_VERSION: u32 = 4;
+/// Version 5 adds prepared steering messages for active sessions.
+pub const PROTOCOL_VERSION: u32 = 5;
 
 /// One request; its numeric identifier correlates an eventual response.
 #[derive(Deserialize, Serialize)]

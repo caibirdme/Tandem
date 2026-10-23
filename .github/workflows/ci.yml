@@ -178,6 +178,7 @@ jobs:
       - run: python tests/provider_models_e2e.py
       - run: python tests/usage_dashboard_e2e.py
       - run: python tests/runtime_e2e.py
+      - run: python tests/steering_acceptance.py
       - run: python tests/agentlens_e2e.py
       - run: python tests/grpc_e2e.py
       - run: python tests/review_acceptance.py

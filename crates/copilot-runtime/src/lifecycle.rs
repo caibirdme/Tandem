@@ -41,6 +41,30 @@ impl SessionLifecycle {
         result
     }
 
+    /// Reserve an idle session, but leave an existing turn intact.
+    pub(crate) fn begin_steering(&self) -> Result<bool> {
+        let mut result = Ok(false);
+        self.phase.send_if_modified(|phase| match phase {
+            Phase::Idle => {
+                *phase = Phase::Running;
+                result = Ok(true);
+                true
+            }
+            Phase::Running => false,
+            Phase::Disconnected => {
+                result = Err(Error::Disconnected);
+                false
+            }
+        });
+        result
+    }
+
+    /// The runtime may start another turn after an immediate message falls back
+    /// to its queue. Never revive a disconnected session on a late event.
+    pub(crate) fn observe_running(&self) {
+        let _ = self.begin_steering();
+    }
+
     pub(crate) fn finish_turn(&self) {
         self.phase.send_if_modified(|phase| {
             if *phase == Phase::Running {
@@ -92,6 +116,25 @@ mod tests {
         assert!(!lifecycle.is_connected());
         assert!(matches!(lifecycle.begin_turn(), Err(Error::Disconnected)));
         assert!(!lifecycle.disconnect());
+        Ok(())
+    }
+
+    #[test]
+    fn steering_and_late_turn_start_preserve_lifecycle_boundaries() -> Result<()> {
+        let lifecycle = SessionLifecycle::new();
+        assert!(lifecycle.begin_steering()?);
+        assert!(!lifecycle.begin_steering()?);
+        lifecycle.finish_turn();
+        lifecycle.observe_running();
+        assert!(lifecycle.is_running());
+        assert!(matches!(lifecycle.begin_turn(), Err(Error::Busy)));
+        lifecycle.disconnect();
+        lifecycle.observe_running();
+        assert!(!lifecycle.is_connected());
+        assert!(matches!(
+            lifecycle.begin_steering(),
+            Err(Error::Disconnected)
+        ));
         Ok(())
     }
 

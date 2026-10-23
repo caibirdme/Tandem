@@ -64,6 +64,10 @@ integration:
     cargo build -p tandem-dev-server
     {{python}} tests/runtime_e2e.py
 
+# Verify in-flight steering with the real SDK and local synthetic inference.
+integration-steering: build-server
+    {{python}} tests/steering_acceptance.py
+
 # Verify AgentLens field mapping, content capture, credentials, retries, and remote export.
 integration-agentlens: build-server
     {{python}} tests/agentlens_e2e.py

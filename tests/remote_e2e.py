@@ -39,7 +39,6 @@ from fleet_acceptance import check_fleet, check_stdio_fleet
 from credential_checks import require_local_secret, require_provider_key, scan_for_key
 from inference_fixture import (
     FIXTURE_KEY,
-    Fixture,
     handler_for,
     json_span_names,
     require,
@@ -57,6 +56,7 @@ from reasoning_acceptance import (
     wire_effort,
 )
 from skill_acceptance import check_project_skills, check_stdio_skills
+from steering_acceptance import SteeringFixture, check_local as check_steering_flow
 from attachment_acceptance import check_attachments, check_stdio_attachments
 from remote_protocol import (
     StdioServer,
@@ -842,6 +842,7 @@ def check_ssh(remote_server, dev_server, root, endpoint, fixture):
             app, fixture, provider, workspace / 'review-project', ssh.connection,
         )
         app.command('delete_session', sessionId=review_session['id'])
+        check_steering_flow(app, fixture, provider, project, tool=True)
         app.command('save_preferences', telemetry={'enabled': False, 'endpoint': '',
                     'protocol': 'http/json', 'captureContent': False}, cliPath=None)
         require(any(path == '/v1/traces' and 'json' in content_type and json_span_names(body)
@@ -888,7 +889,7 @@ def main():
         remote_server, dev_server = stage_binaries(remote_server, dev_server, root)
         workspace = root / 'fixture-project'
         workspace.mkdir()
-        fixture = Fixture(workspace)
+        fixture = SteeringFixture(workspace)
         endpoint = ThreadingHTTPServer(('127.0.0.1', 0), handler_for(fixture))
         threading.Thread(target=endpoint.serve_forever, daemon=True).start()
         endpoint_url = f'http://127.0.0.1:{endpoint.server_port}'
@@ -902,7 +903,7 @@ def main():
             if not arguments.skip_ssh:
                 require(os.name == 'posix', 'Use --skip-ssh on hosts without a POSIX SSH daemon')
                 check_ssh(remote_server, dev_server, root, endpoint_url, fixture)
-                checks.append('OpenSSH: strict host trust, key rejection, concurrent atomic deployments share one daemon and CLI, same-version changed-byte deployment preserves existing connections and reuses matching artifacts, literal directories, Fleet opt-in and isolated worker traces/permissions/cancellation, image/text attachments, grouped tool activity, confirmed skill selection metadata, repeated skill discovery reuses idle work without new SSH connections, remote tools, reconnect/resume, native thinking history and cancellation, core session reasoning changes, pending approval, native-default reset with complete history, and immutable workspace/session/turn reviews including agent commits and cancellation')
+                checks.append('OpenSSH: strict host trust, key rejection, concurrent atomic deployments share one daemon and CLI, same-version changed-byte deployment preserves existing connections and reuses matching artifacts, literal directories, Fleet opt-in and isolated worker traces/permissions/cancellation, image/text attachments, grouped tool activity, confirmed skill selection metadata, repeated skill discovery reuses idle work without new SSH connections, remote tools, reconnect/resume, native thinking history and cancellation, core session reasoning changes, pending approval, native-default reset with complete history, and immutable workspace/session/turn reviews including agent commits and cancellation; active-tool steering, pending attachment persistence, duplicate rejection, and idle fallback')
             print(json.dumps({'result': 'passed', 'checks': checks, 'inferenceRequests': len(fixture.requests),
                               'telemetryExports': len(fixture.exports)}, indent=2))
         finally:

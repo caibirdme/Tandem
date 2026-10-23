@@ -14,6 +14,9 @@ import {
   Lightbulb,
   LockKeyhole,
   Paperclip,
+  Pencil,
+  Send,
+  X,
   Plus,
   Server,
   ShieldCheck,
@@ -27,7 +30,7 @@ import { lazy, Suspense, useEffect, useId, useRef, useState, useSyncExternalStor
 
 import { useProjectSkills } from '../hooks/useProjectSkills';
 import { useI18n } from '../i18n';
-import { errorMessage } from '../lib/api';
+import { CommandError, errorMessage } from '../lib/api';
 import { createAttachmentDraft, filesFromTransfer, hasFileTransfer } from '../lib/attachments';
 import type { Conversation } from '../lib/conversation';
 import { supportedReasoningEffort } from '../lib/reasoningEffort';
@@ -40,6 +43,8 @@ import {
   skillPickerKey,
 } from '../lib/skillMentions';
 import type { SkillDraft, SkillInputEdit } from '../lib/skillMentions';
+import { createStagedMessages } from '../lib/stagedMessages';
+import type { StagedMessage, StagedMessages } from '../lib/stagedMessages';
 import { groupThinkingMessages } from '../lib/thinkingMessages';
 import type {
   AttachmentInput,
@@ -91,6 +96,13 @@ interface ChatProps {
     attachments: AttachmentInput[],
     fleet: boolean,
   ) => Promise<void>;
+  stagedMessages?: StagedMessages;
+  onSteer?: (
+    messageId: string,
+    content: string,
+    skills: SelectedSkill[],
+    attachments: AttachmentInput[],
+  ) => Promise<void>;
   onAbort: () => void;
   onPermission: (requestId: string, approved: boolean) => Promise<void>;
   connected: boolean;
@@ -102,6 +114,15 @@ interface ChatProps {
 
 export function Chat(props: ChatProps) {
   const { t } = useI18n();
+  const [ownStagedMessages] = useState(createStagedMessages);
+  const stagedMessages = props.stagedMessages ?? ownStagedMessages;
+  const stagedSnapshot = useSyncExternalStore(
+    stagedMessages.subscribe,
+    stagedMessages.getSnapshot,
+    stagedMessages.getSnapshot,
+  );
+  const staged = props.session ? (stagedSnapshot.get(props.session.id) ?? []) : [];
+  const [editingStagedId, setEditingStagedId] = useState<string | null>(null);
   const [skillDraft, setSkillDraft] = useState<SkillDraft>({ text: '', mentions: [] });
   const [attachmentDraft] = useState(() => createAttachmentDraft());
   const attachments = useSyncExternalStore(
@@ -237,6 +258,7 @@ export function Chat(props: ChatProps) {
     currentModel &&
     props.connected &&
     !running &&
+    !staged.some((item) => item.status === 'sending') &&
     !props.historyLoading &&
     !props.permissionModeSaving &&
     !props.permissionModeError &&
@@ -245,6 +267,29 @@ export function Chat(props: ChatProps) {
     !props.reasoningEffortSaving &&
     !props.reasoningEffortError &&
     props.conversation.permissions.length === 0,
+  );
+
+  const staging = Boolean(editingStagedId || (running && props.session));
+  const canSubmit = staging
+    ? Boolean(
+        (draft.trim() || attachments.items.length) &&
+        attachments.items.every((item) => item.status === 'ready') &&
+        !uploading,
+      )
+    : canSend;
+  const canDeliverStaged = Boolean(
+    props.onSteer &&
+    props.connected &&
+    !props.historyLoading &&
+    !props.sending &&
+    !props.conversation.preparing &&
+    !props.modelSaving &&
+    !props.modelError &&
+    !props.reasoningEffortSaving &&
+    !props.reasoningEffortError &&
+    !props.permissionModeSaving &&
+    !props.permissionModeError &&
+    !staged.some((item) => item.status === 'sending'),
   );
 
   useEffect(() => {
@@ -337,8 +382,47 @@ export function Chat(props: ChatProps) {
   }, [draft]);
 
   async function submit() {
-    if (!canSend || submitting.current) return;
+    if (!canSubmit || submitting.current) return;
+    if (staging && props.session) {
+      const inputs = attachments.items.flatMap((item) => (item.input ? [item.input] : []));
+      stagedMessages.save(props.session.id, skillDraft, inputs, editingStagedId ?? undefined);
+      setEditingStagedId(null);
+      setSkillDraft({ text: '', mentions: [] });
+      attachmentDraft.remove(attachments.items.map((item) => item.id));
+      setLocalError(null);
+      return;
+    }
     await sendDraft(skillDraft);
+  }
+  function editStaged(item: StagedMessage) {
+    if (item.status !== 'ready' || draft || attachments.items.length) return;
+    setEditingStagedId(item.id);
+    setSkillDraft(item.draft);
+    attachmentDraft.restore(item.attachments);
+    textarea.current?.focus();
+  }
+  function cancelStagedEdit() {
+    setEditingStagedId(null);
+    setSkillDraft({ text: '', mentions: [] });
+    attachmentDraft.remove(attachments.items.map((item) => item.id));
+  }
+  async function deliverStaged(item: StagedMessage) {
+    const sessionId = props.session?.id;
+    if (!sessionId || !props.onSteer || !canDeliverStaged || editingStagedId === item.id) return;
+    const accepted = stagedMessages.begin(sessionId, item.id);
+    if (!accepted) return;
+    try {
+      await props.onSteer(
+        item.id,
+        item.draft.text.trim(),
+        props.project ? selectedSkills(item.draft) : [],
+        item.attachments,
+      );
+      stagedMessages.remove(sessionId, item.id);
+    } catch (reason) {
+      const uncertain = !(reason instanceof CommandError) || reason.code === 'delivery_unknown';
+      stagedMessages.fail(sessionId, item.id, errorMessage(reason), uncertain);
+    }
   }
   async function sendDraft(savedDraft: SkillDraft) {
     if (submitting.current) return;
@@ -790,6 +874,76 @@ export function Chat(props: ChatProps) {
             </button>
           </div>
         )}
+        {staged.length > 0 && (
+          <section className="staged-messages" aria-label={t('chat.stagedMessages')}>
+            <div className="staged-heading">
+              <span>{t('chat.stagedMessages')}</span>
+              <span>{t('chat.stagedHint')}</span>
+            </div>
+            {staged.map((item) => (
+              <div className="staged-message" key={item.id} aria-busy={item.status === 'sending'}>
+                <div className="staged-content">
+                  <p>{item.draft.text || t('chat.attachments')}</p>
+                  {item.attachments.length > 0 && (
+                    <small>
+                      {item.attachments.map((attachment) => attachment.name).join(', ')}
+                    </small>
+                  )}
+                  {item.error && (
+                    <div className="staged-error" role="alert">
+                      {item.error}
+                    </div>
+                  )}
+                  {item.status === 'uncertain' && (
+                    <div className="staged-error">{t('chat.stagedUnknown')}</div>
+                  )}
+                </div>
+                <div className="staged-actions">
+                  <button
+                    type="button"
+                    className="icon-button"
+                    aria-label={t('chat.editStaged')}
+                    title={t('chat.editStaged')}
+                    disabled={
+                      item.status !== 'ready' ||
+                      Boolean(draft) ||
+                      attachments.items.length > 0 ||
+                      editingStagedId !== null
+                    }
+                    onClick={() => editStaged(item)}
+                  >
+                    <Pencil size={14} />
+                  </button>
+                  <button
+                    type="button"
+                    className="staged-steer"
+                    disabled={
+                      item.status !== 'ready' || !canDeliverStaged || editingStagedId === item.id
+                    }
+                    title={t('chat.steerHint')}
+                    onClick={() => {
+                      void deliverStaged(item);
+                    }}
+                  >
+                    {item.status === 'sending' ? <Spinner size={13} /> : <Send size={13} />}
+                    {t(running ? 'chat.steer' : 'chat.sendMessage')}
+                  </button>
+                  <button
+                    type="button"
+                    className="icon-button"
+                    aria-label={t('chat.removeStaged')}
+                    disabled={item.status === 'sending' || editingStagedId === item.id}
+                    onClick={() => {
+                      if (props.session) stagedMessages.remove(props.session.id, item.id);
+                    }}
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </section>
+        )}
         <form
           ref={composer}
           className={`composer ${running ? 'composer-running' : ''} ${dragging ? 'composer-dragging' : ''}`}
@@ -798,6 +952,14 @@ export function Chat(props: ChatProps) {
             void submit();
           }}
         >
+          {editingStagedId && (
+            <div className="staged-editing">
+              <span>{t('chat.editingStaged')}</span>
+              <button type="button" className="text-button" onClick={cancelStagedEdit}>
+                {t('common.cancel')}
+              </button>
+            </div>
+          )}
           {dragging && <div className="attachment-drop-hint">{t('chat.dropAttachments')}</div>}
           <DraftAttachments
             items={attachments.items}
@@ -1014,23 +1176,34 @@ export function Chat(props: ChatProps) {
                 <Spinner />
               </button>
             ) : running ? (
-              <button
-                className="send-button stop-button"
-                type="button"
-                aria-label={t(
-                  props.conversation.preparing ? 'chat.cancelPreparation' : 'chat.stopResponse',
-                )}
-                disabled={!props.connected}
-                onClick={props.onAbort}
-              >
-                <Square size={14} fill="currentColor" />
-              </button>
+              <div className="composer-send-actions">
+                <button
+                  className="send-button"
+                  type="submit"
+                  disabled={!canSubmit}
+                  aria-label={t(editingStagedId ? 'chat.saveStaged' : 'chat.stageMessage')}
+                  title={t(editingStagedId ? 'chat.saveStaged' : 'chat.stageMessage')}
+                >
+                  <ArrowUp size={19} strokeWidth={2.4} />
+                </button>
+                <button
+                  className="send-button stop-button"
+                  type="button"
+                  aria-label={t(
+                    props.conversation.preparing ? 'chat.cancelPreparation' : 'chat.stopResponse',
+                  )}
+                  disabled={!props.connected}
+                  onClick={props.onAbort}
+                >
+                  <Square size={14} fill="currentColor" />
+                </button>
+              </div>
             ) : (
               <button
                 className="send-button"
                 type="submit"
-                disabled={!canSend}
-                aria-label={t('chat.sendMessage')}
+                disabled={!canSubmit}
+                aria-label={t(editingStagedId ? 'chat.saveStaged' : 'chat.sendMessage')}
               >
                 <ArrowUp size={19} strokeWidth={2.4} />
               </button>

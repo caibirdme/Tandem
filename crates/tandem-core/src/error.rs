@@ -128,6 +128,12 @@ pub enum Error {
     SubmissionCanceled,
     #[error("This message is already recorded. Review the conversation before sending again.")]
     MessageAlreadyRecorded,
+    #[error(
+        "Delivery could not be confirmed. Check the conversation before sending this message again."
+    )]
+    SteeringDeliveryUnknown(#[source] Box<Error>),
+    #[error("This message was already recorded. Its delivery cannot be retried safely.")]
+    SteeringAlreadyRecorded,
     #[error("The session was disconnected, and this permission request is no longer valid.")]
     PermissionSessionDisconnected,
     #[error("The runtime event stream was interrupted: {0}")]
@@ -187,6 +193,7 @@ pub enum ErrorCode {
     Conflict,
     Unavailable,
     Internal,
+    DeliveryUnknown,
 }
 
 impl From<tandem_remote::RpcErrorCode> for ErrorCode {
@@ -236,6 +243,9 @@ impl Error {
     #[must_use]
     pub fn code(&self) -> ErrorCode {
         match self {
+            Self::SteeringDeliveryUnknown(_) | Self::SteeringAlreadyRecorded => {
+                ErrorCode::DeliveryUnknown
+            }
             Self::DirectoryUnavailable(source) if source.kind() == std::io::ErrorKind::NotFound => {
                 ErrorCode::NotFound
             }
@@ -392,6 +402,8 @@ fn runtime_error_code(error: &copilot_runtime::Error) -> ErrorCode {
         RuntimeError::Sdk(_)
         | RuntimeError::Io(_)
         | RuntimeError::Disconnected
+        | RuntimeError::SubmissionTaskStopped(_)
+        | RuntimeError::MissingMessageAcknowledgement
         | RuntimeError::FleetToolsRejected
         | RuntimeError::FleetNotStarted
         | RuntimeError::StartupTimeout

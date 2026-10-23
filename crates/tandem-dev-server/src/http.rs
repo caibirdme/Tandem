@@ -121,7 +121,7 @@ fn error_status(code: ErrorCode) -> StatusCode {
         ErrorCode::InvalidInput => StatusCode::BAD_REQUEST,
         ErrorCode::NotFound => StatusCode::NOT_FOUND,
         ErrorCode::Conflict => StatusCode::CONFLICT,
-        ErrorCode::Unavailable => StatusCode::SERVICE_UNAVAILABLE,
+        ErrorCode::Unavailable | ErrorCode::DeliveryUnknown => StatusCode::SERVICE_UNAVAILABLE,
         ErrorCode::Internal => StatusCode::INTERNAL_SERVER_ERROR,
     }
 }

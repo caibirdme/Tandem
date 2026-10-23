@@ -96,6 +96,12 @@ describe('typed command failures', () => {
     );
   });
 
+  it('preserves delivery uncertainty as a distinct command error', () => {
+    expect(
+      commandError({ code: 'delivery_unknown', error: 'Check the conversation' }),
+    ).toMatchObject({ name: 'CommandError', code: 'delivery_unknown' });
+  });
+
   it('does not treat unrecognized response codes as valid command failures', () => {
     const original = new Error('Connection failed');
     expect(commandError(original)).toBe(original);

@@ -593,3 +593,330 @@ async fn force_stop_releases_sessions_after_graceful_detach_is_cancelled() -> Te
     .await??;
     Ok(())
 }
+
+#[tokio::test]
+async fn steering_preserves_an_active_turn_and_uses_immediate_delivery() -> TestResult {
+    for work in [false, true] {
+        let directory = TestDirectory::new()?;
+        let canonical = std::fs::canonicalize(&directory.0)?;
+        let skill = canonical.join(".agents/skills/review/SKILL.md");
+        std::fs::create_dir_all(skill.parent().ok_or("skill directory")?)?;
+        std::fs::write(&skill, "Review the attached file.")?;
+        let skill_path = skill.to_string_lossy().into_owned();
+        let selected = if work {
+            vec![SkillSelection {
+                name: "review".into(),
+                path: skill_path.clone(),
+            }]
+        } else {
+            Vec::new()
+        };
+        let (client_writer, reader) = duplex(65_536);
+        let (writer, client_reader) = duplex(65_536);
+        let runtime = Runtime {
+            telemetry_export: None,
+            client: Client::from_streams(client_reader, client_writer, canonical.clone())?,
+            chat_directory: canonical.clone(),
+        };
+        let mut server = SdkServer {
+            reader: BufReader::new(reader),
+            writer,
+        };
+        let submit = tokio::spawn(async move {
+            let session = runtime
+                .create_session(session_options(canonical, work))
+                .await?;
+            session.lifecycle.begin_turn()?;
+            // A steering send must not reconfigure an active Fleet's tool set.
+            session.fleet_enabled.store(true, Ordering::Release);
+            let attachment = MessageAttachment::from_bytes("note.txt", "text/plain", b"context");
+            let prepared = session
+                .prepare_steering("Use the existing file", &selected, &[attachment])
+                .await?;
+            assert!(prepared.is_steering());
+            assert!(matches!(
+                session.prepare_steering("Duplicate", &[], &[]).await,
+                Err(Error::Busy)
+            ));
+            assert_eq!(session.send_prepared(prepared).await?, "steering-message");
+            assert!(session.lifecycle.is_running());
+            assert!(session.fleet_enabled.load(Ordering::Acquire));
+            assert!(matches!(
+                session.send("ordinary send").await,
+                Err(Error::Busy)
+            ));
+            let failed = session
+                .prepare_steering("Rejected guidance", &selected, &[])
+                .await?;
+            assert!(matches!(
+                session.send_prepared(failed).await,
+                Err(Error::Sdk(_))
+            ));
+            assert!(
+                session.lifecycle.is_running(),
+                "failed steering must not finish the original turn"
+            );
+            session.disconnect().await?;
+            Ok::<_, Error>(())
+        });
+        server
+            .reply("session.create", json!({"sessionId":"attachment-session"}))
+            .await?;
+        if work {
+            serve_skill(&mut server, &skill_path).await?;
+        }
+        let send = server
+            .reply("session.send", json!({"messageId":"steering-message"}))
+            .await?;
+        assert_eq!(send["params"]["mode"], "immediate");
+        assert_eq!(send["params"]["attachments"][0]["data"], "Y29udGV4dA==");
+        if work {
+            serve_skill(&mut server, &skill_path).await?;
+        }
+        let rejected = server.request("session.send").await?;
+        assert_eq!(rejected["params"]["mode"], "immediate");
+        server
+            .respond_error(
+                &rejected,
+                json!({"code":-32603,"message":"Fixture rejection"}),
+            )
+            .await?;
+        server
+            .reply("session.detach", json!({"success":true}))
+            .await?;
+        submit.await??;
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn queued_steering_fallback_observes_the_next_runtime_turn() -> TestResult {
+    let directory = TestDirectory::new()?;
+    let (client_writer, reader) = duplex(65_536);
+    let (writer, client_reader) = duplex(65_536);
+    let runtime = Runtime {
+        telemetry_export: None,
+        client: Client::from_streams(client_reader, client_writer, directory.0.clone())?,
+        chat_directory: directory.0.clone(),
+    };
+    let mut server = SdkServer {
+        reader: BufReader::new(reader),
+        writer,
+    };
+    let (running_seen, running_observed) = tokio::sync::oneshot::channel();
+    let submit = tokio::spawn(async move {
+        let session = runtime
+            .create_session(session_options(directory.0.clone(), false))
+            .await?;
+        let mut events = session.subscribe();
+        session.lifecycle.begin_turn()?;
+        let prepared = session
+            .prepare_steering("Continue with this guidance", &[], &[])
+            .await?;
+        session.send_prepared(prepared).await?;
+        let running = events.recv().await?;
+        assert_eq!(
+            running.data["state"], "running",
+            "old idle must be held while guidance is pending"
+        );
+        assert!(session.lifecycle.is_running());
+        assert!(matches!(
+            session.send("Do not overlap").await,
+            Err(Error::Busy)
+        ));
+        let _ = running_seen.send(());
+        let idle = events.recv().await?;
+        assert_eq!(idle.data["state"], "idle");
+        assert!(!session.lifecycle.is_running());
+        session.disconnect().await?;
+        Ok::<_, Box<dyn std::error::Error + Send + Sync>>(())
+    });
+    server
+        .reply("session.create", json!({"sessionId":"attachment-session"}))
+        .await?;
+    server
+        .reply("session.send", json!({"messageId":"guidance"}))
+        .await?;
+    server
+        .write_response(json!({
+            "jsonrpc":"2.0", "method":"session.event",
+            "params":{"sessionId":"attachment-session","event":{
+                "id":"old-idle","timestamp":"2026-10-23T00:00:00Z",
+                "type":"session.idle","data":{},
+            }},
+        }))
+        .await?;
+    server
+        .write_response(json!({
+            "jsonrpc":"2.0", "method":"session.event",
+            "params":{"sessionId":"attachment-session","event":{
+                "id":"consumed","timestamp":"2026-10-23T00:00:01Z",
+                "type":"user.message","data":{"messageId":"guidance","content":"Guidance"},
+            }},
+        }))
+        .await?;
+    server
+        .write_response(json!({
+            "jsonrpc":"2.0", "method":"session.event",
+            "params":{"sessionId":"attachment-session","event":{
+                "id":"new-turn","timestamp":"2026-10-23T00:00:01Z",
+                "type":"assistant.turn_start","data":{"turnId":"next-turn"},
+            }},
+        }))
+        .await?;
+    tokio::time::timeout(Duration::from_secs(5), running_observed).await??;
+    server
+        .write_response(json!({
+            "jsonrpc":"2.0", "method":"session.event",
+            "params":{"sessionId":"attachment-session","event":{
+                "id":"final-idle","timestamp":"2026-10-23T00:00:02Z",
+                "type":"session.idle","data":{},
+            }},
+        }))
+        .await?;
+    server
+        .reply("session.detach", json!({"success":true}))
+        .await?;
+    submit.await??;
+    Ok(())
+}
+
+#[tokio::test]
+async fn canceled_steering_caller_still_processes_the_sdk_acknowledgement() -> TestResult {
+    let directory = TestDirectory::new()?;
+    let (client_writer, reader) = duplex(65_536);
+    let (writer, client_reader) = duplex(65_536);
+    let runtime = Runtime {
+        telemetry_export: None,
+        client: Client::from_streams(client_reader, client_writer, directory.0.clone())?,
+        chat_directory: directory.0.clone(),
+    };
+    let mut server = SdkServer {
+        reader: BufReader::new(reader),
+        writer,
+    };
+    let (session, created) = tokio::join!(
+        runtime.create_session(session_options(directory.0.clone(), false)),
+        server.reply("session.create", json!({"sessionId":"attachment-session"})),
+    );
+    created?;
+    let session = std::sync::Arc::new(session?);
+    let mut events = session.subscribe();
+    session.lifecycle.begin_turn()?;
+    let prepared = session
+        .prepare_steering("Accepted guidance", &[], &[])
+        .await?;
+    let sender = session.clone();
+    let caller = tokio::spawn(async move { sender.send_prepared(prepared).await });
+    let request = server.request("session.send").await?;
+    caller.abort();
+    assert!(caller.await.is_err());
+    server
+        .respond(&request, json!({"messageId":"accepted"}))
+        .await?;
+    for (kind, data) in [
+        (
+            "user.message",
+            json!({"messageId":"accepted","content":"Accepted guidance"}),
+        ),
+        ("session.idle", json!({})),
+    ] {
+        server
+            .write_response(json!({
+                "jsonrpc":"2.0", "method":"session.event",
+                "params":{"sessionId":"attachment-session","event":{
+                    "id":kind,"timestamp":"2026-10-23T00:00:00Z","type":kind,"data":data,
+                }},
+            }))
+            .await?;
+    }
+    let idle = tokio::time::timeout(Duration::from_secs(5), events.recv()).await??;
+    assert_eq!(idle.data["state"], "idle");
+    assert!(!session.lifecycle.is_running());
+    // The owned send must also release its submission reservation after ack.
+    drop(tokio::time::timeout(Duration::from_secs(5), session.submission.lock()).await?);
+    let next = session
+        .prepare_message("Next ordinary message", &[], &[], false)
+        .await?;
+    drop(next);
+    let (detached, response) = tokio::join!(
+        session.disconnect(),
+        server.reply("session.detach", json!({"success":true})),
+    );
+    detached?;
+    response?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn malformed_steering_ack_stays_uncertain_until_explicit_stop() -> TestResult {
+    let directory = TestDirectory::new()?;
+    let (client_writer, reader) = duplex(65_536);
+    let (writer, client_reader) = duplex(65_536);
+    let runtime = Runtime {
+        telemetry_export: None,
+        client: Client::from_streams(client_reader, client_writer, directory.0.clone())?,
+        chat_directory: directory.0.clone(),
+    };
+    let mut server = SdkServer {
+        reader: BufReader::new(reader),
+        writer,
+    };
+    let (session, created) = tokio::join!(
+        runtime.create_session(session_options(directory.0.clone(), false)),
+        server.reply("session.create", json!({"sessionId":"attachment-session"})),
+    );
+    created?;
+    let session = session?;
+    session.lifecycle.begin_turn()?;
+    let prepared = session.prepare_steering("Guidance", &[], &[]).await?;
+    let (sent, response) = tokio::join!(
+        session.send_prepared(prepared),
+        server.reply("session.send", json!({})),
+    );
+    response?;
+    assert!(matches!(sent, Err(Error::MissingMessageAcknowledgement)));
+    assert!(session.lifecycle.is_running());
+    assert!(matches!(
+        session
+            .prepare_steering("Do not replace uncertainty", &[], &[])
+            .await,
+        Err(Error::Busy)
+    ));
+    assert!(matches!(
+        session.send("Do not retry blindly").await,
+        Err(Error::Busy)
+    ));
+    let (stopped, response) = tokio::join!(session.abort(), async {
+        server.reply("session.abort", json!({})).await?;
+        server
+            .write_response(json!({
+                "jsonrpc":"2.0", "method":"session.event",
+                "params":{"sessionId":"attachment-session","event":{
+                    "id":"aborted","timestamp":"2026-10-23T00:00:00Z",
+                    "type":"session.idle","data":{"aborted":true},
+                }},
+            }))
+            .await
+    });
+    stopped?;
+    response?;
+    assert!(!session.lifecycle.is_running());
+    drop(
+        session
+            .prepare_steering("Guidance after stop", &[], &[])
+            .await?,
+    );
+    drop(
+        session
+            .prepare_message("After stop", &[], &[], false)
+            .await?,
+    );
+    let (detached, response) = tokio::join!(
+        session.disconnect(),
+        server.reply("session.detach", json!({"success":true})),
+    );
+    detached?;
+    response?;
+    Ok(())
+}
