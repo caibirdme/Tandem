@@ -163,6 +163,8 @@ export function reduceEvent(state: Conversation, event: RuntimeEvent): Conversat
     case 'title':
     case 'title_error':
     case 'context_usage':
+    case 'usage_updated':
+    case 'usage_error':
     case 'review_updated':
     case 'review_invalidated':
       return state;

@@ -7,6 +7,8 @@ use crate::{SecretError, StorageError, model::ValidationError};
 /// Application failures retain their domain and original cause until the transport boundary.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
+    #[error("Select 7, 14, or 30 consecutive local calendar days.")]
+    InvalidUsageRange,
     #[error(transparent)]
     ModelDiscovery(#[from] crate::ModelDiscoveryError),
     #[error(transparent)]
@@ -247,6 +249,7 @@ impl Error {
             | Self::InvalidProviderId(_)
             | Self::ProjectPathNotDirectory
             | Self::SshConnectionRequired
+            | Self::InvalidUsageRange
             | Self::ChatPermissionMode
             | Self::WorkSessionRequired
             | Self::InvalidMessage

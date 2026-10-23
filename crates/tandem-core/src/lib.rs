@@ -22,6 +22,7 @@ mod submissions;
 mod telemetry;
 mod titles;
 mod turns;
+pub mod usage;
 mod vault;
 
 pub use app::{App, AppOptions};

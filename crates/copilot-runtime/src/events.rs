@@ -19,6 +19,9 @@ pub enum EventKind {
     Status,
     #[serde(rename = "context_usage")]
     ContextUsage,
+    Usage,
+    #[serde(rename = "skill_usage")]
+    SkillUsage,
     Error,
 }
 
@@ -105,6 +108,14 @@ impl RuntimeEvent {
                 }
                 (EventKind::Status, data)
             }
+            "assistant.usage" => (EventKind::Usage, inference_usage(&event.data)?),
+            "skill.invoked" | "skill.invoked_ref" => {
+                if event.data["trigger"] == "context-load" {
+                    return None;
+                }
+                let name = bounded_name(event.data.get("name")?)?;
+                (EventKind::SkillUsage, json!({"skillName":name}))
+            }
             "session.usage_info" => {
                 let mut usage = ContextUsage::from_data(event.data)?;
                 // The SDK reports the prompt budget after reserving output tokens.
@@ -134,6 +145,8 @@ impl RuntimeEvent {
                 | EventKind::Intent
                 | EventKind::Tool
                 | EventKind::Agent
+                | EventKind::Usage
+                | EventKind::SkillUsage
         ) {
             data["eventId"] = json!(event.id);
             data["timestamp"] = json!(event.timestamp);
@@ -147,6 +160,36 @@ impl RuntimeEvent {
             data,
         })
     }
+}
+
+/// Usage is per inference call, not the current context-window size. Cache detail
+/// counters are intentionally not added to the SDK's reported input/output sum.
+fn inference_usage(data: &Value) -> Option<Value> {
+    const MAX_SAFE_INTEGER: i64 = 9_007_199_254_740_991;
+    let model = bounded_name(data.get("model")?)?;
+    if data.get("inputTokens").is_none_or(Value::is_null)
+        && data.get("outputTokens").is_none_or(Value::is_null)
+    {
+        return None;
+    }
+    let count = |field: &str| {
+        let value = match data.get(field) {
+            None | Some(Value::Null) => 0,
+            Some(value) => value.as_i64()?,
+        };
+        (0..=MAX_SAFE_INTEGER).contains(&value).then_some(value)
+    };
+    let input = count("inputTokens")?;
+    let output = count("outputTokens")?;
+    if input.checked_add(output)? > MAX_SAFE_INTEGER {
+        return None;
+    }
+    Some(json!({"model":model,"inputTokens":input,"outputTokens":output}))
+}
+
+fn bounded_name(value: &Value) -> Option<&str> {
+    let name = value.as_str()?.trim();
+    (!name.is_empty() && name.len() <= 256).then_some(name)
 }
 
 fn child_session_event(event: &SessionEvent) -> bool {
@@ -182,6 +225,85 @@ fn assistant_message_data(event: &SessionEvent) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn inference_usage_is_whitelisted_and_keeps_child_call_identity()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let sdk = serde_json::from_value(json!({
+            "id":"usage-child", "timestamp":"2026-10-22T00:00:00Z",
+            "type":"assistant.usage", "agentId":"worker-1",
+            "data":{"model":"actual-model","inputTokens":100,"outputTokens":20,
+                "cacheReadTokens":80,"cacheWriteTokens":10,"secret":"not forwarded"},
+        }))?;
+        let event =
+            RuntimeEvent::from_sdk("parent", sdk, 200_000).ok_or("valid usage was discarded")?;
+        assert_eq!(event.kind, EventKind::Usage);
+        assert_eq!(
+            event.data,
+            json!({"model":"actual-model","inputTokens":100,
+            "outputTokens":20,"eventId":"usage-child","timestamp":"2026-10-22T00:00:00Z",
+            "agentId":"worker-1"})
+        );
+        assert!(!event.ends_turn());
+        Ok(())
+    }
+
+    #[test]
+    fn inference_usage_rejects_invalid_counts_without_inventing_missing_usage() {
+        for data in [
+            json!({"model":"model"}),
+            json!({"model":"model","inputTokens":null,"outputTokens":null}),
+            json!({"model":"model","inputTokens":-1}),
+            json!({"model":"model","inputTokens":1.5}),
+            json!({"model":"model","inputTokens":"20"}),
+            json!({"model":"model","inputTokens":9_007_199_254_740_992_i64}),
+            json!({"model":"model","inputTokens":9_007_199_254_740_991_i64,"outputTokens":1}),
+            json!({"model":" ","inputTokens":1}),
+            json!({"inputTokens":1}),
+        ] {
+            assert!(inference_usage(&data).is_none(), "{data}");
+        }
+        assert_eq!(
+            inference_usage(&json!({"model":"model","outputTokens":12})),
+            Some(json!({"model":"model","inputTokens":0,"outputTokens":12}))
+        );
+        assert_eq!(
+            inference_usage(&json!({"model":"model","inputTokens":0})),
+            Some(json!({"model":"model","inputTokens":0,"outputTokens":0}))
+        );
+    }
+
+    #[test]
+    fn skills_count_invocations_not_context_delivery_or_preloads() -> Result<(), serde_json::Error>
+    {
+        for (kind, trigger, expected) in [
+            ("skill.invoked", Some("user-invoked"), true),
+            ("skill.invoked", Some("agent-invoked"), true),
+            ("skill.invoked", None, true),
+            ("skill.invoked_ref", Some("agent-invoked"), true),
+            ("skill.invoked", Some("context-load"), false),
+            ("skill.invoked_ref", Some("context-load"), false),
+            ("skill.context_delivered", Some("agent-invoked"), false),
+        ] {
+            let sdk = serde_json::from_value(json!({
+                "id":"skill-1", "timestamp":"2026-10-22T00:00:00Z",
+                "type":kind,
+                "data":{"name":"review","trigger":trigger,"content":"private skill body",
+                    "path":"/private/skill","contentId":"old-content"},
+            }))?;
+            let event = RuntimeEvent::from_sdk("session", sdk, 200_000);
+            assert_eq!(event.is_some(), expected, "{kind}/{trigger:?}");
+            if let Some(event) = event {
+                assert_eq!(event.kind, EventKind::SkillUsage);
+                assert_eq!(
+                    event.data,
+                    json!({"skillName":"review","eventId":"skill-1",
+                    "timestamp":"2026-10-22T00:00:00Z"})
+                );
+            }
+        }
+        Ok(())
+    }
 
     #[test]
     fn subagent_lifecycle_and_output_keep_distinct_worker_identities()
@@ -299,8 +421,12 @@ mod tests {
             ),
             (
                 "assistant.usage",
-                json!({"inputTokens":153_000,"outputTokens":2_000}),
-                None,
+                json!({"model":"fixture-model","inputTokens":153_000,"outputTokens":2_000}),
+                Some((
+                    EventKind::Usage,
+                    false,
+                    json!({"model":"fixture-model","inputTokens":153_000,"outputTokens":2_000,"eventId":"event-1","timestamp":"2026-10-17T00:00:00Z"}),
+                )),
             ),
             ("future.sdk_event", json!({}), None),
             ("assistant.turn_end", json!({"turnId": "turn-1"}), None),

@@ -46,6 +46,18 @@ Open the provider editor to read or replace a saved key. Keys are hidden by defa
 
 API keys are stored in plaintext in a separate configuration table in the local SQLite database and remain available after restarting. Ordinary application snapshots do not contain keys. Keys are never stored in browser storage, logs, or command-line arguments.
 
+## Usage dashboard
+
+Open **Settings > Usage dashboard** to inspect activity recorded on this device. Use the top-right range selector for the last **7**, **14**, or **30 days**, including today in your local time zone.
+
+- **Daily tokens:** each bar is one day, stacked by provider and model. Hover or focus a segment for its exact count. Tokens include the SDK-reported input and output counts; cache counters are not added a second time. These cover recorded Chat and Work inference calls, including subagents; internal title generation is excluded. They are usage statistics, not a complete bill or currency estimate.
+- **Daily skill use:** each line represents a skill's actual recorded invocations, not how often it appeared in a catalog. Inspect the legend to identify frequently used skills.
+- **Recent sessions:** the latest ten conversations with recorded activity in the selected range show their token totals for that range, not their lifetime totals.
+
+Counts below 1,000 are shown directly, counts from 1,000 use **K**, and counts of 1,000,000 or more use **M**. Detailed chart labels retain exact counts.
+
+Statistics are stored locally and do not require enabling **Observability** or sending data to a collector. Local and connected SSH conversation events contribute to the same device's dashboard. Collection starts when this version first opens the local database; older conversations have no reconstructed historical token or skill counts. The dashboard displays the collection start so missing older data is not mistaken for a complete billing history. A provider or model change does not relabel usage already recorded for the original selection. Deleting a conversation removes it from the recent-session list but preserves its aggregate token and skill statistics.
+
 ## Chat and project work
 
 Choose **New chat** for a conversation with web reading tools. Chat exposes only those tools and automatically approves all tool permission requests.

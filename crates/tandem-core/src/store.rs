@@ -1,3 +1,5 @@
+mod usage;
+
 use std::{path::Path, sync::Mutex};
 
 use rusqlite::{Connection, OptionalExtension, params};
@@ -108,6 +110,7 @@ impl Store {
              );
              PRAGMA user_version=1;",
         )?;
+        usage::initialize(&connection)?;
         let store = Self {
             connection: Mutex::new(connection),
         };

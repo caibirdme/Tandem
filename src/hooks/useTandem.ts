@@ -23,6 +23,7 @@ import type {
   SelectedSkill,
   Session,
 } from '../lib/types';
+import { receiveUsageEvent } from '../lib/usageEvents';
 
 export function useTandem() {
   const [
@@ -209,6 +210,8 @@ export function useTandem() {
       });
     const handleEvent = (event: RuntimeEvent) => {
       if (disposed) return;
+      receiveUsageEvent(event);
+      if (event.kind === 'usage_updated' || event.kind === 'usage_error') return;
       receiveReviewEvent(event);
       if (event.kind === 'review_updated' || event.kind === 'review_invalidated') return;
       if (event.kind === 'message') {

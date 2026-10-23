@@ -5,6 +5,17 @@ import { CommandError, commandError, dispatch, errorMessage, subscribe } from '.
 describe('browser event transport', () => {
   it.each([
     {
+      name: 'usage updates and storage failures',
+      events: [
+        { sessionId: 'work-1', kind: 'usage_updated', data: {} },
+        {
+          sessionId: 'work-1',
+          kind: 'usage_error',
+          data: { message: 'Some usage statistics could not be saved.' },
+        },
+      ],
+    },
+    {
       name: 'review invalidation and completed captures',
       events: ['review_updated', 'review_invalidated'].map((kind) => ({
         sessionId: 'work-1',

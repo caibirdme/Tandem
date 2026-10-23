@@ -815,3 +815,28 @@ async fn a_worker_terminal_event_settles_only_its_output_and_late_text_reuses_th
     assert_eq!(app.turns.snapshot()?[&id].agent_streams["worker-b"], "Beta");
     Ok(())
 }
+
+#[tokio::test]
+async fn usage_recording_failure_does_not_fail_the_conversation() -> Result<()> {
+    let (directory, app, id) = application().await?;
+    app.set_status(&id, SessionStatus::Running)?;
+    let mut events = app.events.subscribe();
+    let event = RuntimeEvent {
+        session_id: id.clone(),
+        kind: EventKind::Usage,
+        data: json!({
+            "eventId":"usage-1", "timestamp":"2026-10-22T00:00:00Z",
+            "providerId":"fixture", "providerName":"Fixture", "model":"fixture",
+            "inputTokens":100, "outputTokens":20,
+        }),
+    };
+    assert!(matches!(app.receive_event(&event), EventOutcome::Continue));
+    assert_eq!(events.try_recv()?.kind, "usage_updated");
+    assert!(app.store.messages(&id)?.is_empty());
+    let db = rusqlite::Connection::open(directory.path().join("tandem.sqlite3"))?;
+    db.execute("DROP TABLE usage_events", [])?;
+    assert!(matches!(app.receive_event(&event), EventOutcome::Continue));
+    assert_eq!(events.try_recv()?.kind, "usage_error");
+    assert_eq!(app.store.session(&id)?.status, SessionStatus::Running);
+    Ok(())
+}
