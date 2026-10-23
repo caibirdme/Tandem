@@ -64,18 +64,11 @@ jobs:
           purpose: desktop-release-${{ matrix.platform }}
       - uses: actions/download-artifact@v8
         with:
-          pattern: remote-*
-          path: artifacts
-      - name: Add remote Agents to bundle resources
+          name: remote-x86_64-unknown-linux-gnu
+          path: src-tauri/remote/x86_64-unknown-linux-gnu
+      - name: Make the bundled remote Agent executable
         shell: bash
-        run: |
-          for directory in artifacts/remote-*; do
-            target="${directory#artifacts/remote-}"
-            mkdir -p "src-tauri/remote/$target"
-            cp "$directory/tandem-server" "src-tauri/remote/$target/tandem-server"
-            cp "$directory/artifact.json" "src-tauri/remote/$target/artifact.json"
-            chmod 700 "src-tauri/remote/$target/tandem-server"
-          done
+        run: chmod 700 src-tauri/remote/x86_64-unknown-linux-gnu/tandem-server
       # This also verifies the resource layout used by a standalone local build.
       - run: just desktop-build
         shell: bash

@@ -521,8 +521,11 @@ actual_digest=${{actual_digest%% *}}
 [ "$actual_digest" = {} ] || {{ printf '%s\n' 'tandem-server artifact mismatch' >&2; exit 1; }}
 actual_version=$("$temporary/tandem-server" --version)
 [ "$actual_version" = {} ] || {{ printf '%s\n' 'tandem-server version mismatch' >&2; exit 1; }}
-"$temporary/tandem-server" {} <&0 &
+# Preserve RPC input before POSIX shells redirect background stdin to /dev/null.
+exec 3<&0
+"$temporary/tandem-server" {} <&3 3<&- &
 child=$!
+exec 3<&-
 status=0
 wait "$child" || status=$?
 child=''
