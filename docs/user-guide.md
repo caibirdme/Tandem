@@ -164,7 +164,7 @@ During preparation, Tandem detects the remote platform and uploads the matching 
 
 If one SSH connection breaks, its work is interrupted and unanswered permissions are denied; other conversations continue. Send another message to reconnect and resume its history. Tandem does not automatically repeat a submitted task. The shared runtime stays ready for five minutes after the last connection closes, then shuts down.
 
-Development builds use `just remote-build` to prepare a server for the local platform. To connect to another platform, place its binary at `src-tauri/remote/<Rust target>/tandem-server` before bundling, or set `TANDEM_REMOTE_ARTIFACTS` to an artifact directory. See [Packaging and remote artifacts](development.md#packaging-and-remote-artifacts) for build instructions and supported targets.
+When building Tandem from source, run `pnpm tauri build` or `pnpm tauri build --no-bundle`; both prepare the Linux x64 remote program automatically, plus the native macOS program when building on a Mac. Start a Docker-compatible engine before building a Linux program on macOS or Windows. Valid cached programs are reused without Docker. For `just dev`, run `just remote-build` before testing SSH projects and after changing remote server sources. See [Packaging and remote artifacts](development.md#packaging-and-remote-artifacts) for additional targets and custom artifact directories.
 
 ## Images and files
 

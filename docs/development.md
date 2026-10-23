@@ -11,6 +11,8 @@ Use English for project documentation, code comments, commits, PRs, and other pr
 
 Start the desktop with `just dev`. For UI-only changes, run `just server` and `just web` in separate terminals and open `http://127.0.0.1:1420`. Both modes share the service contract; browser mode uses the built-in directory browser when no native directory picker is available.
 
+Before testing SSH projects in `just dev`, run `just remote-build`; repeat it after changing remote server sources. Development startup does not run the desktop build preparation hook. See [Packaging and remote artifacts](#packaging-and-remote-artifacts) for the Docker requirement and additional targets.
+
 `just server` starts `tandem-dev-server`, which calls the same `tandem-core` services as the desktop over HTTP. It builds `tandem-server` first so SSH projects can also be tested during browser development. `tandem-server` provides the remote Unix daemon, its SSH stdio proxy, and an isolated stdio host for protocol verification. It does not host development HTTP.
 
 The workspace default target is also `tandem-dev-server`, so `cargo run` starts the local HTTP host. Select `-p tandem-server` explicitly when building the remote agent.
@@ -29,11 +31,12 @@ The workspace default target is also `tandem-dev-server`, so `cargo run` starts 
 | OTLP/gRPC transport, traces, or metrics       | `just integration-grpc`                                              |
 | Git workspace, session, or turn review        | `just integration-review`, `just integration-ssh`                    |
 | SSH transport, deployment, or remote protocol | `just integration-ssh`                                               |
+| Remote build scripts or artifact validation   | `pnpm test:build`, then `pnpm tauri build --no-bundle`               |
 | Windows, resources, or native features        | `just desktop-build`, then open and verify the generated application |
 
 Run `just check` before committing. oxlint enables React, TypeScript, accessibility, and strict rules. TypeScript uses strict mode; Rust runs Clippy all + pedantic with warnings treated as failures. Formatting uses oxfmt and nightly rustfmt; rustfmt merges imports by crate and groups standard library, external crate, and current crate imports.
 
-Unit tests cover state merging, permission denial, configuration boundaries, database relationships, SSH injection, and communication failures. `just check` also runs Python standard-library tests for event routing, process cleanup, and the dependency boundary checker. Integration tests use the real SDK and matching CLI, replacing only external inference and OTLP receivers with test endpoints, so paid credentials are unnecessary. The chat web-tool case reads `https://example.com` and needs public network access. Clear inherited overrides such as `COPILOT_OFFLINE` and `COPILOT_PROVIDER_*` before running, since they can affect isolated test sessions. These tests cannot establish whether a real provider supports a particular model or parameter.
+Unit tests cover state merging, permission denial, configuration boundaries, database relationships, SSH injection, and communication failures. `pnpm test` includes Node tests for remote build preparation and artifact validation; run those alone with `pnpm test:build`. `just check` also runs Python standard-library tests for event routing, process cleanup, and the dependency boundary checker. Integration tests use the real SDK and matching CLI, replacing only external inference and OTLP receivers with test endpoints, so paid credentials are unnecessary. The chat web-tool case reads `https://example.com` and needs public network access. Clear inherited overrides such as `COPILOT_OFFLINE` and `COPILOT_PROVIDER_*` before running, since they can affect isolated test sessions. These tests cannot establish whether a real provider supports a particular model or parameter.
 
 `just integration-review` uses temporary real Git repositories and the production SDK with test inference. It checks dirty initial files, staged cancellation, created/edited/shell-written files, commits during a turn, immutable revisions, session ownership, restart history, non-Git Work, and review RPC without SDK initialization. `just integration-ssh` repeats the Work review lifecycle over its isolated OpenSSH server. CI runs the local/protocol checks on Windows and macOS and the real SSH suite in a separate Ubuntu job included in **Required checks**.
 
@@ -117,7 +120,7 @@ Service build targets are listed below. Use the development host for local appli
 | `just integration`      | Builds only `tandem-dev-server` and runs local SDK verification                                   |
 | `just integration-grpc` | Builds both services and verifies local and remote native OTLP/gRPC export                        |
 | `just integration-ssh`  | Builds both services, starts the local development host, and deploys the remote agent through SSH |
-| `just remote-build`     | Builds only release `tandem-server` and copies it into desktop resources                          |
+| `just remote-build`     | Prepares current release remote programs for Linux x64 and the native macOS target when on Mac    |
 
 Shared RPC definitions live in `tandem-protocol`, so the remote agent does not need the entire SSH client or application service merely to read requests. When changing dependencies, check the [architecture boundaries](architecture.md#responsibilities-and-dependencies). Keep development HTTP, SQLite, and system credential stores out of the remote binary.
 
@@ -125,15 +128,23 @@ Shared RPC definitions live in `tandem-protocol`, so the remote agent does not n
 
 ## Packaging and remote artifacts
 
-`just desktop-build` first compiles `tandem-server` for the local platform and bundles the desktop application. On supported remote execution platforms, it copies that server into Tauri resources. Windows desktop builds require separately built Linux or macOS remote artifacts to prepare SSH projects; the release workflow supplies both. `tandem-dev-server` is excluded from installers. macOS output is in `target/release/bundle/`. Local signing is ad hoc by default. For a formally signed release, override `bundle.macOS.signingIdentity` and configure notarization. Signing and notarization require a release account; no credentials are stored in this repository.
+Run `just desktop-build` or `pnpm tauri build` to create an installer. Use `pnpm tauri build --no-bundle` to build the desktop executable without an installer. All three run `pnpm remote:build` before the frontend build, so the executable has the remote programs it needs even with `--no-bundle`.
+
+On macOS and Windows, start Docker Desktop or a Docker-compatible engine that can run `linux/amd64` containers. The remote preparation step builds Linux x64 from the current checkout in Ubuntu 22.04; on a matching Linux host it builds natively. macOS builds also prepare a native macOS remote program. Run `pnpm remote:build` or `just remote-build` to prepare these resources separately. The first container build downloads its image, Rust toolchain, dependencies, and Copilot CLI; later builds reuse the build cache.
+
+Prepared resources contain `tandem-server` and `artifact.json` under `src-tauri/remote/<target>/`. Preparation reuses them only when the recorded source fingerprint, target architecture, and executable SHA-256 match. The fingerprint covers workspace manifests, the lockfile, toolchain, and the three remote crates. A source change or invalid artifact triggers a rebuild; a valid cached Linux artifact does not require a running Docker engine. Release CI stages Linux x64 and Apple Silicon macOS artifacts with the same metadata before the desktop build, so its preparation hook reuses them.
+
+`tandem-dev-server` is excluded from installers. macOS output is in `target/release/bundle/`. Local signing is ad hoc by default. For a formally signed release, override `bundle.macOS.signingIdentity` and configure notarization. Signing and notarization require a release account; no credentials are stored in this repository.
 
 On Windows, use the NSIS `x64-setup.exe` installer in `target/release/bundle/nsis/`. Tauri automatically merges `src-tauri/tauri.windows.conf.json`, which selects NSIS as the only Windows installer target.
 
 Use `CI=true just desktop-build` on a locked screen or in automation to skip DMG window decoration that requires Finder interaction.
 
-Released installers bundle remote agents for Linux x64 (`x86_64-unknown-linux-gnu`) and Apple Silicon macOS (`aarch64-apple-darwin`). The application also recognizes Linux arm64 and Intel Mac hosts, but installers do not contain those binaries and report a missing artifact when preparing the first remote message. Build the required target yourself and use `scripts/prepare-remote.mjs <target>` to add it to resources.
+Released installers bundle remote agents for Linux x64 (`x86_64-unknown-linux-gnu`) and Apple Silicon macOS (`aarch64-apple-darwin`). To add Linux arm64, run `pnpm remote:build aarch64-unknown-linux-gnu` before building the desktop. This uses Docker when the target differs from the build host. A Docker engine building that target must support `linux/arm64` containers.
 
-The Windows executable without an installer is `target/release/tandem-desktop.exe`; the remote artifact is `tandem-server`. Set `TANDEM_REMOTE_ARTIFACTS` for a custom artifact directory containing that binary.
+To add a different macOS architecture, build on a Mac with that architecture from the same remote sources. Run `pnpm remote:build <target>`, or stage an already compiled executable with `node scripts/prepare-remote.mjs <target> --source <binary>`. Copy the complete `src-tauri/remote/<target>/` directory, including `artifact.json`, to the desktop checkout before building. The preparation step does not cross-compile macOS programs.
+
+The executable without an installer is `target/release/tandem-desktop` on macOS or `target/release/tandem-desktop.exe` on Windows; launch it from the Cargo output directory, where Tauri also copies `remote/`. At runtime, `TANDEM_REMOTE_ARTIFACTS` can point to a custom directory containing `<target>/tandem-server` or `tandem-server-<target>`; this override accepts bare executables and does not require `artifact.json`. Desktop build resources require the metadata described above.
 
 SSH uses BatchMode and strict host verification, supporting keys and ssh-agent. For an unknown host or interactive login, log in from a terminal first. Windows clients require system OpenSSH; Windows remote execution hosts are not supported.
 

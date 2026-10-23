@@ -14,10 +14,11 @@ just check-workspace
 just build
 ```
 
-- `just check` covers formatting, frontend lint/types/tests, Rust Clippy/tests, Python tests, and workspace boundaries.
+- `just check` covers formatting, frontend lint/types/tests, remote build preparation tests, Rust Clippy/tests, Python tests, and workspace boundaries.
 - `just check-workspace` verifies the one-way crate dependencies and keeps desktop, development HTTP, SQLite, and local credential storage out of the remote agent.
 - `just build` builds the frontend and both service binaries. It does not verify the native desktop bundle.
 - For native UI, resources, or packaging changes, run `just desktop-build`, then open the generated application. A successful browser build is not native-desktop verification.
+- For remote build preparation changes, run `pnpm test:build`. These tests cover artifact fingerprints, executable targets and hashes, cache reuse, and build orchestration without requiring Docker.
 
 Use focused checks while developing, but do not substitute them for the applicable final gates. Add a regression test for a reproduced bug; where practical, show that it fails before the fix and passes afterward.
 
@@ -49,12 +50,12 @@ Exercise the affected flow in the desktop application with disposable data. At m
 
 - **Provider settings:** saved keys remain masked; edit, remove, cancel, and retry failed reads. Discover models with the configured path, confirm none are selected initially, select models, save, and restart.
 - **Conversations:** send and stream a reply, switch conversations, scroll long histories, cancel active work, and confirm no stale running indicators. Check persistence after restart and permissions for denied tool actions.
-- **Remote work:** connection testing and directory browsing must not deploy the agent. An unprepared remote environment initializes on first send with a noninteractive status; a healthy prepared environment is reused by later sessions.
+- **Remote work:** connection testing and directory browsing must not deploy the agent. An unprepared remote environment initializes on first send with a noninteractive status; a healthy prepared environment is reused by later sessions. An outdated remote server must be replaced before the next task runs; `just integration-ssh` also covers this with isolated SSH and test inference.
 - **Detail panel:** open a subagent from its conversation card, follow its output, switch sessions, and close the panel without losing the main conversation state. Resize with pointer and keyboard, toggle the sidebar, cross the narrow-screen drawer breakpoint, and check focus restoration and unsent drafts. DOM tests use fixed geometry and do not replace native pointer or layout checks.
 - **Change review:** open Changes in a Work conversation and switch workspace, staged, unstaged, session, and turn scopes. Inspect committed edits and dirty starting files, filter the file list, switch unified/side-by-side views, resize, wrap lines, and close with Escape. Check binary, oversized, incomplete, and unavailable states, deferred details for large file lists, and remote offline cache limits. Confirm Chat has no review action.
 - **Usage dashboard:** select 7, 14, and 30 days; inspect provider/model stacks and skill lines with pointer and keyboard. Verify local calendar boundaries, empty/error states, readable K/M labels, and recent session totals. Confirm statistics persist after restart and do not require external telemetry.
 - **Telemetry:** verify enabled/disabled and content-capture choices with synthetic data. Test receiver failure and recovery; ordinary snapshots and remote persisted configuration must not expose credentials.
-- **Packaging:** launch the generated native bundle on the target platform and exercise the changed native feature. Record which platforms were actually tested.
+- **Packaging:** launch the generated native bundle on the target platform and exercise the changed native feature. Also build with `pnpm tauri build --no-bundle`, check that `target/release/remote/<target>/` contains the executable and metadata, and launch that desktop executable to test SSH preparation. For a Linux x64 artifact built on macOS or Windows, run it with `--version` in a `linux/amd64` Ubuntu 22.04 container and compare its release and protocol with the current checkout. Repeat preparation with valid cached artifacts to check reuse, then change a remote build input to check invalidation. Record the desktop, container, and SSH host platforms actually tested.
 
 ## Evidence in the pull request
 

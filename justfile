@@ -89,10 +89,9 @@ integration-usage: build-server
 integration-ssh: build-server
     {{python}} tests/remote_e2e.py
 
-# Bundle only the remote Agent; exclude the development HTTP host from resources.
+# Prepare Linux x64 and native remote Agents, using Docker for cross-platform Linux builds.
 remote-build:
-    cargo build --release -p tandem-server
-    node scripts/prepare-remote.mjs
+    pnpm remote:build
 
-desktop-build: remote-build
+desktop-build:
     pnpm tauri build

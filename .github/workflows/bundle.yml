@@ -20,6 +20,10 @@ jobs:
     steps:
       - run: apt-get update && apt-get install -y curl git build-essential pkg-config libssl-dev ca-certificates
       - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          package-manager-cache: false
       - run: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain none --profile minimal
       - run: echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
       - run: rustup toolchain install
@@ -27,10 +31,11 @@ jobs:
         with:
           purpose: remote-release-x86_64-unknown-linux-gnu-ubuntu22
       - run: cargo build --release -p tandem-server --locked
+      - run: node scripts/prepare-remote.mjs
       - uses: actions/upload-artifact@v7
         with:
           name: remote-x86_64-unknown-linux-gnu
-          path: target/release/tandem-server
+          path: src-tauri/remote/x86_64-unknown-linux-gnu/
           if-no-files-found: error
           retention-days: 1
 
@@ -40,15 +45,20 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          package-manager-cache: false
       - run: rustup toolchain install
       - uses: ./.github/actions/setup-rust-cache
         with:
           purpose: remote-release-aarch64-apple-darwin
       - run: cargo build --release -p tandem-server --locked
+      - run: node scripts/prepare-remote.mjs
       - uses: actions/upload-artifact@v7
         with:
           name: remote-aarch64-apple-darwin
-          path: target/release/tandem-server
+          path: src-tauri/remote/aarch64-apple-darwin/
           if-no-files-found: error
           retention-days: 1
 
@@ -83,8 +93,20 @@ jobs:
             target="${directory#artifacts/remote-}"
             mkdir -p "src-tauri/remote/$target"
             cp "$directory/tandem-server" "src-tauri/remote/$target/tandem-server"
+            cp "$directory/artifact.json" "src-tauri/remote/$target/artifact.json"
             chmod 700 "src-tauri/remote/$target/tandem-server"
           done
+      # This also verifies the resource layout used by a standalone local build.
+      - run: pnpm tauri build --no-bundle
+      - name: Verify standalone remote resources
+        shell: bash
+        run: |
+          node --input-type=module <<'JS'
+          import { REMOTE_TARGETS, verifyArtifact } from './scripts/remote-artifacts.mjs';
+          for (const target of REMOTE_TARGETS) {
+            verifyArtifact({ root: process.cwd(), target, directory: 'target/release/remote' });
+          }
+          JS
       # macOS uses the ad hoc signature configured in tauri.conf.json without an Apple certificate.
       - run: pnpm tauri build
       - uses: actions/upload-artifact@v7
