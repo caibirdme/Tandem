@@ -35,10 +35,16 @@ impl App {
             .transpose()?;
         Ok(Some(TelemetrySettings {
             endpoint: telemetry.endpoint.clone(),
-            protocol: if telemetry.protocol == "http/json" {
-                TelemetryProtocol::HttpJson
-            } else {
-                TelemetryProtocol::HttpProtobuf
+            protocol: match telemetry.protocol.as_str() {
+                "grpc" => TelemetryProtocol::Grpc,
+                "http/json" => TelemetryProtocol::HttpJson,
+                "http/protobuf" => TelemetryProtocol::HttpProtobuf,
+                _ => {
+                    return Err(ValidationError::UnsupportedTelemetryProtocol {
+                        protocol: telemetry.protocol.clone(),
+                    }
+                    .into());
+                }
             },
             capture_content: telemetry.capture_content,
             agentlens,
@@ -75,6 +81,62 @@ mod tests {
                 service_name: "tandem-test".into(),
             }),
             ..Telemetry::default()
+        }
+    }
+
+    #[tokio::test]
+    async fn otlp_protocols_persist_and_reach_local_and_remote_runtimes() -> Result<()> {
+        let directory = TempDir::new()?;
+        let app = App::open(AppOptions::local(directory.path().into()))?;
+        for (protocol, expected) in [
+            ("grpc", TelemetryProtocol::Grpc),
+            ("http/protobuf", TelemetryProtocol::HttpProtobuf),
+            ("http/json", TelemetryProtocol::HttpJson),
+        ] {
+            let telemetry = Telemetry {
+                enabled: true,
+                endpoint: "https://collector.example:4317".into(),
+                protocol: protocol.into(),
+                ..Telemetry::default()
+            };
+            app.save_preferences(telemetry, None, None).await?;
+            let reopened = App::open(AppOptions::local(directory.path().into()))?;
+            let stored = reopened.store.preferences()?.telemetry;
+            assert_eq!(stored.protocol, protocol);
+            assert_eq!(
+                reopened
+                    .telemetry_settings(&stored)?
+                    .context("enabled")?
+                    .protocol,
+                expected
+            );
+            let remote = reopened.remote_telemetry()?;
+            assert_eq!(remote["protocol"], protocol);
+            assert_eq!(remote["enabled"], true);
+            assert!(remote["agentlens"].is_null());
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn grpc_requires_a_collector_authority_without_a_signal_path() {
+        for (endpoint, valid) in [
+            ("http://localhost:4317", true),
+            ("https://collector.example:4317/", true),
+            ("http://localhost:4317/v1/traces", false),
+        ] {
+            let settings = Telemetry {
+                enabled: true,
+                endpoint: endpoint.into(),
+                protocol: "grpc".into(),
+                ..Telemetry::default()
+            };
+            let result = settings.validate();
+            if valid {
+                assert!(result.is_ok());
+            } else {
+                assert!(matches!(result, Err(ValidationError::GrpcEndpointPath)));
+            }
         }
     }
 
@@ -230,6 +292,19 @@ mod tests {
             (TelemetryError::InvalidResponse, ErrorCode::Unavailable),
             (TelemetryError::FlushTimeout, ErrorCode::Unavailable),
             (TelemetryError::InvalidSpan, ErrorCode::Internal),
+            (
+                TelemetryError::Grpc(copilot_runtime::GrpcError::Rejected {
+                    signal: "spans",
+                    count: 1,
+                }),
+                ErrorCode::InvalidInput,
+            ),
+            (
+                TelemetryError::Grpc(copilot_runtime::GrpcError::InvalidRecord {
+                    field: "timestamp",
+                }),
+                ErrorCode::Internal,
+            ),
         ] {
             let error = crate::Error::Runtime(failure.into());
             assert_eq!(error.code(), expected);

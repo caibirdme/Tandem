@@ -102,35 +102,20 @@ impl ServerError {
             Self::InvalidReviewWorkspace | Self::InvalidReviewCursor => {
                 RpcErrorCode::ReviewInvalidInput
             }
-            Self::Review(error) => match error.code() {
-                copilot_runtime::workspace::ReviewErrorCode::NotRepository => {
-                    RpcErrorCode::ReviewNotRepository
-                }
-                copilot_runtime::workspace::ReviewErrorCode::GitUnavailable => {
-                    RpcErrorCode::ReviewGitUnavailable
-                }
-                copilot_runtime::workspace::ReviewErrorCode::NotFound => {
-                    RpcErrorCode::ReviewNotFound
-                }
-                copilot_runtime::workspace::ReviewErrorCode::Expired => RpcErrorCode::ReviewExpired,
-                copilot_runtime::workspace::ReviewErrorCode::InvalidInput => {
-                    RpcErrorCode::ReviewInvalidInput
-                }
-                copilot_runtime::workspace::ReviewErrorCode::Limit => RpcErrorCode::ReviewLimit,
-                copilot_runtime::workspace::ReviewErrorCode::Timeout => RpcErrorCode::ReviewTimeout,
-                copilot_runtime::workspace::ReviewErrorCode::Internal => {
-                    RpcErrorCode::ReviewFailure
-                }
-                copilot_runtime::workspace::ReviewErrorCode::Unavailable => {
-                    RpcErrorCode::ReviewUnavailable
-                }
-            },
+            Self::Review(error) => review_error_code(error.code()),
             Self::Runtime(RuntimeError::Skills(error)) => match error {
                 copilot_runtime::SkillError::PreparationTimeout
                 | copilot_runtime::SkillError::DiscoveryTimeout => RpcErrorCode::RuntimeTimeout,
                 _ => RpcErrorCode::InvalidPayload,
             },
             Self::Runtime(RuntimeError::Telemetry(error)) => match error {
+                copilot_runtime::TelemetryError::Grpc(error) => {
+                    if error.is_invalid_input() {
+                        RpcErrorCode::InvalidPayload
+                    } else {
+                        RpcErrorCode::RuntimeFailure
+                    }
+                }
                 copilot_runtime::TelemetryError::HttpStatus { status: 408 | 429 } => {
                     RpcErrorCode::RuntimeFailure
                 }
@@ -189,6 +174,22 @@ impl ServerError {
             code: self.code(),
             message: self.to_string(),
         }
+    }
+}
+
+const fn review_error_code(code: copilot_runtime::workspace::ReviewErrorCode) -> RpcErrorCode {
+    use copilot_runtime::workspace::ReviewErrorCode;
+
+    match code {
+        ReviewErrorCode::NotRepository => RpcErrorCode::ReviewNotRepository,
+        ReviewErrorCode::GitUnavailable => RpcErrorCode::ReviewGitUnavailable,
+        ReviewErrorCode::NotFound => RpcErrorCode::ReviewNotFound,
+        ReviewErrorCode::Expired => RpcErrorCode::ReviewExpired,
+        ReviewErrorCode::InvalidInput => RpcErrorCode::ReviewInvalidInput,
+        ReviewErrorCode::Limit => RpcErrorCode::ReviewLimit,
+        ReviewErrorCode::Timeout => RpcErrorCode::ReviewTimeout,
+        ReviewErrorCode::Internal => RpcErrorCode::ReviewFailure,
+        ReviewErrorCode::Unavailable => RpcErrorCode::ReviewUnavailable,
     }
 }
 
@@ -287,6 +288,23 @@ mod tests {
                     copilot_runtime::TelemetryError::FlushTimeout,
                 )),
                 RpcErrorCode::RuntimeTimeout,
+            ),
+            (
+                ServerError::Runtime(RuntimeError::Telemetry(
+                    copilot_runtime::TelemetryError::Grpc(copilot_runtime::GrpcError::Rejected {
+                        signal: "metric data points",
+                        count: 1,
+                    }),
+                )),
+                RpcErrorCode::InvalidPayload,
+            ),
+            (
+                ServerError::Runtime(RuntimeError::Telemetry(
+                    copilot_runtime::TelemetryError::Grpc(
+                        copilot_runtime::GrpcError::InvalidRecord { field: "timestamp" },
+                    ),
+                )),
+                RpcErrorCode::RuntimeFailure,
             ),
         ] {
             assert_eq!(error.into_rpc().code, expected);

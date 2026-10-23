@@ -184,7 +184,9 @@ Open **Settings > General > Font size** and choose **Small**, **Medium**, or **L
 
 ## Telemetry
 
-Open **Settings > Observability**, enable OpenTelemetry, enter an OTLP receiver URL, and select `http/protobuf` or `http/json`. Prompt and reply content is excluded by default; enable content capture only when needed for debugging.
+Open **Settings > Observability**, enable OpenTelemetry, enter an OTLP receiver URL, and select **gRPC**, **HTTP / Protobuf**, or **HTTP / JSON**. Prompt and reply content is excluded by default; enable content capture only when needed for debugging.
+
+For gRPC, use the Collector's gRPC address, usually `http://localhost:4317`. Use `https://collector.example:4317` for TLS with a certificate trusted by the operating system. Enter only the scheme, host, and optional port; do not append `/v1/traces` or `/v1/metrics`. For HTTP, use the base URL, usually `http://localhost:4318`; signal paths are added automatically. Enabling the Collector's OTLP gRPC receiver is required when selecting gRPC.
 
 Changes restart the runtime once active conversations stop; existing sessions can continue afterward. Remote work exports telemetry from the remote machine, so the receiver must be reachable from that host. `localhost` refers to the machine running the agent.
 

@@ -28,7 +28,7 @@ export interface Provider {
 export interface Telemetry {
   enabled: boolean;
   endpoint: string;
-  protocol: 'http/protobuf' | 'http/json';
+  protocol: 'http/protobuf' | 'http/json' | 'grpc';
   captureContent: boolean;
   agentlens?: { serviceName: string } | null;
 }

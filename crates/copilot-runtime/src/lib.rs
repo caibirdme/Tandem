@@ -47,7 +47,7 @@ pub use permissions::ApprovalDecision;
 use permissions::Permissions;
 use serde_json::json;
 pub use skills::{ProjectSkill, SkillSelection};
-pub use telemetry::TelemetryError;
+pub use telemetry::{TelemetryError, grpc::GrpcError};
 use tokio::{
     sync::{Mutex, OwnedMutexGuard, broadcast},
     task::JoinHandle,
@@ -95,7 +95,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 pub struct Runtime {
     client: Client,
     chat_directory: PathBuf,
-    agentlens: Option<telemetry::AgentLensExport>,
+    telemetry_export: Option<telemetry::Export>,
 }
 
 impl Runtime {
@@ -120,18 +120,14 @@ impl Runtime {
             .as_ref()
             .map(TelemetrySettings::to_sdk)
             .transpose()?;
-        let agentlens = if let Some(settings) = options
-            .telemetry
-            .as_ref()
-            .filter(|settings| settings.agentlens.is_some())
-        {
-            let exporter =
-                telemetry::AgentLensExport::start(settings, &options.state_directory).await?;
-            telemetry = Some(exporter.configuration());
-            Some(exporter)
+        let telemetry_export = if let Some(settings) = options.telemetry.as_ref() {
+            telemetry::Export::start(settings, &options.state_directory).await?
         } else {
             None
         };
+        if let Some(exporter) = &telemetry_export {
+            telemetry = Some(exporter.configuration());
+        }
         let mut client_options = ClientOptions::default();
         client_options.program = options
             .cli_path
@@ -169,13 +165,13 @@ impl Runtime {
         let client = tokio::time::timeout(Duration::from_secs(30), Client::start(client_options))
             .await
             .map_err(|_| Error::StartupTimeout)??;
-        if let Some(exporter) = &agentlens {
+        if let Some(exporter) = &telemetry_export {
             exporter.attach_client(client.clone());
         }
         Ok(Self {
             client,
             chat_directory,
-            agentlens,
+            telemetry_export,
         })
     }
 
@@ -189,7 +185,7 @@ impl Runtime {
         let permissions = Permissions::new(&options.mode, options.permission_mode, events.clone());
         let config = create_config(&options, directory.clone(), permissions.clone())?;
         let session = self.client.create_session(config).await?;
-        if let Some(exporter) = &self.agentlens {
+        if let Some(exporter) = &self.telemetry_export {
             exporter.register(session.id().as_str());
         }
         let skill_directory = match &options.mode {
@@ -230,7 +226,7 @@ impl Runtime {
                 return Err(error.into());
             }
         }
-        if let Some(exporter) = &self.agentlens {
+        if let Some(exporter) = &self.telemetry_export {
             exporter.register(session.id().as_str());
         }
         let skill_directory = match &options.mode {
@@ -308,7 +304,7 @@ impl Runtime {
         if stopped.is_err() {
             self.client.force_stop();
         }
-        let exported = if let Some(exporter) = &self.agentlens {
+        let exported = if let Some(exporter) = &self.telemetry_export {
             exporter.finish().await
         } else {
             Ok(())
@@ -321,7 +317,7 @@ impl Runtime {
     /// or is cancelled. This synchronous recovery cannot itself be cancelled.
     pub fn force_stop(&self) {
         self.client.force_stop();
-        if let Some(exporter) = &self.agentlens {
+        if let Some(exporter) = &self.telemetry_export {
             exporter.signal_stop();
         }
     }
@@ -341,7 +337,7 @@ impl Runtime {
 
 impl Drop for Runtime {
     fn drop(&mut self) {
-        if let Some(exporter) = &self.agentlens {
+        if let Some(exporter) = &self.telemetry_export {
             self.client.force_stop();
             exporter.signal_stop();
         }

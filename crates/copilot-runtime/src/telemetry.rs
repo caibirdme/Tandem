@@ -1,5 +1,9 @@
-//! Private SDK file export adapted to `AgentLens` without a local HTTP service.
+//! Private SDK file export adapted to OTLP/gRPC and `AgentLens`.
 
+pub(crate) mod grpc;
+
+#[cfg(test)]
+mod test_io;
 #[cfg(test)]
 mod tests;
 mod transform;
@@ -17,7 +21,7 @@ use std::{
 use github_copilot_sdk::{Client, OtelExporterType, TelemetryConfig};
 use serde_json::{Value, json};
 use tokio::{
-    io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt},
+    io::{AsyncRead, AsyncReadExt, AsyncSeek, AsyncSeekExt, AsyncWrite, AsyncWriteExt},
     sync::{Mutex, mpsc, watch},
     task::JoinHandle,
 };
@@ -35,6 +39,8 @@ const HTTP_TIMEOUT: Duration = Duration::from_secs(5);
 /// Export failures contain structured context, never user content or receiver bodies.
 #[derive(Debug, thiserror::Error)]
 pub enum TelemetryError {
+    #[error(transparent)]
+    Grpc(#[from] grpc::GrpcError),
     #[error("cannot access the private telemetry spool: {0}")]
     Storage(#[source] std::io::Error),
     #[error("cannot initialize the telemetry HTTP client: {0}")]
@@ -69,6 +75,66 @@ pub enum TelemetryError {
     TaskStopped,
     #[error("telemetry did not finish exporting within fifteen seconds")]
     FlushTimeout,
+}
+
+pub(crate) enum Export {
+    AgentLens(AgentLensExport),
+    Grpc(grpc::GrpcExport),
+}
+
+impl Export {
+    pub(crate) async fn start(
+        settings: &TelemetrySettings,
+        directory: &Path,
+    ) -> Result<Option<Self>> {
+        if settings.agentlens.is_some() {
+            return AgentLensExport::start(settings, directory)
+                .await
+                .map(Self::AgentLens)
+                .map(Some);
+        }
+        if settings.protocol == TelemetryProtocol::Grpc {
+            return grpc::GrpcExport::start(settings, directory)
+                .await
+                .map(Self::Grpc)
+                .map(Some);
+        }
+        Ok(None)
+    }
+
+    pub(crate) fn configuration(&self) -> TelemetryConfig {
+        match self {
+            Self::AgentLens(exporter) => exporter.configuration(),
+            Self::Grpc(exporter) => exporter.configuration(),
+        }
+    }
+
+    pub(crate) fn attach_client(&self, client: Client) {
+        match self {
+            Self::AgentLens(exporter) => exporter.attach_client(client),
+            Self::Grpc(exporter) => exporter.attach_client(client),
+        }
+    }
+
+    pub(crate) fn register(&self, session_id: &str) {
+        if let Self::AgentLens(exporter) = self {
+            exporter.register(session_id);
+        }
+    }
+
+    pub(crate) async fn finish(&self) -> Result<()> {
+        match self {
+            Self::AgentLens(exporter) => exporter.finish().await,
+            Self::Grpc(exporter) => exporter.finish().await,
+        }
+    }
+
+    pub(crate) fn signal_stop(&self) {
+        match self {
+            Self::AgentLens(exporter) => exporter.signal_stop(),
+            Self::Grpc(exporter) => exporter.signal_stop(),
+        }
+    }
 }
 
 fn validate(settings: &TelemetrySettings) -> Result<&AgentLensSettings> {
@@ -187,9 +253,10 @@ impl AgentLensExport {
     pub(crate) async fn start(settings: &TelemetrySettings, directory: &Path) -> Result<Self> {
         let sender = Sender::new(settings)?;
         let directory = directory.to_path_buf();
-        let (temporary, file, path) = tokio::task::spawn_blocking(move || create_spool(&directory))
-            .await
-            .map_err(|_| TelemetryError::TaskStopped)??;
+        let (temporary, file, path) =
+            tokio::task::spawn_blocking(move || create_spool(&directory, "agentlens-"))
+                .await
+                .map_err(|_| TelemetryError::TaskStopped)??;
         let sessions = Arc::new(RwLock::new(HashSet::new()));
         let (stop, receiver) = watch::channel(false);
         let worker_sessions = sessions.clone();
@@ -384,13 +451,16 @@ impl Queue {
     }
 }
 
-async fn export_loop(
+async fn export_loop<F>(
     path: PathBuf,
-    mut file: tokio::fs::File,
+    mut file: F,
     sender: Sender,
     sessions: Arc<RwLock<HashSet<String>>>,
     mut stop: watch::Receiver<bool>,
-) -> std::result::Result<(), TelemetryError> {
+) -> std::result::Result<(), TelemetryError>
+where
+    F: AsyncRead + AsyncSeek + AsyncWrite + Unpin,
+{
     let mut queue = Queue::new();
     let mut pending = Vec::new();
     let mut buffer = vec![0_u8; 65_536].into_boxed_slice();
@@ -405,6 +475,9 @@ async fn export_loop(
                 .await
                 .map_err(|_| TelemetryError::TaskStopped)?;
         }
+        // An EOF may complete before the producer appends its final records.
+        // Only a read begun after stop can confirm the spool is drained.
+        let stopping = *stop.borrow() || stop.has_changed().is_err();
         file.seek(std::io::SeekFrom::Start(offset))
             .await
             .map_err(TelemetryError::Storage)?;
@@ -413,7 +486,7 @@ async fn export_loop(
             .await
             .map_err(TelemetryError::Storage)?;
         if count == 0 {
-            if *stop.borrow() || stop.has_changed().is_err() {
+            if stopping {
                 break;
             }
             tokio::select! {
@@ -488,11 +561,14 @@ async fn export_loop(
 
 struct SenderTask(JoinHandle<std::result::Result<(), TelemetryError>>);
 
-async fn scrub(
-    file: &mut tokio::fs::File,
+async fn scrub<F>(
+    file: &mut F,
     buffer: &mut [u8],
     offset: u64,
-) -> std::result::Result<(), TelemetryError> {
+) -> std::result::Result<(), TelemetryError>
+where
+    F: AsyncSeek + AsyncWrite + Unpin,
+{
     // Overwrite only bytes already read. The SDK's independent append handle
     // continues after EOF, so concurrent records cannot overlap this region.
     file.seek(std::io::SeekFrom::Start(
@@ -584,9 +660,10 @@ async fn send_loop(
 
 fn create_spool(
     directory: &Path,
+    prefix: &str,
 ) -> std::result::Result<(tempfile::TempDir, std::fs::File, PathBuf), TelemetryError> {
     let temporary = tempfile::Builder::new()
-        .prefix("agentlens-")
+        .prefix(prefix)
         .tempdir_in(directory)
         .map_err(TelemetryError::Storage)?;
     let path = temporary.path().join("spans.jsonl");

@@ -28,6 +28,7 @@ The acceptance suites use the production services and Copilot SDK/CLI with local
 | Sessions, tools, providers, permissions | `just integration`           | Chat/Work, conversation persistence, tools, cancellation, permissions, and model behavior                           |
 | Provider model discovery                | `just integration-models`    | Catalog pagination, model metadata, authentication, validation, persistence, and credential isolation               |
 | AgentLens telemetry                     | `just integration-agentlens` | Local/remote export, content capture, span relationships, retries, credentials, and idle failure recovery           |
+| OTLP/gRPC telemetry                     | `just integration-grpc`      | Local/remote traces and metrics, content capture, persistence, credential isolation, and transient retry            |
 | Usage dashboard                         | `just integration-usage`     | Actual Chat/Work token usage, skill invocation, model attribution, restart persistence, and remote event forwarding |
 | Work change review                      | `just integration-review`    | Real Git baselines, staged/unstaged views, session/turn history, commits, cancellation, ownership, and restart      |
 | SSH and remote deployment               | `just integration-ssh`       | Connection, preparation, deployment, permissions, and remote execution                                              |

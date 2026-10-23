@@ -67,6 +67,10 @@ integration:
 integration-agentlens: build-server
     {{python}} tests/agentlens_e2e.py
 
+# Verify native trace and metric export over gRPC from local and remote sessions.
+integration-grpc: build-server
+    {{python}} tests/grpc_e2e.py
+
 # Verify Git snapshots and review history through the real SDK and remote protocol.
 integration-review: build-server
     {{python}} tests/review_acceptance.py

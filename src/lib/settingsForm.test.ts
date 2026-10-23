@@ -356,6 +356,18 @@ describe('preferences form ownership', () => {
     });
   });
 
+  it('saves the gRPC collector protocol and endpoint', () => {
+    const telemetry = {
+      ...settings.telemetry,
+      endpoint: ' https://collector.example.com:4317 ',
+      protocol: 'grpc' as const,
+    };
+    expect(preferencesPayload(settings, { kind: 'telemetry', value: telemetry })).toEqual({
+      telemetry: { ...telemetry, endpoint: 'https://collector.example.com:4317' },
+      cliPath: settings.cliPath,
+    });
+  });
+
   it('keeps AgentLens credentials out of ordinary settings and preserves a saved key by omission', () => {
     const telemetry = {
       ...settings.telemetry,
@@ -382,14 +394,15 @@ describe('preferences form ownership', () => {
     {
       credential: { kind: 'replace', value: ' fixture-agentlens-key ' },
       expected: 'fixture-agentlens-key',
+      protocol: 'grpc',
     },
-    { credential: { kind: 'remove' }, expected: '' },
+    { credential: { kind: 'remove' }, expected: '', protocol: 'http/protobuf' },
   ] as const)(
     'submits explicit AgentLens key $credential.kind separately',
-    ({ credential, expected }) => {
+    ({ credential, expected, protocol }) => {
       const telemetry = {
         ...settings.telemetry,
-        protocol: 'http/protobuf' as const,
+        protocol,
         agentlens: { serviceName: 'tandem' },
       };
       const payload = preferencesPayload(settings, {

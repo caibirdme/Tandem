@@ -128,6 +128,8 @@ export const zhCN = {
   'settings.agentlensScope': 'AgentLens 接收 Chat 和 Work 的运行轨迹，排除对话标题生成等后台请求。',
   'settings.endpoint': '导出地址',
   'settings.endpointHint': '使用 Collector 的 HTTP 根地址，对应信号路径会自动添加。',
+  'settings.endpointGrpcHint':
+    '使用 Collector 的 gRPC 地址，通常为 4317 端口，不要添加信号路径。明文连接使用 http://，TLS 连接使用 https://。',
   'settings.transportProtocol': '传输协议',
   'settings.captureContent': '包含对话内容',
   'settings.captureContentHint':

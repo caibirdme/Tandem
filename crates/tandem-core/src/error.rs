@@ -357,6 +357,23 @@ fn runtime_error_code(error: &copilot_runtime::Error) -> ErrorCode {
         }
         RuntimeError::UnknownApproval => ErrorCode::NotFound,
         RuntimeError::Telemetry(error) => match error {
+            copilot_runtime::TelemetryError::Grpc(copilot_runtime::GrpcError::InvalidRecord {
+                ..
+            })
+            | copilot_runtime::TelemetryError::Storage(_)
+            | copilot_runtime::TelemetryError::Client(_)
+            | copilot_runtime::TelemetryError::InvalidRecord(_)
+            | copilot_runtime::TelemetryError::RecordLimit
+            | copilot_runtime::TelemetryError::QueueLimit
+            | copilot_runtime::TelemetryError::InvalidSpan
+            | copilot_runtime::TelemetryError::TaskStopped => ErrorCode::Internal,
+            copilot_runtime::TelemetryError::Grpc(error) => {
+                if error.is_invalid_input() {
+                    ErrorCode::InvalidInput
+                } else {
+                    ErrorCode::Unavailable
+                }
+            }
             copilot_runtime::TelemetryError::HttpStatus { status: 408 | 429 } => {
                 ErrorCode::Unavailable
             }
@@ -369,13 +386,6 @@ fn runtime_error_code(error: &copilot_runtime::Error) -> ErrorCode {
             | copilot_runtime::TelemetryError::SparseFile(_)
             | copilot_runtime::TelemetryError::SparseFileSetup
             | copilot_runtime::TelemetryError::FlushTimeout => ErrorCode::Unavailable,
-            copilot_runtime::TelemetryError::Storage(_)
-            | copilot_runtime::TelemetryError::Client(_)
-            | copilot_runtime::TelemetryError::InvalidRecord(_)
-            | copilot_runtime::TelemetryError::RecordLimit
-            | copilot_runtime::TelemetryError::QueueLimit
-            | copilot_runtime::TelemetryError::InvalidSpan
-            | copilot_runtime::TelemetryError::TaskStopped => ErrorCode::Internal,
         },
         RuntimeError::Busy => ErrorCode::Conflict,
         RuntimeError::Serialization(_) => ErrorCode::Internal,

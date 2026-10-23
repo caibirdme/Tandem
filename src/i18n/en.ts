@@ -137,6 +137,8 @@ export const en = {
     'AgentLens receives Chat and Work traces. Conversation title generation and other background requests are excluded.',
   'settings.endpoint': 'Export endpoint',
   'settings.endpointHint': 'Use the Collector HTTP base URL. Signal paths are added automatically.',
+  'settings.endpointGrpcHint':
+    'Use the Collector gRPC URL, usually on port 4317, without a signal path. Use http:// for plaintext or https:// for TLS.',
   'settings.transportProtocol': 'Transport protocol',
   'settings.captureContent': 'Include conversation content',
   'settings.captureContentHint':

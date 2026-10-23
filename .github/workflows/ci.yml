@@ -43,6 +43,7 @@ jobs:
       # remote integration step; macOS also exercises the real Unix daemon/proxies.
       # tests/fleet_acceptance.py is included by local and remote integration checks.
       # tests/agentlens_e2e.py verifies Chat/Work-only export with the real SDK below.
+      # tests/grpc_e2e.py verifies native trace/metric export over local HTTP/2 gRPC.
       # tests/review_acceptance.py verifies Git review state locally and through RPC;
       # the SSH job also runs its Work lifecycle against an isolated OpenSSH daemon.
       - uses: dorny/paths-filter@v4
@@ -170,6 +171,7 @@ jobs:
       - run: python tests/usage_dashboard_e2e.py
       - run: python tests/runtime_e2e.py
       - run: python tests/agentlens_e2e.py
+      - run: python tests/grpc_e2e.py
       - run: python tests/review_acceptance.py
       # POSIX runs shared-daemon acceptance even when an SSH daemon is unavailable.
       - run: python tests/remote_e2e.py --skip-ssh
