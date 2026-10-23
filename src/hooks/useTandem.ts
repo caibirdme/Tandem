@@ -368,6 +368,33 @@ export function useTandem() {
     [advance],
   );
 
+  // Steering shares the running transcript; ordinary sendStarted would clear its streams.
+  const steer = useCallback(
+    async (
+      sessionId: string,
+      messageId: string,
+      content: string,
+      skills: SelectedSkill[],
+      attachments: AttachmentInput[],
+    ) => {
+      advance(sessionId);
+      pendingRequests.current.add(sessionId);
+      try {
+        await dispatch('steer_message', {
+          sessionId,
+          messageId,
+          content,
+          selectedSkills: skills,
+          attachments,
+        });
+      } finally {
+        pendingRequests.current.delete(sessionId);
+        advance(sessionId);
+      }
+    },
+    [advance],
+  );
+
   const changePermissionMode = useCallback(
     async (
       sessionId: string,
@@ -523,6 +550,7 @@ export function useTandem() {
     setActiveSessionId,
     addSession,
     send,
+    steer,
     changePermissionMode,
     confirmPermissionMode,
     changeSessionModel,

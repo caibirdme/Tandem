@@ -12,6 +12,7 @@ mod lifecycle;
 mod message_tests;
 mod permissions;
 mod skills;
+mod steering;
 mod summary;
 mod telemetry;
 pub mod workspace;
@@ -36,8 +37,8 @@ pub use config::{
 pub use error::{ConfigurationError, Error, SkillError, SummaryError};
 pub use events::{ContextUsage, EventKind, RuntimeEvent};
 use github_copilot_sdk::{
-    CliProgram, Client, ClientInfo, ClientMode, ClientOptions, MessageOptions, ResumeSessionConfig,
-    SessionConfig, SystemMessageConfig,
+    CliProgram, Client, ClientInfo, ClientMode, ClientOptions, DeliveryMode, MessageOptions,
+    ResumeSessionConfig, SessionConfig, SystemMessageConfig,
     rpc::{FleetStartRequest, SessionUpdateOptionsParams},
     session::Session,
     subscription::RecvErrorKind,
@@ -452,7 +453,7 @@ fn resume_config(
 
 /// A live session. Share this through `Arc`; it is safe to call from UI handlers.
 pub struct AgentSession {
-    session: Session,
+    session: Arc<Session>,
     events: broadcast::Sender<RuntimeEvent>,
     permissions: Arc<Permissions>,
     lifecycle: Arc<SessionLifecycle>,
@@ -461,6 +462,7 @@ pub struct AgentSession {
     provider_protocol: ProviderProtocol,
     submission: Arc<Mutex<()>>,
     fleet_enabled: AtomicBool,
+    steering: Arc<std::sync::Mutex<steering::Steering>>,
 }
 
 /// A validated message reserved for exactly one live session instance.
@@ -471,10 +473,26 @@ pub struct PreparedMessage {
     message: MessageOptions,
     fleet: bool,
     owner: Arc<SessionLifecycle>,
+    steering_admission: Option<steering::Admission>,
     reservation: OwnedMutexGuard<()>,
 }
 
 impl PreparedMessage {
+    /// Whether this submission redirects the existing session rather than
+    /// requiring an idle runtime.
+    #[must_use]
+    pub fn is_steering(&self) -> bool {
+        self.message.mode == Some(DeliveryMode::Immediate)
+    }
+
+    /// Whether guidance was prepared after the previous runtime turn ended.
+    #[must_use]
+    pub fn starts_new_turn(&self) -> bool {
+        self.steering_admission
+            .as_ref()
+            .is_some_and(steering::Admission::starts_new_turn)
+    }
+
     fn validate_owner(&self, owner: &Arc<SessionLifecycle>) -> Result<()> {
         if Arc::ptr_eq(&self.owner, owner) {
             Ok(())
@@ -499,15 +517,27 @@ impl AgentSession {
         let lifecycle = Arc::new(SessionLifecycle::new());
         let stream_lifecycle = lifecycle.clone();
         let stream_permissions = permissions.clone();
+        let steering = Arc::new(std::sync::Mutex::new(steering::Steering::default()));
+        let stream_steering = steering.clone();
         let event_task = tokio::spawn(async move {
             loop {
                 match incoming.recv().await {
                     Ok(event) => {
+                        let mut steering = stream_steering
+                            .lock()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner);
+                        if !steering.observe(&event) {
+                            continue;
+                        }
                         if let Some(event) =
                             RuntimeEvent::from_sdk(&session_id, event, context_window)
                         {
                             if event.ends_turn() {
                                 stream_lifecycle.finish_turn();
+                            } else if event.kind == EventKind::Status
+                                && event.data["state"] == "running"
+                            {
+                                stream_lifecycle.observe_running();
                             }
                             let _ = outgoing.send(event);
                         }
@@ -522,6 +552,10 @@ impl AgentSession {
                             });
                         } else {
                             stream_permissions.cancel_all();
+                            stream_steering
+                                .lock()
+                                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                                .clear();
                             if stream_lifecycle.disconnect() {
                                 let _ = outgoing.send(RuntimeEvent {
                                     session_id: session_id.clone(),
@@ -537,7 +571,7 @@ impl AgentSession {
             stream_lifecycle.disconnect();
         });
         Self {
-            session,
+            session: Arc::new(session),
             events,
             permissions,
             lifecycle,
@@ -546,6 +580,7 @@ impl AgentSession {
             provider_protocol,
             submission: Arc::new(Mutex::new(())),
             fleet_enabled: AtomicBool::new(false),
+            steering,
         }
     }
 
@@ -617,6 +652,32 @@ impl AgentSession {
         attachments: &[MessageAttachment],
         fleet: bool,
     ) -> Result<PreparedMessage> {
+        self.prepare_submission(prompt, selected, attachments, fleet, false)
+            .await
+    }
+
+    /// Validates guidance while preserving the current turn and tool mode.
+    ///
+    /// # Errors
+    /// Returns invalid input, concurrent submission, or disconnection errors.
+    pub async fn prepare_steering(
+        &self,
+        prompt: &str,
+        selected: &[SkillSelection],
+        attachments: &[MessageAttachment],
+    ) -> Result<PreparedMessage> {
+        self.prepare_submission(prompt, selected, attachments, false, true)
+            .await
+    }
+
+    async fn prepare_submission(
+        &self,
+        prompt: &str,
+        selected: &[SkillSelection],
+        attachments: &[MessageAttachment],
+        fleet: bool,
+        steering: bool,
+    ) -> Result<PreparedMessage> {
         if !self.is_connected() {
             return Err(Error::Disconnected);
         }
@@ -639,20 +700,39 @@ impl AgentSession {
             .clone()
             .try_lock_owned()
             .map_err(|_| Error::Busy)?;
-        if self.lifecycle.is_running() {
+        if !steering && self.lifecycle.is_running() {
             return Err(Error::Busy);
         }
-        let mut message = tokio::time::timeout(
-            Duration::from_secs(15),
-            skills::prepare_message(
-                &self.session,
-                self.skill_directory.as_deref(),
-                prompt,
-                selected,
-            ),
-        )
-        .await
-        .map_err(|_| SkillError::PreparationTimeout)??;
+        let steering_admission = if steering {
+            Some(steering::Admission::new(
+                self.steering.clone(),
+                self.lifecycle.clone(),
+                self.events.clone(),
+                self.id().to_owned(),
+            )?)
+        } else {
+            None
+        };
+        let mut message = if steering && selected.is_empty() {
+            // Guidance inherits the live session's skill configuration. Do not
+            // reload that configuration while its tools are still running.
+            MessageOptions::new(prompt)
+        } else {
+            tokio::time::timeout(
+                Duration::from_secs(15),
+                skills::prepare_message(
+                    &self.session,
+                    self.skill_directory.as_deref(),
+                    prompt,
+                    selected,
+                ),
+            )
+            .await
+            .map_err(|_| SkillError::PreparationTimeout)??
+        };
+        if steering {
+            message = message.with_mode(DeliveryMode::Immediate);
+        }
         if !attachments.is_empty() {
             message.attachments = Some(attachments.iter().map(MessageAttachment::to_sdk).collect());
         }
@@ -663,6 +743,7 @@ impl AgentSession {
             message,
             fleet,
             owner: self.lifecycle.clone(),
+            steering_admission,
             reservation,
         })
     }
@@ -675,10 +756,19 @@ impl AgentSession {
     /// an empty identifier because the SDK does not provide a message ID.
     pub async fn send_prepared(&self, prepared: PreparedMessage) -> Result<String> {
         prepared.validate_owner(&self.lifecycle)?;
+        if prepared.is_steering() {
+            let session = self.session.clone();
+            // Dropping the caller must not discard an acknowledgement after the
+            // RPC reached the SDK. The owned task retains its admission and lock.
+            return tokio::spawn(Self::submit_steering(session, prepared))
+                .await
+                .map_err(Error::SubmissionTaskStopped)?;
+        }
         let PreparedMessage {
             message,
             fleet,
             owner: _,
+            steering_admission: _,
             reservation: _reservation,
         } = prepared;
         self.configure_fleet_tools(fleet).await?;
@@ -717,13 +807,44 @@ impl AgentSession {
             }
         }
         .await;
-        match result {
-            Ok(id) => Ok(id),
-            Err(error) => {
-                self.lifecycle.finish_turn();
-                Err(error)
-            }
+        if result.is_err() {
+            self.lifecycle.finish_turn();
         }
+        result
+    }
+
+    async fn submit_steering(session: Arc<Session>, prepared: PreparedMessage) -> Result<String> {
+        let PreparedMessage {
+            message,
+            steering_admission,
+            reservation: _reservation,
+            ..
+        } = prepared;
+        let mut admission =
+            steering_admission.ok_or(ConfigurationError::PreparedSteeringCanceled)?;
+        admission.dispatch()?;
+        let result = session
+            .send(message)
+            .await
+            .map_err(Error::from)
+            .and_then(|id| {
+                if id.is_empty() {
+                    Err(Error::MissingMessageAcknowledgement)
+                } else {
+                    Ok(id)
+                }
+            });
+        let delivery_unknown = matches!(&result, Err(Error::MissingMessageAcknowledgement))
+            || matches!(&result, Err(Error::Sdk(error))
+                if !matches!(error.kind(), github_copilot_sdk::ErrorKind::Rpc { .. }));
+        if delivery_unknown {
+            // Transport failure does not prove rejection. Abort/disconnection
+            // resolves the retained admission; never advertise a retryable idle.
+            drop(admission);
+        } else {
+            admission.settle(result.as_ref().ok().map(String::as_str));
+        }
+        result
     }
 
     async fn configure_fleet_tools(&self, fleet: bool) -> Result<()> {
@@ -781,6 +902,10 @@ impl AgentSession {
     /// # Errors
     /// Returns an error when the runtime cannot detach.
     pub async fn disconnect(&self) -> Result<()> {
+        self.steering
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clear();
         self.lifecycle.disconnect();
         self.permissions.cancel_all();
         let result = self.session.disconnect().await;
@@ -814,6 +939,7 @@ mod tests {
             message: MessageOptions::new("Test message"),
             fleet: false,
             owner: owner.clone(),
+            steering_admission: None,
             reservation: submission
                 .clone()
                 .try_lock_owned()

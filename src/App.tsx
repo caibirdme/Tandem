@@ -30,6 +30,7 @@ import { resolveDetailPanel } from './lib/detailPanel';
 import type { DetailPanelSelection } from './lib/detailPanel';
 import { newSessionPayload } from './lib/sessionOptions';
 import { displaySessionTitle } from './lib/sessionTitles';
+import { createStagedMessages } from './lib/stagedMessages';
 import type {
   AttachmentInput,
   ModelSelection,
@@ -48,6 +49,11 @@ const ProjectDialog = lazy(async () => ({
 export function App() {
   const { t } = useI18n();
   const tandem = useTandem();
+  const [stagedMessages] = useState(createStagedMessages);
+  useEffect(() => {
+    if (tandem.snapshot)
+      stagedMessages.retain(new Set(tandem.snapshot.sessions.map((item) => item.id)));
+  }, [stagedMessages, tandem.snapshot]);
   const detailPanelId = useId();
   const detailPanelTrigger = useRef<HTMLElement | null>(null);
   const [detailPanel, setDetailPanel] = useState<DetailPanelSelection | null>(null);
@@ -509,6 +515,11 @@ export function App() {
               }}
               onSettings={() => setSettingsOpen(true)}
               onSend={send}
+              stagedMessages={stagedMessages}
+              onSteer={async (messageId, content, skills, attachments) => {
+                if (!session) throw new Error(t('error.initializing'));
+                await tandem.steer(session.id, messageId, content, skills, attachments);
+              }}
               onAbort={() => {
                 if (session)
                   void dispatch('abort_session', { sessionId: session.id }).catch(

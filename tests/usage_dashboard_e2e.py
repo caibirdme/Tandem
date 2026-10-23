@@ -191,8 +191,8 @@ def check_remote(binary, root, endpoint, workspace):
     session_id = str(uuid.uuid4())
     server = StdioServer(binary, root)
     try:
-        require(server.command("server_info")["protocolVersion"] == 4,
-                "Remote statistics require protocol version 4")
+        require(server.command("server_info")["protocolVersion"] == 5,
+                "Remote statistics must use the current protocol version")
         options = {
             "sessionId": session_id, "mode": {"kind": "chat"}, "permissionMode": "ask",
             "provider": {"protocol": "openai-completions", "baseUrl": endpoint + "/v1", "apiKey": FIXTURE_KEY},

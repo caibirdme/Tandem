@@ -26,7 +26,46 @@ pub(crate) enum AgentHandle {
 
 pub(crate) enum PreparedTurn {
     Local(Box<PreparedMessage>),
-    Remote { session_id: String, id: String },
+    Remote {
+        session_id: String,
+        id: String,
+        steering: Option<RemoteSteeringReservation>,
+    },
+}
+
+pub(crate) struct RemoteSteeringReservation {
+    session_id: String,
+    id: String,
+    transport: Arc<RemoteTransport>,
+    starts_new_turn: bool,
+}
+
+impl Drop for RemoteSteeringReservation {
+    fn drop(&mut self) {
+        let transport = self.transport.clone();
+        let payload = json!({"sessionId":self.session_id,"preparedId":self.id});
+        // Dropping an uncommitted remote reservation must release its held idle
+        // event too. Discarding an already consumed reservation is a no-op.
+        tokio::spawn(async move {
+            if let Err(error) = transport
+                .request("discard_prepared_agent_message", payload)
+                .await
+            {
+                tracing::warn!(%error, "could not release a prepared steering message");
+            }
+        });
+    }
+}
+
+impl PreparedTurn {
+    pub fn starts_new_turn(&self) -> bool {
+        match self {
+            Self::Local(message) => message.starts_new_turn(),
+            Self::Remote { steering, .. } => steering
+                .as_ref()
+                .is_some_and(|reservation| reservation.starts_new_turn),
+        }
+    }
 }
 
 impl AgentHandle {
@@ -77,6 +116,51 @@ impl AgentHandle {
                 Ok(PreparedTurn::Remote {
                     session_id: session_id.clone(),
                     id,
+                    steering: None,
+                })
+            }
+        }
+    }
+
+    pub async fn prepare_steering(
+        &self,
+        content: &str,
+        selected_skills: &[SkillSelection],
+        attachments: &[MessageAttachment],
+    ) -> Result<PreparedTurn> {
+        match self {
+            Self::Local(agent) => Ok(PreparedTurn::Local(Box::new(
+                agent
+                    .prepare_steering(content, selected_skills, attachments)
+                    .await?,
+            ))),
+            Self::Remote {
+                session_id,
+                transport,
+            } => {
+                let id = Uuid::new_v4().to_string();
+                let mut reservation = RemoteSteeringReservation {
+                    session_id: session_id.clone(),
+                    id: id.clone(),
+                    transport: transport.clone(),
+                    starts_new_turn: false,
+                };
+                let result = transport
+                    .request(
+                        "prepare_agent_steering",
+                        json!({
+                            "sessionId":session_id,"preparedId":id,"content":content,
+                            "selectedSkills":selected_skills,"attachments":attachments,
+                        }),
+                    )
+                    .await?;
+                reservation.starts_new_turn = result["startsNewTurn"]
+                    .as_bool()
+                    .ok_or(Error::SessionDisconnected)?;
+                Ok(PreparedTurn::Remote {
+                    session_id: session_id.clone(),
+                    id,
+                    steering: Some(reservation),
                 })
             }
         }
@@ -95,6 +179,7 @@ impl AgentHandle {
                 PreparedTurn::Remote {
                     session_id: prepared_session,
                     id,
+                    steering: _steering,
                 },
             ) if session_id == &prepared_session => {
                 transport
@@ -273,6 +358,7 @@ impl TurnCompletion {
             // idle writing to the store. fail() waits for this entire callback.
             let next = match receive() {
                 EventOutcome::Continue => *state,
+                EventOutcome::TurnStarted => CompletionState::Running,
                 EventOutcome::TurnFinished => CompletionState::Ready,
                 EventOutcome::SessionFailed => CompletionState::Failed,
             };
@@ -320,6 +406,18 @@ mod tests {
     use tokio::sync::oneshot;
 
     use super::*;
+
+    #[tokio::test]
+    async fn sdk_queued_steering_turn_reactivates_completion_after_idle() -> Result<()> {
+        let completion = TurnCompletion::new();
+        completion.begin().await?;
+        assert!(completion.process_event(|| EventOutcome::TurnFinished));
+        assert!(completion.process_event(|| EventOutcome::TurnStarted));
+        assert_eq!(*completion.0.borrow(), CompletionState::Running);
+        assert!(completion.process_event(|| EventOutcome::TurnFinished));
+        completion.wait().await?;
+        Ok(())
+    }
 
     #[tokio::test]
     async fn remote_event_decode_failures_are_typed_and_do_not_echo_private_values() -> Result<()> {

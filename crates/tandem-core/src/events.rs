@@ -12,6 +12,7 @@ use crate::{
 
 pub(crate) enum EventOutcome {
     Continue,
+    TurnStarted,
     TurnFinished,
     SessionFailed,
 }
@@ -40,6 +41,8 @@ impl App {
             Ok(Some((kind, data))) => {
                 let outcome = if kind == "error" {
                     EventOutcome::SessionFailed
+                } else if kind == "status" && data["status"] == "running" {
+                    EventOutcome::TurnStarted
                 } else if kind == "status" && data["status"] == "idle" {
                     EventOutcome::TurnFinished
                 } else {

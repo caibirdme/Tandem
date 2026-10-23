@@ -108,6 +108,14 @@ When subagents start, an **Expert team mode** card lists their names and running
 
 Subagents use the conversation's full-access tool policy. Using multiple agents may increase model usage; parallel execution does not guarantee a lower cost. Click **Expert team mode** again to turn it off before a later submission to use ordinary execution again.
 
+### Stage and steer follow-up messages
+
+While a Chat or local/SSH Work conversation is running, **Send** saves your message above the composer instead of sending it to the agent. You can stage several messages, including their selected skills and attachments. **Edit** changes that staged item; saving returns it to the staging area.
+
+Choose **Steer** on an item to submit it to the same agent and conversation. The agent receives it at its next model-request boundary: this does not cancel a tool that is already running. If the current turn has just finished, the runtime processes the message as a follow-up turn. An accepted submission does not mean the agent has already acted on it.
+
+Staged messages are not automatically sent when the agent finishes. Use **Send** on an idle conversation's staged item when you are ready. Switching conversations keeps each conversation's staged items separate. Staging is local to the open application; it is not saved conversation history until submitted. Keep **Stop** for explicitly interrupting execution.
+
 ### Switch models
 
 Click the model name beside the composer to select any configured model, including one from another provider. The next message uses the saved selection while keeping the conversation's history, title, and tool permissions. Unsent text stays in the composer.

@@ -256,6 +256,16 @@ export interface Commands {
     };
     result: null;
   };
+  steer_message: {
+    payload: {
+      sessionId: string;
+      content: string;
+      messageId: string;
+      selectedSkills?: SelectedSkill[];
+      attachments?: AttachmentInput[];
+    };
+    result: null;
+  };
   abort_session: { payload: { sessionId: string }; result: null };
   respond_permission: {
     payload: { sessionId: string; requestId: string; approved: boolean };

@@ -33,6 +33,8 @@ pub enum ConfigurationError {
     EmptyPrompt,
     #[error("prepared message belongs to a different session; prepare it again for this session")]
     PreparedForDifferentSession,
+    #[error("prepared guidance was canceled; prepare the message again before sending")]
+    PreparedSteeringCanceled,
     #[error("Multi-agent mode is only available in Work sessions")]
     FleetUnavailableInChat,
     #[error("AgentLens service name cannot be empty")]
@@ -98,6 +100,12 @@ pub enum Error {
     Io(#[from] std::io::Error),
     #[error("this session already has an active turn")]
     Busy,
+    #[error("message submission stopped unexpectedly; stop the session before retrying")]
+    SubmissionTaskStopped(#[source] tokio::task::JoinError),
+    #[error(
+        "the runtime acknowledgement did not identify the message; stop the session before retrying"
+    )]
+    MissingMessageAcknowledgement,
     #[error("Copilot runtime is disconnected; start a new connection before sending")]
     Disconnected,
     #[error(

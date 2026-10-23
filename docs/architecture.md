@@ -80,6 +80,14 @@ The remote project dialog discovers explicit aliases from the local OpenSSH user
 
 A pure reducer centralizes frontend session state changes; subscriptions and requests remain in hooks. Form submission rules are separate from components, so history merging, late events, and key retention/deletion can be tested without starting the desktop. Both SSH endpoints share framing and size limits. Connection tests inject I/O to cover broken streams and write failures directly.
 
+## Staged messages and steering
+
+While a conversation runs, the composer stores follow-up drafts in an application-owned, session-scoped memory store. Editing retains the draft's UUID and complete skill/attachment payload. Nothing reaches the runtime until the user explicitly selects **Steer**; idle does not automatically flush drafts. Closing the application discards unsent drafts.
+
+`steer_message` shares ordinary message validation and persistence but does not restart a busy session, change its model or tool mode, or reset its event stream and review capture. Runtime preparation reserves an admission before asynchronous validation. Accepted guidance uses SDK `DeliveryMode::Immediate`; its message ID is tracked until the corresponding root `user.message` event. Intermediate idle events are withheld while guidance remains unconsumed, so model changes and ordinary sends cannot interrupt a queued fallback turn. Preparation that starts after runtime idle reports that boundary to the core, which drains the preceding completion before initializing the next turn.
+
+The remote protocol uses `prepare_agent_steering` and the existing prepared-message submission command, with an idempotent discard operation for abandoned reservations. A committed runtime send owns its acknowledgement task independently of the caller. Duplicate durable UUIDs and uncertain delivery are not automatically retried; the UI retains uncertain drafts with a warning instead of silently resubmitting them. Steering takes effect at a model-request boundary and does not preempt an already running tool.
+
 ## Message attachments
 
 Users paste clipboard images, drop files, or choose files in the composer, then review or remove them before sending. The same message path serves Chat, local work, and SSH work, including messages containing only attachments.

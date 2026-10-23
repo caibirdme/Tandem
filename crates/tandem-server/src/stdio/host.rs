@@ -258,7 +258,9 @@ impl AgentHost {
             }
             "send_agent"
             | "prepare_agent_message"
+            | "prepare_agent_steering"
             | "send_prepared_agent_message"
+            | "discard_prepared_agent_message"
             | "abort_agent"
             | "approve_agent" => {
                 // Validate approval shape before looking up its session.

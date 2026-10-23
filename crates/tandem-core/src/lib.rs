@@ -16,6 +16,7 @@ mod session_models;
 mod session_reasoning;
 mod sessions;
 mod skills;
+mod steering;
 mod store;
 mod subagents;
 mod submissions;

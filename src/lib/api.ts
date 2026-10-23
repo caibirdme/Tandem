@@ -87,7 +87,13 @@ export async function subscribe(
   return () => source.close();
 }
 
-export type ErrorCode = 'invalid_input' | 'not_found' | 'conflict' | 'unavailable' | 'internal';
+export type ErrorCode =
+  | 'invalid_input'
+  | 'not_found'
+  | 'conflict'
+  | 'unavailable'
+  | 'internal'
+  | 'delivery_unknown';
 
 export class CommandError extends Error {
   constructor(
@@ -100,9 +106,14 @@ export class CommandError extends Error {
 }
 
 function isErrorCode(value: unknown): value is ErrorCode {
-  return ['invalid_input', 'not_found', 'conflict', 'unavailable', 'internal'].some(
-    (code) => code === value,
-  );
+  return [
+    'invalid_input',
+    'not_found',
+    'conflict',
+    'unavailable',
+    'internal',
+    'delivery_unknown',
+  ].some((code) => code === value);
 }
 
 export function commandError(value: unknown, fallback?: string): Error {

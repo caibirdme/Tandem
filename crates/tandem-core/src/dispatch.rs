@@ -63,6 +63,49 @@ impl SendMessageRequest {
     }
 }
 
+/// A user correction delivered to an existing conversation without aborting it.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SteerMessageRequest {
+    pub session_id: String,
+    pub content: String,
+    pub message_id: Uuid,
+    #[serde(default)]
+    pub selected_skills: Vec<SkillSelection>,
+    #[serde(default)]
+    pub attachments: Vec<MessageAttachment>,
+}
+
+impl SteerMessageRequest {
+    async fn execute(self, app: &Arc<App>) -> Result<()> {
+        app.steer_message(
+            &self.session_id,
+            self.content,
+            self.message_id,
+            &self.selected_skills,
+            &self.attachments,
+        )
+        .await
+    }
+}
+
+/// A persisted attachment scoped to its owning conversation.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GetAttachmentRequest {
+    pub session_id: String,
+    pub attachment_id: String,
+}
+
+impl GetAttachmentRequest {
+    fn execute(self, app: &App) -> Result<Value> {
+        response(
+            app.store
+                .attachment(&self.session_id, &self.attachment_id)?,
+        )
+    }
+}
+
 /// A current or historical review selection within one session.
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -208,15 +251,13 @@ pub enum Request {
     Messages {
         session_id: String,
     },
-    GetAttachment {
-        session_id: String,
-        attachment_id: String,
-    },
+    GetAttachment(GetAttachmentRequest),
     GetReviewSummary(ReviewSummaryRequest),
     RefreshReview(ReviewSummaryRequest),
     ListReviewFiles(ReviewFilesRequest),
     GetReviewFile(ReviewFileRequest),
     SendMessage(SendMessageRequest),
+    SteerMessage(SteerMessageRequest),
     AbortSession {
         session_id: String,
     },
@@ -310,16 +351,14 @@ impl App {
                     .await?,
             ),
             Request::Messages { session_id } => response(self.messages(&session_id)?),
-            Request::GetAttachment {
-                session_id,
-                attachment_id,
-            } => response(self.store.attachment(&session_id, &attachment_id)?),
+            Request::GetAttachment(request) => request.execute(self),
             Request::GetReviewSummary(request) | Request::RefreshReview(request) => {
                 request.execute(self).await
             }
             Request::ListReviewFiles(request) => request.execute(self).await,
             Request::GetReviewFile(request) => request.execute(self).await,
             Request::SendMessage(request) => response(request.execute(self).await?),
+            Request::SteerMessage(request) => response(request.execute(self).await?),
             Request::AbortSession { session_id } => {
                 response(self.abort_session(&session_id).await?)
             }
