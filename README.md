@@ -108,7 +108,7 @@ just setup
 just dev
 ```
 
-Before using SSH projects in `just dev`, run `just remote-build`. To build the desktop, run `pnpm tauri build` or `pnpm tauri build --no-bundle`; both prepare the remote programs automatically. On macOS and Windows, start Docker Desktop or a Docker-compatible engine with Linux x64 support before the first build. Docker is needed again only when the Linux remote program must be rebuilt. See [Packaging and remote artifacts](docs/development.md#packaging-and-remote-artifacts).
+Before using SSH projects in `just dev`, run `just remote-build`. To build the desktop, run `pnpm tauri build` or `pnpm tauri build --no-bundle`; both prepare the remote programs automatically. On macOS and Windows, start Docker Desktop or a Docker-compatible engine running Linux containers before the first build. Docker is needed again only when the Linux remote program must be rebuilt. See [Packaging and remote artifacts](docs/development.md#packaging-and-remote-artifacts).
 
 Tandem uses React, Tauri 2, and Rust services built on GitHub Copilot SDK 1.x from crates.io. `Cargo.lock` currently resolves SDK `1.0.25`, and its matching Copilot CLI `1.0.102` is bundled automatically.
 

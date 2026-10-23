@@ -27,11 +27,14 @@ function fixture(t, version = '1.99.1') {
   return root;
 }
 
-for (const [target, platform] of [
-  ['x86_64-unknown-linux-gnu', 'linux/amd64'],
-  ['aarch64-unknown-linux-gnu', 'linux/arm64'],
+for (const [target, engineArchitecture, architecture, compiler, compilerPackage] of [
+  ['x86_64-unknown-linux-gnu', 'x86_64', 'amd64', 'x86_64-linux-gnu', ''],
+  ['x86_64-unknown-linux-gnu', 'aarch64', 'arm64', 'x86_64-linux-gnu', 'g++-x86-64-linux-gnu'],
+  ['aarch64-unknown-linux-gnu', 'arm64', 'arm64', 'aarch64-linux-gnu', ''],
+  ['aarch64-unknown-linux-gnu', 'amd64', 'amd64', 'aarch64-linux-gnu', 'g++-aarch64-linux-gnu'],
 ]) {
-  test(`builds ${target} with isolated writable mounts and an immutable source`, (t) => {
+  test(`builds ${target} with native compilers on a ${engineArchitecture} engine`, (t) => {
+    const platform = `linux/${architecture}`;
     const root = fixture(t);
     const calls = [];
     const sourcePath = buildLinuxArtifact({
@@ -39,7 +42,8 @@ for (const [target, platform] of [
       target,
       runCommand(command, args, options) {
         calls.push({ command, args, options });
-        if (args[0] === 'info') return 'linux\n';
+        if (args[0] === 'info')
+          return JSON.stringify({ OSType: 'linux', Architecture: engineArchitecture });
         if (args[0] === 'run') {
           const outputParent = join(root, 'target', 'remote-linux', target);
           const [directory] = readdirSync(outputParent);
@@ -63,6 +67,12 @@ for (const [target, platform] of [
     const build = calls[1].args;
     assert.equal(build[build.indexOf('--platform') + 1], platform);
     assert.equal(build[build.indexOf('--build-arg') + 1], 'RUST_VERSION=1.99.1');
+    assert.ok(build.includes(`RUST_TARGET=${target}`));
+    assert.ok(build.includes(`CROSS_COMPILER_PACKAGE=${compilerPackage}`));
+    assert.equal(
+      build[build.indexOf('--tag') + 1],
+      `tandem-remote-builder:1.99.1-${architecture}-${target}`,
+    );
     assert.equal(build.at(-1), join(root, 'scripts'));
     assert.equal(
       build[build.indexOf('--file') + 1],
@@ -73,18 +83,33 @@ for (const [target, platform] of [
     assert.equal(run[run.indexOf('--platform') + 1], platform);
     assert.ok(run.includes(`type=bind,"source=${root}",target=/workspace,readonly`));
     assert.ok(run.includes(`type=bind,"source=${dirname(sourcePath)}",target=/output`));
-    assert.ok(run.includes(`type=volume,source=tandem-remote-${target}-cargo,target=/cargo-cache`));
+    assert.ok(
+      run.includes(
+        `type=volume,source=tandem-remote-${architecture}-${target}-cargo,target=/cargo-cache`,
+      ),
+    );
     assert.ok(
       run.some(
         (argument) =>
           argument.startsWith('type=volume,source=tandem-remote-') &&
-          argument.endsWith(`-${target}-target,target=/build-target`),
+          argument.endsWith(`-${architecture}-${target}-target,target=/build-target`),
       ),
     );
     assert.ok(
       run.includes(
         'cargo build --release --locked --package tandem-server --target "$1"; install -m 755 "$CARGO_TARGET_DIR/$1/release/tandem-server" /output/tandem-server',
       ),
+    );
+    const environmentTarget = target.replaceAll('-', '_');
+    assert.ok(
+      run.includes(`CARGO_TARGET_${environmentTarget.toUpperCase()}_LINKER=${compiler}-gcc`),
+    );
+    assert.ok(run.includes(`CC_${environmentTarget}=${compiler}-gcc`));
+    assert.ok(run.includes(`CXX_${environmentTarget}=${compiler}-g++`));
+    assert.ok(run.includes(`AR_${environmentTarget}=${compiler}-ar`));
+    assert.equal(
+      run.some((argument) => /^(CC|CXX|AR)=/.test(argument)),
+      false,
     );
     assert.equal(run.at(-1), target);
     assert.ok(run.includes('--rm'));
@@ -125,7 +150,11 @@ for (const [name, failure, message] of [
 test('rejects Windows container mode with instructions to switch', (t) => {
   const root = fixture(t);
   assert.throws(
-    () => buildLinuxArtifact({ root, runCommand: () => 'windows\n' }),
+    () =>
+      buildLinuxArtifact({
+        root,
+        runCommand: () => JSON.stringify({ OSType: 'windows', Architecture: 'x86_64' }),
+      }),
     /Switch Docker Desktop to Linux containers/,
   );
 });
@@ -150,7 +179,8 @@ for (const failure of ['container failure', 'missing output']) {
         buildLinuxArtifact({
           root,
           runCommand(_command, args) {
-            if (args[0] === 'info') return 'linux\n';
+            if (args[0] === 'info')
+              return JSON.stringify({ OSType: 'linux', Architecture: 'aarch64' });
             if (args[0] === 'run' && failure === 'container failure') {
               throw new Error('cargo failed');
             }
@@ -163,5 +193,33 @@ for (const failure of ['container failure', 'missing output']) {
       readdirSync(join(root, 'target', 'remote-linux', 'x86_64-unknown-linux-gnu')),
       [],
     );
+  });
+}
+
+for (const [information, expected] of [
+  ['invalid-json', /Docker returned invalid system information/],
+  ['null', /Docker returned invalid system information/],
+  ['[]', /Docker returned invalid system information/],
+  [
+    JSON.stringify({ OSType: 'linux', Architecture: 's390x' }),
+    /Unsupported Docker engine architecture/,
+  ],
+]) {
+  test(`rejects unsupported Docker information: ${information}`, (t) => {
+    const root = fixture(t);
+    const commands = [];
+    assert.throws(
+      () =>
+        buildLinuxArtifact({
+          root,
+          runCommand(_command, args) {
+            commands.push(args[0]);
+            return information;
+          },
+        }),
+      expected,
+    );
+    assert.deepEqual(commands, ['info']);
+    assert.equal(existsSync(join(root, 'target')), false);
   });
 }

@@ -130,7 +130,7 @@ Shared RPC definitions live in `tandem-protocol`, so the remote agent does not n
 
 Run `just desktop-build` or `pnpm tauri build` to create an installer. Use `pnpm tauri build --no-bundle` to build the desktop executable without an installer. All three run `pnpm remote:build` before the frontend build, so the executable has the remote programs it needs even with `--no-bundle`.
 
-On macOS and Windows, start Docker Desktop or a Docker-compatible engine that can run `linux/amd64` containers. The remote preparation step builds Linux x64 from the current checkout in Ubuntu 22.04; on a matching Linux host it builds natively. macOS builds also prepare a native macOS remote program. Run `pnpm remote:build` or `just remote-build` to prepare these resources separately. The first container build downloads its image, Rust toolchain, dependencies, and Copilot CLI; later builds reuse the build cache.
+On macOS and Windows, start Docker Desktop or a Docker-compatible engine running Linux containers. The remote preparation step builds Linux x64 from the current checkout in Ubuntu 22.04, using the engine's native CPU architecture and a GNU cross-compiler when needed; on a matching Linux host it builds natively. macOS builds also prepare a native macOS remote program. Run `pnpm remote:build` or `just remote-build` to prepare these resources separately. The first container build downloads its image, Rust toolchain, dependencies, and Copilot CLI; later builds reuse the build cache. Compilation does not require CPU emulation.
 
 Prepared resources contain `tandem-server` and `artifact.json` under `src-tauri/remote/<target>/`. Preparation reuses them only when the recorded source fingerprint, target architecture, and executable SHA-256 match. The fingerprint covers workspace manifests, the lockfile, toolchain, and the three remote crates. A source change or invalid artifact triggers a rebuild; a valid cached Linux artifact does not require a running Docker engine. Release CI stages Linux x64 and Apple Silicon macOS artifacts with the same metadata before the desktop build, so its preparation hook reuses them.
 
@@ -140,7 +140,7 @@ On Windows, use the NSIS `x64-setup.exe` installer in `target/release/bundle/nsi
 
 Use `CI=true just desktop-build` on a locked screen or in automation to skip DMG window decoration that requires Finder interaction.
 
-Released installers bundle remote agents for Linux x64 (`x86_64-unknown-linux-gnu`) and Apple Silicon macOS (`aarch64-apple-darwin`). To add Linux arm64, run `pnpm remote:build aarch64-unknown-linux-gnu` before building the desktop. This uses Docker when the target differs from the build host. A Docker engine building that target must support `linux/arm64` containers.
+Released installers bundle remote agents for Linux x64 (`x86_64-unknown-linux-gnu`) and Apple Silicon macOS (`aarch64-apple-darwin`). To add Linux arm64, run `pnpm remote:build aarch64-unknown-linux-gnu` before building the desktop. This uses Docker and the ARM64 cross-compiler when the target differs from the build host.
 
 To add a different macOS architecture, build on a Mac with that architecture from the same remote sources. Run `pnpm remote:build <target>`, or stage an already compiled executable with `node scripts/prepare-remote.mjs <target> --source <binary>`. Copy the complete `src-tauri/remote/<target>/` directory, including `artifact.json`, to the desktop checkout before building. The preparation step does not cross-compile macOS programs.
 

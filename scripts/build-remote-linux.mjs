@@ -6,8 +6,28 @@ import { fileURLToPath } from 'node:url';
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const platforms = new Map([
-  ['x86_64-unknown-linux-gnu', 'linux/amd64'],
-  ['aarch64-unknown-linux-gnu', 'linux/arm64'],
+  [
+    'x86_64-unknown-linux-gnu',
+    {
+      architecture: 'amd64',
+      compiler: 'x86_64-linux-gnu',
+      package: 'g++-x86-64-linux-gnu',
+    },
+  ],
+  [
+    'aarch64-unknown-linux-gnu',
+    {
+      architecture: 'arm64',
+      compiler: 'aarch64-linux-gnu',
+      package: 'g++-aarch64-linux-gnu',
+    },
+  ],
+]);
+const engineArchitectures = new Map([
+  ['x86_64', 'amd64'],
+  ['amd64', 'amd64'],
+  ['aarch64', 'arm64'],
+  ['arm64', 'arm64'],
 ]);
 
 function bindMount(source, destination, readonly = false) {
@@ -21,8 +41,8 @@ export function buildLinuxArtifact({
   target = 'x86_64-unknown-linux-gnu',
   runCommand = execFileSync,
 } = {}) {
-  const platform = platforms.get(target);
-  if (!platform) {
+  const targetPlatform = platforms.get(target);
+  if (!targetPlatform) {
     throw new Error(
       `Unsupported Linux remote target: ${target}. Use ${[...platforms.keys()].join(' or ')}.`,
     );
@@ -37,9 +57,9 @@ export function buildLinuxArtifact({
     );
   }
 
-  let operatingSystem;
+  let dockerInformation;
   try {
-    operatingSystem = runCommand('docker', ['info', '--format', '{{.OSType}}'], {
+    dockerInformation = runCommand('docker', ['info', '--format', '{{json .}}'], {
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'pipe'],
     }).trim();
@@ -55,15 +75,37 @@ export function buildLinuxArtifact({
       { cause: error },
     );
   }
-  if (operatingSystem !== 'linux') {
+  let engine;
+  try {
+    engine = JSON.parse(dockerInformation);
+    if (!engine || typeof engine !== 'object' || Array.isArray(engine)) {
+      throw new Error('Expected a Docker system information object.');
+    }
+  } catch (error) {
+    throw new Error(
+      'Docker returned invalid system information. Check that docker info succeeds and retry the build.',
+      { cause: error },
+    );
+  }
+  if (engine.OSType !== 'linux') {
     throw new Error(
       'The Linux SSH server requires Linux containers. Switch Docker Desktop to Linux containers and retry the build.',
     );
   }
 
-  const architecture = platform.split('/')[1];
-  const image = `tandem-remote-builder:${rustVersion}-${architecture}`;
-  console.info(`Preparing the ${platform} SSH server builder with Rust ${rustVersion}.`);
+  const architecture = engineArchitectures.get(engine.Architecture);
+  if (!architecture) {
+    throw new Error(
+      `Unsupported Docker engine architecture: ${engine.Architecture}. Use a Linux Docker engine on x86_64 or ARM64.`,
+    );
+  }
+  const platform = `linux/${architecture}`;
+  const compilerPackage =
+    architecture === targetPlatform.architecture ? '' : targetPlatform.package;
+  const image = `tandem-remote-builder:${rustVersion}-${architecture}-${target}`;
+  console.info(
+    `Preparing the native ${platform} SSH server builder for ${target} with Rust ${rustVersion}.`,
+  );
   try {
     runCommand(
       'docker',
@@ -73,6 +115,10 @@ export function buildLinuxArtifact({
         platform,
         '--build-arg',
         `RUST_VERSION=${rustVersion}`,
+        '--build-arg',
+        `RUST_TARGET=${target}`,
+        '--build-arg',
+        `CROSS_COMPILER_PACKAGE=${compilerPackage}`,
         '--tag',
         image,
         '--file',
@@ -83,7 +129,7 @@ export function buildLinuxArtifact({
     );
   } catch (error) {
     throw new Error(
-      `Could not prepare the Docker builder for ${platform}. Check the Docker output above. When building for another architecture, use Docker Desktop or configure QEMU emulation in Docker Engine.`,
+      `Could not prepare the Docker builder for ${target} on ${platform}. Check the Docker output above and access to Ubuntu packages and the Rust toolchain.`,
       { cause: error },
     );
   }
@@ -93,6 +139,7 @@ export function buildLinuxArtifact({
   const output = mkdtempSync(join(outputParent, 'build-'));
   const sourcePath = join(output, 'tandem-server');
   const repositoryId = createHash('sha256').update(sourceRoot).digest('hex').slice(0, 12);
+  const environmentTarget = target.replaceAll('-', '_');
   console.info(`Building tandem-server for ${target} in Docker.`);
   try {
     runCommand(
@@ -105,11 +152,19 @@ export function buildLinuxArtifact({
         '--mount',
         bindMount(sourceRoot, '/workspace', true),
         '--mount',
-        `type=volume,source=tandem-remote-${target}-cargo,target=/cargo-cache`,
+        `type=volume,source=tandem-remote-${architecture}-${target}-cargo,target=/cargo-cache`,
         '--mount',
-        `type=volume,source=tandem-remote-${repositoryId}-${target}-target,target=/build-target`,
+        `type=volume,source=tandem-remote-${repositoryId}-${architecture}-${target}-target,target=/build-target`,
         '--mount',
         bindMount(output, '/output'),
+        '--env',
+        `CARGO_TARGET_${environmentTarget.toUpperCase()}_LINKER=${targetPlatform.compiler}-gcc`,
+        '--env',
+        `CC_${environmentTarget}=${targetPlatform.compiler}-gcc`,
+        '--env',
+        `CXX_${environmentTarget}=${targetPlatform.compiler}-g++`,
+        '--env',
+        `AR_${environmentTarget}=${targetPlatform.compiler}-ar`,
         image,
         'sh',
         '-eu',
