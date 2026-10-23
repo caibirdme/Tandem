@@ -6,6 +6,8 @@ Use this guide to choose checks for the current code. Put each change's actual r
 
 Run these from an isolated worktree with the dependencies and toolchains described in [Development](development.md):
 
+Python checks require Python 3.10 or newer and the pinned dependencies in `tests/requirements.txt`. Install them with `python3 -m pip install -r tests/requirements.txt` (`python` on Windows), preferably in a virtual environment; `just setup` includes this step. The telemetry fixtures use gRPC Python and generated OpenTelemetry protobuf messages, not a standard-library-only collector.
+
 ```sh
 just check
 just check-workspace
@@ -22,6 +24,8 @@ Use focused checks while developing, but do not substitute them for the applicab
 ## Integration checks
 
 The acceptance suites use the production services and Copilot SDK/CLI with local synthetic inference and telemetry fixtures. They do not require paid provider credentials.
+
+The gRPC collector registers the standard OTLP TraceService and MetricsService Export methods. Its unit tests reject incorrect RPC routes and malformed records; integration checks preserve transient retry and credential-isolation assertions. Loopback plaintext coverage does not establish external TLS interoperability.
 
 | Area changed                            | Command                      | Main coverage                                                                                                       |
 | --------------------------------------- | ---------------------------- | ------------------------------------------------------------------------------------------------------------------- |
@@ -46,7 +50,7 @@ Exercise the affected flow in the desktop application with disposable data. At m
 - **Provider settings:** saved keys remain masked; edit, remove, cancel, and retry failed reads. Discover models with the configured path, confirm none are selected initially, select models, save, and restart.
 - **Conversations:** send and stream a reply, switch conversations, scroll long histories, cancel active work, and confirm no stale running indicators. Check persistence after restart and permissions for denied tool actions.
 - **Remote work:** connection testing and directory browsing must not deploy the agent. An unprepared remote environment initializes on first send with a noninteractive status; a healthy prepared environment is reused by later sessions.
-- **Detail panel:** open a subagent from its conversation card, follow its output, switch sessions, and close the panel without losing the main conversation state.
+- **Detail panel:** open a subagent from its conversation card, follow its output, switch sessions, and close the panel without losing the main conversation state. Resize with pointer and keyboard, toggle the sidebar, cross the narrow-screen drawer breakpoint, and check focus restoration and unsent drafts. DOM tests use fixed geometry and do not replace native pointer or layout checks.
 - **Change review:** open Changes in a Work conversation and switch workspace, staged, unstaged, session, and turn scopes. Inspect committed edits and dirty starting files, filter the file list, switch unified/side-by-side views, resize, wrap lines, and close with Escape. Check binary, oversized, incomplete, and unavailable states, deferred details for large file lists, and remote offline cache limits. Confirm Chat has no review action.
 - **Usage dashboard:** select 7, 14, and 30 days; inspect provider/model stacks and skill lines with pointer and keyboard. Verify local calendar boundaries, empty/error states, readable K/M labels, and recent session totals. Confirm statistics persist after restart and do not require external telemetry.
 - **Telemetry:** verify enabled/disabled and content-capture choices with synthetic data. Test receiver failure and recovery; ordinary snapshots and remote persisted configuration must not expose credentials.

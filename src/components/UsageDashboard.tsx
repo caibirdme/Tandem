@@ -1,14 +1,27 @@
 import { Activity, ChartNoAxesCombined, RefreshCw, Sparkles } from 'lucide-react';
-import { useEffect, useState, useSyncExternalStore } from 'react';
+import { lazy, Suspense, useEffect, useState, useSyncExternalStore } from 'react';
 
 import { useI18n } from '../i18n';
 import { dispatch } from '../lib/api';
 import { formatTokens, usageDayWindows, usageSeries } from '../lib/usage';
 import type { UsageDashboardData, UsageDayWindow, UsageRange } from '../lib/usage';
 import { subscribeUsageUpdates, usageCaptureFailed } from '../lib/usageEvents';
-import { UsageChart } from './UsageChart';
+import type { UsageChartProps } from './UsageChart';
 
 import './UsageDashboard.css';
+
+const LazyUsageChart = lazy(() =>
+  import('./UsageChart').then((module) => ({ default: module.UsageChart })),
+);
+
+function UsageChart(props: UsageChartProps) {
+  const { t } = useI18n();
+  return (
+    <Suspense fallback={<output className="usage-chart-loading">{t('usage.loading')}</output>}>
+      <LazyUsageChart {...props} />
+    </Suspense>
+  );
+}
 
 export function UsageDashboard() {
   const { t } = useI18n();

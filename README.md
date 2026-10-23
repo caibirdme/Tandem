@@ -101,7 +101,7 @@ If the error persists with fresh data, report the error text, Tandem version, an
 
 Install Node.js 24, pnpm 12, Rust 1.99.1, just, and the [Tauri development prerequisites](https://v2.tauri.app/start/prerequisites/) for your system.
 
-On macOS, install Xcode Command Line Tools; on Windows, install Visual Studio C++ Build Tools and WebView2. Tests also require Python 3.9 or later and use only its standard library.
+On macOS, install Xcode Command Line Tools; on Windows, install Visual Studio C++ Build Tools and WebView2. Tests also require Python 3.10 or later. Install the pinned test dependencies with `python3 -m pip install -r tests/requirements.txt` (use `python` on Windows), preferably in a virtual environment; `just setup` also installs them.
 
 ```sh
 just setup

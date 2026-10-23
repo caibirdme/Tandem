@@ -1,0 +1,5 @@
+# Standard OTLP service and message implementations for acceptance fixtures.
+grpcio==1.84.1
+opentelemetry-proto==1.45.1
+protobuf==7.36.2
+typing-extensions==4.16.0

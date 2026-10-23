@@ -2,13 +2,14 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { setLocale } from '../i18n';
-import { clampPanelWidth, DetailPanel } from './DetailPanel';
+import { DetailPanel } from './DetailPanel';
 import { SubagentDetailPanel } from './SubagentDetailPanel';
+import { WorkspacePanels } from './WorkspacePanels';
 
 afterEach(() => setLocale('en'));
 
 describe('Detail panel shell', () => {
-  it('provides a named region, close control and keyboard-adjustable width control', () => {
+  it('provides a named region and close control independently of the layout', () => {
     const markup = renderToStaticMarkup(
       <DetailPanel id="details" title="Inspect changes" onClose={() => undefined}>
         <p>Independent panel content</p>
@@ -20,18 +21,31 @@ describe('Detail panel shell', () => {
     expect(markup).toContain('Inspect changes');
     expect(markup).toContain('Independent panel content');
     expect(markup).toContain('Close detail panel');
-    expect(markup).toContain('type="range"');
-    expect(markup).toContain('aria-valuenow="42"');
-    expect(markup).toContain('aria-controls="details"');
     expect(markup).not.toContain('aria-modal="true"');
   });
 
-  it('constrains resizing so both panes remain usable', () => {
-    expect(clampPanelWidth(10)).toBe(28);
-    expect(clampPanelWidth(90)).toBe(55);
-    expect(clampPanelWidth(42)).toBe(42);
-    expect(clampPanelWidth(55, 45)).toBe(45);
-    expect(clampPanelWidth(43, 45)).toBe(43);
+  it('uses a named keyboard-accessible separator only when details are present', () => {
+    const markup = renderToStaticMarkup(
+      <WorkspacePanels detail={<p>Details</p>} onCloseDetail={() => undefined}>
+        <main>Conversation</main>
+      </WorkspacePanels>,
+    );
+    expect(markup).toContain('role="separator"');
+    expect(markup).toContain('aria-label="Resize detail panel"');
+    expect(markup).toContain('tabindex="0"');
+    expect(markup).toContain('id="conversation-pane"');
+    expect(markup).toContain('id="detail-pane"');
+    expect(markup).toContain('Conversation');
+    expect(markup).toContain('Details');
+
+    const closed = renderToStaticMarkup(
+      <WorkspacePanels detail={null} onCloseDetail={() => undefined}>
+        <main>Conversation</main>
+      </WorkspacePanels>,
+    );
+    expect(closed).toContain('id="conversation-pane"');
+    expect(closed).not.toContain('role="separator"');
+    expect(closed).not.toContain('id="detail-pane"');
   });
 
   it('uses localized controls and preserves live agent content and status', () => {
@@ -54,7 +68,6 @@ describe('Detail panel shell', () => {
       />,
     );
     expect(markup).toContain('关闭详情面板');
-    expect(markup).toContain('调整详情面板宽度');
     expect(markup).toContain('Inspect permissions');
     expect(markup).toContain('Trace approvals');
     expect(markup).toContain('Live finding');

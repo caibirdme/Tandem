@@ -1,4 +1,4 @@
-import { renderToStaticMarkup } from 'react-dom/server';
+import { renderToReadableStream, renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { setLocale } from '../i18n';
@@ -34,7 +34,7 @@ describe('usage dashboard', () => {
     expect(markup).toContain('Earlier activity cannot be reconstructed');
     expect(markup).not.toContain('<svg viewBox=');
   });
-  it('renders provider/model stacks, actual skill series and range-labelled conversation totals', () => {
+  it('loads provider/model and skill charts without blocking range-labelled conversation totals', async () => {
     const data: UsageDashboardData = {
       ...empty,
       totalTokens: 1_234_000,
@@ -60,15 +60,15 @@ describe('usage dashboard', () => {
         },
       ],
     };
-    const markup = renderToStaticMarkup(<UsageDashboardContent data={data} days={days} />);
+    const stream = await renderToReadableStream(<UsageDashboardContent data={data} days={days} />);
+    await stream.allReady;
+    const markup = await new Response(stream).text();
     expect(markup).toContain('1.23M');
     expect(markup).toContain('My provider / model-a');
     expect(markup).toContain('code-review');
     expect(markup).toContain('Build dashboard');
     expect(markup).toContain('Tokens in period');
-    expect(markup).toContain('data-value="1234000"');
-    expect(markup).toContain('<polyline');
-    expect(markup.match(/class="usage-hit-target"/g)).toHaveLength(14);
+    expect(markup.match(/class="recharts-responsive-container"/g)).toHaveLength(2);
   });
   it('translates the page and empty states into Chinese', () => {
     setLocale('zh-CN');
@@ -77,7 +77,7 @@ describe('usage dashboard', () => {
     expect(markup).toContain('此时间范围内尚无 Skill 激活记录');
     expect(markup).not.toContain('No token usage');
   });
-  it('provides keyboard-operable legend controls and accessible day values', () => {
+  it('provides keyboard-operable legend controls and live daily details', () => {
     const markup = renderToStaticMarkup(
       <UsageChart
         days={days}
@@ -87,7 +87,8 @@ describe('usage dashboard', () => {
     );
     expect(markup).toContain('aria-pressed="true"');
     expect(markup).toContain('aria-label="Show or hide Review"');
-    expect(markup).toContain('Review: 3');
+    expect(markup).toContain('Left/Right arrows');
+    expect(markup).toContain('aria-label="Daily details"');
     expect(markup).toContain('aria-live="polite"');
   });
 });

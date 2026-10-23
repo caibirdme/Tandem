@@ -21,6 +21,7 @@ import { Chat } from './components/Chat';
 import { Sidebar } from './components/Sidebar';
 import { SubagentDetailPanel } from './components/SubagentDetailPanel';
 import { Modal, Notice, Spinner } from './components/ui';
+import { WorkspacePanels } from './components/WorkspacePanels';
 import { useReview } from './hooks/useReview';
 import { useTandem } from './hooks/useTandem';
 import { useI18n } from './i18n';
@@ -210,6 +211,28 @@ export function App() {
     setSessionAction({ session: value, action: 'rename' });
   }
 
+  const detailContent =
+    selectedDetail?.kind === 'changes' ? (
+      <ChangesDetailPanel
+        id={detailPanelId}
+        state={review.state}
+        controller={review.controller}
+        messages={tandem.conversation.messages}
+        running={session?.status === 'running'}
+        onClose={closeDetailPanel}
+        returnFocusRef={detailPanelTrigger}
+      />
+    ) : selectedDetail?.kind === 'subagent' ? (
+      <SubagentDetailPanel
+        id={detailPanelId}
+        agent={selectedDetail.agent}
+        messages={tandem.conversation.messages}
+        stream={tandem.conversation.agentStreams[selectedDetail.agent.id] ?? ''}
+        onClose={closeDetailPanel}
+        returnFocusRef={detailPanelTrigger}
+      />
+    ) : null;
+
   return (
     <div
       className={`app-shell ${sidebarOpen ? '' : 'sidebar-hidden'} ${selectedDetail ? 'detail-panel-open' : ''}`}
@@ -242,279 +265,264 @@ export function App() {
           />
         </>
       )}
-      <main className="main-content">
-        <header className="topbar" data-tauri-drag-region>
-          <div className="topbar-title">
-            {!sidebarOpen && (
-              <button
-                className="icon-button"
-                aria-label={t('app.expandSidebar')}
-                onClick={() => setSidebarOpen(true)}
-              >
-                <PanelLeft size={18} />
-              </button>
-            )}
-            {project ? (
-              <>
-                <span className="breadcrumb">
-                  {project.connection.kind === 'ssh' ? <Server size={14} /> : <Folder size={14} />}
-                  {project.name}
-                </span>
-                <ChevronRight size={13} />
-              </>
-            ) : null}
-            <span className="current-session-title">
-              {session
-                ? displaySessionTitle(session)
-                : project
-                  ? t('common.newWork')
-                  : t('common.newChat')}
-            </span>
-            {session && tandem.titleGenerations.has(session.id) && (
-              <output className="title-progress">
-                <Spinner size={12} />
-                {t('common.titleGenerating')}
-              </output>
-            )}
-          </div>
-          <div className="topbar-actions">
-            {session?.projectId && (
-              <button
-                type="button"
-                className="review-header-button"
-                aria-label={t('review.open')}
-                aria-expanded={selectedDetail?.kind === 'changes'}
-                aria-controls={detailPanelId}
-                onClick={(event) => {
-                  detailPanelTrigger.current = event.currentTarget;
-                  if (selectedDetail?.kind === 'changes') closeDetailPanel();
-                  else setDetailPanel({ kind: 'changes', sessionId: session.id, viewKey });
-                }}
-              >
-                <FileDiff size={15} />
-                <span>{t('review.title')}</span>
-                {review.state.overview?.summary && (
-                  <>
-                    <span className="review-header-file-count">
-                      {review.state.overview.summary.filesTotal}
-                    </span>
-                    <ReviewCounts
-                      additions={review.state.overview.summary.additions}
-                      deletions={review.state.overview.summary.deletions}
-                    />
-                  </>
-                )}
-              </button>
-            )}
-            {project && (
-              <span className="environment-badge">
-                <span />
-                {project.connection.kind === 'ssh' ? 'SSH' : t('app.local')}
+      <WorkspacePanels detail={detailContent} onCloseDetail={closeDetailPanel}>
+        <main className="main-content">
+          <header className="topbar" data-tauri-drag-region>
+            <div className="topbar-title">
+              {!sidebarOpen && (
+                <button
+                  className="icon-button"
+                  aria-label={t('app.expandSidebar')}
+                  onClick={() => setSidebarOpen(true)}
+                >
+                  <PanelLeft size={18} />
+                </button>
+              )}
+              {project ? (
+                <>
+                  <span className="breadcrumb">
+                    {project.connection.kind === 'ssh' ? (
+                      <Server size={14} />
+                    ) : (
+                      <Folder size={14} />
+                    )}
+                    {project.name}
+                  </span>
+                  <ChevronRight size={13} />
+                </>
+              ) : null}
+              <span className="current-session-title">
+                {session
+                  ? displaySessionTitle(session)
+                  : project
+                    ? t('common.newWork')
+                    : t('common.newChat')}
               </span>
-            )}
-            {session && (
-              <button
-                className="icon-button"
-                aria-label={project ? t('common.createWork') : t('common.createChat')}
-                onClick={() => newDraft(project?.id ?? null)}
-              >
-                <Plus size={18} />
-              </button>
-            )}
-            <Dropdown.Root>
-              <Dropdown.Trigger className="icon-button" aria-label={t('app.moreOptions')}>
-                <MoreHorizontal size={20} />
-              </Dropdown.Trigger>
-              <Dropdown.Portal>
-                <Dropdown.Content className="dropdown" sideOffset={8} align="end">
-                  <Dropdown.Item className="dropdown-item" onSelect={() => setSettingsOpen(true)}>
-                    <Settings2 size={14} />
-                    {t('common.settings')}
-                  </Dropdown.Item>
-                  {session && (
-                    <Dropdown.Item className="dropdown-item" onSelect={() => rename(session)}>
-                      <SquarePen size={14} />
-                      {t('common.renameChat')}
-                    </Dropdown.Item>
+              {session && tandem.titleGenerations.has(session.id) && (
+                <output className="title-progress">
+                  <Spinner size={12} />
+                  {t('common.titleGenerating')}
+                </output>
+              )}
+            </div>
+            <div className="topbar-actions">
+              {session?.projectId && (
+                <button
+                  type="button"
+                  className="review-header-button"
+                  aria-label={t('review.open')}
+                  aria-expanded={selectedDetail?.kind === 'changes'}
+                  aria-controls={detailPanelId}
+                  onClick={(event) => {
+                    detailPanelTrigger.current = event.currentTarget;
+                    if (selectedDetail?.kind === 'changes') closeDetailPanel();
+                    else setDetailPanel({ kind: 'changes', sessionId: session.id, viewKey });
+                  }}
+                >
+                  <FileDiff size={15} />
+                  <span>{t('review.title')}</span>
+                  {review.state.overview?.summary && (
+                    <>
+                      <span className="review-header-file-count">
+                        {review.state.overview.summary.filesTotal}
+                      </span>
+                      <ReviewCounts
+                        additions={review.state.overview.summary.additions}
+                        deletions={review.state.overview.summary.deletions}
+                      />
+                    </>
                   )}
-                  {session && (
+                </button>
+              )}
+              {project && (
+                <span className="environment-badge">
+                  <span />
+                  {project.connection.kind === 'ssh' ? 'SSH' : t('app.local')}
+                </span>
+              )}
+              {session && (
+                <button
+                  className="icon-button"
+                  aria-label={project ? t('common.createWork') : t('common.createChat')}
+                  onClick={() => newDraft(project?.id ?? null)}
+                >
+                  <Plus size={18} />
+                </button>
+              )}
+              <Dropdown.Root>
+                <Dropdown.Trigger className="icon-button" aria-label={t('app.moreOptions')}>
+                  <MoreHorizontal size={20} />
+                </Dropdown.Trigger>
+                <Dropdown.Portal>
+                  <Dropdown.Content className="dropdown" sideOffset={8} align="end">
+                    <Dropdown.Item className="dropdown-item" onSelect={() => setSettingsOpen(true)}>
+                      <Settings2 size={14} />
+                      {t('common.settings')}
+                    </Dropdown.Item>
+                    {session && (
+                      <Dropdown.Item className="dropdown-item" onSelect={() => rename(session)}>
+                        <SquarePen size={14} />
+                        {t('common.renameChat')}
+                      </Dropdown.Item>
+                    )}
+                    {session && (
+                      <Dropdown.Item
+                        className="dropdown-item"
+                        disabled={!tandem.connected || tandem.titleGenerations.has(session.id)}
+                        onSelect={() => {
+                          void tandem.regenerateTitle(session.id);
+                        }}
+                      >
+                        <Sparkles size={14} />
+                        {tandem.titleGenerations.has(session.id)
+                          ? t('common.titleGeneratingBusy')
+                          : t('common.regenerateTitle')}
+                      </Dropdown.Item>
+                    )}
                     <Dropdown.Item
                       className="dropdown-item"
-                      disabled={!tandem.connected || tandem.titleGenerations.has(session.id)}
                       onSelect={() => {
-                        void tandem.regenerateTitle(session.id);
+                        void tandem
+                          .reload()
+                          .catch((reason: unknown) => tandem.setError(errorMessage(reason)));
                       }}
                     >
-                      <Sparkles size={14} />
-                      {tandem.titleGenerations.has(session.id)
-                        ? t('common.titleGeneratingBusy')
-                        : t('common.regenerateTitle')}
+                      <RefreshCw size={14} />
+                      {t('app.refreshConnection')}
                     </Dropdown.Item>
-                  )}
-                  <Dropdown.Item
-                    className="dropdown-item"
-                    onSelect={() => {
-                      void tandem
-                        .reload()
-                        .catch((reason: unknown) => tandem.setError(errorMessage(reason)));
-                    }}
-                  >
-                    <RefreshCw size={14} />
-                    {t('app.refreshConnection')}
-                  </Dropdown.Item>
-                  {project && (
-                    <Dropdown.Item
-                      className="dropdown-item danger"
-                      onSelect={() => setDeleteProject(project)}
-                    >
-                      <Trash2 size={14} />
-                      {t('common.removeProject')}
-                    </Dropdown.Item>
-                  )}
-                </Dropdown.Content>
-              </Dropdown.Portal>
-            </Dropdown.Root>
-          </div>
-        </header>
-        {session && tandem.titleError && (
-          <div className="title-notice">
-            <Notice tone="neutral">
-              <span>{t('app.titleFailed', { error: tandem.titleError })}</span>
-              <button
-                className="text-button"
-                disabled={!tandem.connected || tandem.titleGenerations.has(session.id)}
-                onClick={() => {
-                  void tandem.regenerateTitle(session.id);
-                }}
-              >
-                {t('app.regenerate')}
-              </button>
-              <button
-                className="icon-button"
-                aria-label={t('app.dismissTitleNotice')}
-                onClick={() => tandem.dismissTitleError(session.id)}
-              >
-                <X size={14} />
-              </button>
-            </Notice>
-          </div>
-        )}
-        {tandem.error && (
-          <div className="global-error">
-            <Notice>
-              {tandem.error}
-              <button
-                className="text-button"
-                onClick={() => {
+                    {project && (
+                      <Dropdown.Item
+                        className="dropdown-item danger"
+                        onSelect={() => setDeleteProject(project)}
+                      >
+                        <Trash2 size={14} />
+                        {t('common.removeProject')}
+                      </Dropdown.Item>
+                    )}
+                  </Dropdown.Content>
+                </Dropdown.Portal>
+              </Dropdown.Root>
+            </div>
+          </header>
+          {session && tandem.titleError && (
+            <div className="title-notice">
+              <Notice tone="neutral">
+                <span>{t('app.titleFailed', { error: tandem.titleError })}</span>
+                <button
+                  className="text-button"
+                  disabled={!tandem.connected || tandem.titleGenerations.has(session.id)}
+                  onClick={() => {
+                    void tandem.regenerateTitle(session.id);
+                  }}
+                >
+                  {t('app.regenerate')}
+                </button>
+                <button
+                  className="icon-button"
+                  aria-label={t('app.dismissTitleNotice')}
+                  onClick={() => tandem.dismissTitleError(session.id)}
+                >
+                  <X size={14} />
+                </button>
+              </Notice>
+            </div>
+          )}
+          {tandem.error && (
+            <div className="global-error">
+              <Notice>
+                {tandem.error}
+                <button
+                  className="text-button"
+                  onClick={() => {
+                    void tandem
+                      .reload()
+                      .catch((reason: unknown) => tandem.setError(errorMessage(reason)));
+                  }}
+                >
+                  {t('common.retry')}
+                  <RefreshCw size={12} />
+                </button>
+              </Notice>
+            </div>
+          )}
+          {tandem.loading ? (
+            <div className="app-loading">
+              <Spinner size={23} />
+              <span>{t('app.connecting')}</span>
+            </div>
+          ) : (
+            <Chat
+              key={viewKey}
+              detailPanelId={detailPanelId}
+              selectedAgentId={selectedDetail?.kind === 'subagent' ? selectedDetail.agent.id : null}
+              onReviewTurn={(messageId, trigger) => {
+                if (!session?.projectId) return;
+                detailPanelTrigger.current = trigger;
+                review.controller.select({ kind: 'turn', messageId });
+                setDetailPanel({ kind: 'changes', sessionId: session.id, viewKey });
+              }}
+              onSelectAgent={(agentId, trigger) => {
+                detailPanelTrigger.current = trigger;
+                if (session)
+                  setDetailPanel({ kind: 'subagent', sessionId: session.id, viewKey, agentId });
+              }}
+              session={session}
+              project={project}
+              providers={providers}
+              selection={effectiveSelection}
+              onSelection={(value) => {
+                if (session)
                   void tandem
-                    .reload()
+                    .changeSessionModel(session.id, value)
                     .catch((reason: unknown) => tandem.setError(errorMessage(reason)));
-                }}
-              >
-                {t('common.retry')}
-                <RefreshCw size={12} />
-              </button>
-            </Notice>
-          </div>
-        )}
-        {tandem.loading ? (
-          <div className="app-loading">
-            <Spinner size={23} />
-            <span>{t('app.connecting')}</span>
-          </div>
-        ) : (
-          <Chat
-            key={viewKey}
-            detailPanelId={detailPanelId}
-            selectedAgentId={selectedDetail?.kind === 'subagent' ? selectedDetail.agent.id : null}
-            onReviewTurn={(messageId, trigger) => {
-              if (!session?.projectId) return;
-              detailPanelTrigger.current = trigger;
-              review.controller.select({ kind: 'turn', messageId });
-              setDetailPanel({ kind: 'changes', sessionId: session.id, viewKey });
-            }}
-            onSelectAgent={(agentId, trigger) => {
-              detailPanelTrigger.current = trigger;
-              if (session)
-                setDetailPanel({ kind: 'subagent', sessionId: session.id, viewKey, agentId });
-            }}
-            session={session}
-            project={project}
-            providers={providers}
-            selection={effectiveSelection}
-            onSelection={(value) => {
-              if (session)
-                void tandem
-                  .changeSessionModel(session.id, value)
-                  .catch((reason: unknown) => tandem.setError(errorMessage(reason)));
-              else setSelection(value);
-            }}
-            modelSaving={tandem.modelSaving}
-            modelError={tandem.modelError}
-            onConfirmModel={() => {
-              if (session)
-                void tandem
-                  .confirmSessionModel(session.id)
-                  .catch((reason: unknown) => tandem.setError(errorMessage(reason)));
-            }}
-            conversation={tandem.conversation}
-            reasoningEffortSaving={tandem.reasoningEffortSaving}
-            reasoningEffortError={tandem.reasoningEffortError}
-            onReasoningEffort={(value) => {
-              if (session)
-                void tandem
-                  .changeReasoningEffort(session.id, value)
-                  .catch((reason: unknown) => tandem.setError(errorMessage(reason)));
-            }}
-            onConfirmReasoningEffort={() => {
-              if (session)
-                void tandem
-                  .confirmReasoningEffort(session.id)
-                  .catch((reason: unknown) => tandem.setError(errorMessage(reason)));
-            }}
-            historyLoading={tandem.historyLoading}
-            sending={sending}
-            permissionModeSaving={tandem.permissionModeSaving}
-            permissionModeError={tandem.permissionModeError}
-            onConfirmPermissionMode={() => {
-              if (session) void tandem.confirmPermissionMode(session.id);
-            }}
-            onSettings={() => setSettingsOpen(true)}
-            onSend={send}
-            onAbort={() => {
-              if (session)
-                void dispatch('abort_session', { sessionId: session.id }).catch((reason: unknown) =>
-                  tandem.setError(errorMessage(reason)),
-                );
-            }}
-            onPermission={async (requestId, approved) => {
-              if (session) await tandem.respondPermission(session.id, requestId, approved);
-            }}
-            connected={tandem.connected}
-          />
-        )}
-      </main>
-      {selectedDetail?.kind === 'changes' && (
-        <ChangesDetailPanel
-          id={detailPanelId}
-          state={review.state}
-          controller={review.controller}
-          messages={tandem.conversation.messages}
-          running={session?.status === 'running'}
-          onClose={closeDetailPanel}
-          returnFocusRef={detailPanelTrigger}
-        />
-      )}
-      {selectedDetail?.kind === 'subagent' && (
-        <SubagentDetailPanel
-          id={detailPanelId}
-          agent={selectedDetail.agent}
-          messages={tandem.conversation.messages}
-          stream={tandem.conversation.agentStreams[selectedDetail.agent.id] ?? ''}
-          onClose={closeDetailPanel}
-          returnFocusRef={detailPanelTrigger}
-        />
-      )}
+                else setSelection(value);
+              }}
+              modelSaving={tandem.modelSaving}
+              modelError={tandem.modelError}
+              onConfirmModel={() => {
+                if (session)
+                  void tandem
+                    .confirmSessionModel(session.id)
+                    .catch((reason: unknown) => tandem.setError(errorMessage(reason)));
+              }}
+              conversation={tandem.conversation}
+              reasoningEffortSaving={tandem.reasoningEffortSaving}
+              reasoningEffortError={tandem.reasoningEffortError}
+              onReasoningEffort={(value) => {
+                if (session)
+                  void tandem
+                    .changeReasoningEffort(session.id, value)
+                    .catch((reason: unknown) => tandem.setError(errorMessage(reason)));
+              }}
+              onConfirmReasoningEffort={() => {
+                if (session)
+                  void tandem
+                    .confirmReasoningEffort(session.id)
+                    .catch((reason: unknown) => tandem.setError(errorMessage(reason)));
+              }}
+              historyLoading={tandem.historyLoading}
+              sending={sending}
+              permissionModeSaving={tandem.permissionModeSaving}
+              permissionModeError={tandem.permissionModeError}
+              onConfirmPermissionMode={() => {
+                if (session) void tandem.confirmPermissionMode(session.id);
+              }}
+              onSettings={() => setSettingsOpen(true)}
+              onSend={send}
+              onAbort={() => {
+                if (session)
+                  void dispatch('abort_session', { sessionId: session.id }).catch(
+                    (reason: unknown) => tandem.setError(errorMessage(reason)),
+                  );
+              }}
+              onPermission={async (requestId, approved) => {
+                if (session) await tandem.respondPermission(session.id, requestId, approved);
+              }}
+              connected={tandem.connected}
+            />
+          )}
+        </main>
+      </WorkspacePanels>
       <Suspense fallback={null}>
         {settingsOpen && snapshot && (
           <Settings

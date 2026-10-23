@@ -11,6 +11,8 @@ import uuid
 from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 
+from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import ExportTraceServiceRequest
+
 FIXTURE_KEY = "fixture-only-not-a-credential"
 THINKING_CHUNKS = (
     "First, I will inspect the supplied files.\n"
@@ -647,58 +649,15 @@ def require(condition, message):
         raise AssertionError(message)
 
 
-def protobuf_fields(payload):
-    """Decode only OTLP's field framing, without a protobuf runtime dependency."""
-    offset = 0
-
-    def varint():
-        nonlocal offset
-        value, shift = 0, 0
-        while offset < len(payload):
-            byte = payload[offset]
-            offset += 1
-            value |= (byte & 127) << shift
-            if not byte & 128:
-                return value
-            shift += 7
-            require(shift < 70, "Malformed OTLP varint")
-        raise AssertionError("Truncated OTLP varint")
-
-    while offset < len(payload):
-        tag = varint()
-        field, wire = tag >> 3, tag & 7
-        if wire == 0:
-            value = varint()
-        elif wire in (1, 5):
-            size = 8 if wire == 1 else 4
-            value = payload[offset : offset + size]
-            offset += size
-        elif wire == 2:
-            size = varint()
-            value = payload[offset : offset + size]
-            offset += size
-        else:
-            raise AssertionError(f"Unexpected OTLP wire type: {wire}")
-        require(offset <= len(payload), "Truncated OTLP field")
-        yield field, value
-
-
 def protobuf_span_names(payload):
+    request = ExportTraceServiceRequest.FromString(payload)
     names = []
-    resources = [value for field, value in protobuf_fields(payload) if field == 1]
-    for resource in resources:
-        scopes = [value for field, value in protobuf_fields(resource) if field == 2]
-        for scope in scopes:
-            spans = [value for field, value in protobuf_fields(scope) if field == 2]
-            for span in spans:
-                fields = dict(protobuf_fields(span))
-                require(
-                    len(fields.get(1, b"")) == 16, "Exported span has invalid trace ID"
-                )
-                require(
-                    len(fields.get(2, b"")) == 8, "Exported span has invalid span ID"
-                )
-                names.append(fields.get(5, b"").decode())
+    for resource in request.resource_spans:
+        for scope in resource.scope_spans:
+            for span in scope.spans:
+                require(len(span.trace_id) == 16, "Exported span has invalid trace ID")
+                require(len(span.span_id) == 8, "Exported span has invalid span ID")
+                names.append(span.name)
     return names
 
 
